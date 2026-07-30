@@ -7,8 +7,9 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check app.js && node --check metronome.js && node --check model.js && node --test && npm run bundle",
-    "bundle": "node scripts/bundle.mjs"
+    "check": "node --check app.js && node --check metronome.js && node --check model.js && node --test && npm run bundle && npm run site",
+    "bundle": "node scripts/bundle.mjs",
+    "site": "node scripts/site.mjs"
   },
   "engines": {
     "node": ">=20"
