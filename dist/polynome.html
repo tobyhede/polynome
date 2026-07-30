@@ -419,7 +419,7 @@ h2 {
 
 .layer-body {
   display: grid;
-  grid-template-columns: minmax(330px, 360px) minmax(240px, 1fr);
+  grid-template-columns: 210px minmax(240px, 1fr);
   gap: 24px 30px;
   padding: 23px 24px 25px;
   transition: opacity 120ms ease;
@@ -427,7 +427,7 @@ h2 {
 
 .rhythm-setup {
   display: grid;
-  grid-template-columns: minmax(126px, 0.8fr) minmax(155px, 1fr);
+  grid-template-columns: 1fr 100px;
   gap: 10px;
   align-self: start;
 }
@@ -450,6 +450,7 @@ h2 {
 
 .signature-input input,
 .signature-input select,
+.small-number,
 .sound-control select {
   height: 38px;
   padding: 7px;
@@ -460,102 +461,8 @@ h2 {
   padding-right: 3px;
 }
 
-.subdivision-picker {
-  position: relative;
+.small-number {
   width: 100%;
-  min-width: 0;
-}
-
-.subdivision-trigger {
-  display: grid;
-  grid-template-columns: 1fr 10px;
-  gap: 7px;
-  align-items: center;
-  width: 100%;
-  height: 38px;
-  padding: 3px 9px 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--card);
-  cursor: pointer;
-}
-
-.select-chevron {
-  width: 8px;
-  height: 8px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: translateY(-2px) rotate(45deg);
-}
-
-.note-pattern {
-  display: block;
-  width: 100%;
-  max-width: 120px;
-  height: 30px;
-  overflow: visible;
-  fill: currentColor;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.note-pattern.is-open ellipse {
-  fill: var(--card);
-  stroke-width: 1.8;
-}
-
-.note-pattern text {
-  fill: currentColor;
-  stroke: none;
-  font-size: 8px;
-  font-weight: 700;
-  text-anchor: middle;
-}
-
-.triplet-bracket {
-  fill: none;
-  stroke-width: 1.2;
-}
-
-.subdivision-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 100%;
-  min-width: 155px;
-  padding: 5px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: 0 12px 30px rgba(15, 15, 14, 0.14);
-}
-
-.subdivision-menu[hidden] {
-  display: none;
-}
-
-.subdivision-option {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 42px;
-  padding: 4px 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.subdivision-option:hover,
-.subdivision-option[aria-selected="true"] {
-  background: var(--soft);
-}
-
-.subdivision-option[aria-selected="true"] {
-  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .pattern-wrap {
@@ -743,7 +650,7 @@ h2 {
   }
 
   .rhythm-setup {
-    max-width: 360px;
+    max-width: 220px;
   }
 
   .mix-grid {
@@ -892,12 +799,6 @@ const STEP = Object.freeze({
 
 const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
-const SUBDIVISIONS = Object.freeze([
-  Object.freeze({ value: 1, label: "Whole" }),
-  Object.freeze({ value: 2, label: "Half" }),
-  Object.freeze({ value: 4, label: "Quarter" }),
-  Object.freeze({ value: 3, label: "Triplet" }),
-]);
 
 let layerSequence = 0;
 
@@ -1536,35 +1437,6 @@ function layerTemplate(layer, index) {
     return `<option value="${sound}"${sound === layer.sound ? " selected" : ""}>${label}</option>`;
   }).join("");
 
-  const hasStandardSubdivision = SUBDIVISIONS.some(
-    (subdivision) => subdivision.value === layer.steps.length,
-  );
-  const subdivisionChoices = [
-    ...(hasStandardSubdivision
-      ? []
-      : [{
-          value: layer.steps.length,
-          label: `Custom (${layer.steps.length})`,
-        }]),
-    ...SUBDIVISIONS,
-  ];
-  const currentSubdivision = subdivisionChoices.find(
-    ({ value }) => value === layer.steps.length,
-  );
-  const subdivisionOptions = subdivisionChoices.map(
-    ({ value, label }) => `
-      <button
-        type="button"
-        class="subdivision-option"
-        role="option"
-        aria-label="${escapeHtml(label)} subdivision"
-        aria-selected="${value === layer.steps.length}"
-        data-action="set-subdivision"
-        data-subdivision="${value}"
-      >${subdivisionIcon(value)}</button>
-    `,
-  ).join("");
-
   return `
     <article class="layer-card${layer.muted ? " is-muted" : ""}" data-layer-id="${layer.id}">
       <div class="layer-heading">
@@ -1618,28 +1490,19 @@ function layerTemplate(layer, index) {
             </span>
           </label>
 
-          <div class="compact-control">
+          <label class="compact-control">
             <span>Subdivision</span>
-            <div class="subdivision-picker" data-subdivision-picker>
-              <button
-                type="button"
-                class="subdivision-trigger"
-                data-action="toggle-subdivision"
-                aria-haspopup="listbox"
-                aria-expanded="false"
-                aria-label="${escapeHtml(layer.name)} subdivision: ${escapeHtml(currentSubdivision.label)}"
-              >
-                ${subdivisionIcon(layer.steps.length)}
-                <span class="select-chevron" aria-hidden="true"></span>
-              </button>
-              <div
-                class="subdivision-menu"
-                role="listbox"
-                aria-label="${escapeHtml(layer.name)} subdivision"
-                hidden
-              >${subdivisionOptions}</div>
-            </div>
-          </div>
+            <input
+              class="small-number"
+              type="number"
+              min="1"
+              max="32"
+              inputmode="numeric"
+              value="${layer.steps.length}"
+              data-field="subdivision"
+              aria-label="${escapeHtml(layer.name)} subdivision"
+            />
+          </label>
         </div>
 
         <div class="pattern-wrap">
@@ -1710,28 +1573,6 @@ function stepTemplate(layer, step, stepIndex) {
       aria-label="Step ${stepIndex + 1}: ${labels[step]}"
       title="Step ${stepIndex + 1}: ${labels[step]}"
     ><span aria-hidden="true">${symbols[step]}</span></button>
-  `;
-}
-
-function subdivisionIcon(value) {
-  const count = Math.max(1, Math.min(7, Number(value) || 1));
-  const isWhole = count === 1;
-  const isHalf = count === 2;
-  const isTriplet = count === 3;
-  const spacing = count === 1 ? 0 : Math.min(25, 90 / (count - 1));
-  const start = 60 - (spacing * (count - 1)) / 2;
-  const notes = Array.from({ length: count }, (_, index) => {
-    const x = start + spacing * index;
-    const head = `<ellipse cx="${x}" cy="27" rx="6.5" ry="4.8" transform="rotate(-18 ${x} 27)" />`;
-    if (isWhole) return head;
-    return `${head}<path d="M ${x + 6} 26 V 9" />`;
-  }).join("");
-
-  return `
-    <svg class="note-pattern${isWhole || isHalf ? " is-open" : ""}" viewBox="0 0 120 38" aria-hidden="true" focusable="false">
-      ${isTriplet ? '<path class="triplet-bracket" d="M 34 7 V 4 H 86 V 7" /><text x="60" y="8">3</text>' : ""}
-      <g>${notes}</g>
-    </svg>
   `;
 }
 
@@ -1865,27 +1706,6 @@ elements.layers.addEventListener("click", (event) => {
   const { layer } = context;
 
   switch (actionElement.dataset.action) {
-    case "toggle-subdivision": {
-      const picker = actionElement.closest("[data-subdivision-picker]");
-      const menu = picker.querySelector(".subdivision-menu");
-      const willOpen = menu.hidden;
-      closeSubdivisionPickers(picker);
-      menu.hidden = !willOpen;
-      actionElement.setAttribute("aria-expanded", String(willOpen));
-      break;
-    }
-
-    case "set-subdivision":
-      updateLayer(
-        layer.id,
-        (current) => ({
-          ...current,
-          steps: resizePattern(current.steps, actionElement.dataset.subdivision),
-        }),
-        { restart: true },
-      );
-      break;
-
     case "step": {
       const stepIndex = Number(actionElement.dataset.stepIndex);
       updateLayer(
@@ -1996,6 +1816,17 @@ elements.layers.addEventListener("change", (event) => {
       );
       break;
 
+    case "subdivision":
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          steps: resizePattern(current.steps, event.target.value),
+        }),
+        { restart: true },
+      );
+      break;
+
     case "sound":
       updateLayer(
         layer.id,
@@ -2012,30 +1843,12 @@ engine.addEventListener("playstate", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.code === "Escape") {
-    const openPicker = document.activeElement?.closest?.("[data-subdivision-picker]");
-    closeSubdivisionPickers();
-    openPicker?.querySelector(".subdivision-trigger")?.focus();
-    return;
-  }
   if (event.code !== "Space" || event.repeat) return;
   const tag = document.activeElement?.tagName;
   if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;
   event.preventDefault();
   togglePlayback();
 });
-
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("[data-subdivision-picker]")) closeSubdivisionPickers();
-});
-
-function closeSubdivisionPickers(except = null) {
-  document.querySelectorAll("[data-subdivision-picker]").forEach((picker) => {
-    if (picker === except) return;
-    picker.querySelector(".subdivision-menu").hidden = true;
-    picker.querySelector(".subdivision-trigger").setAttribute("aria-expanded", "false");
-  });
-}
 
 window.addEventListener("pagehide", () => engine.stop());
 

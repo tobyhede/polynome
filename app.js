@@ -4,7 +4,6 @@ import {
   PRESET_NAMES,
   SOUNDS,
   STEP,
-  SUBDIVISIONS,
   createDefaultState,
   createLayer,
   createPreset,
@@ -116,35 +115,6 @@ function layerTemplate(layer, index) {
     return `<option value="${sound}"${sound === layer.sound ? " selected" : ""}>${label}</option>`;
   }).join("");
 
-  const hasStandardSubdivision = SUBDIVISIONS.some(
-    (subdivision) => subdivision.value === layer.steps.length,
-  );
-  const subdivisionChoices = [
-    ...(hasStandardSubdivision
-      ? []
-      : [{
-          value: layer.steps.length,
-          label: `Custom (${layer.steps.length})`,
-        }]),
-    ...SUBDIVISIONS,
-  ];
-  const currentSubdivision = subdivisionChoices.find(
-    ({ value }) => value === layer.steps.length,
-  );
-  const subdivisionOptions = subdivisionChoices.map(
-    ({ value, label }) => `
-      <button
-        type="button"
-        class="subdivision-option"
-        role="option"
-        aria-label="${escapeHtml(label)} subdivision"
-        aria-selected="${value === layer.steps.length}"
-        data-action="set-subdivision"
-        data-subdivision="${value}"
-      >${subdivisionIcon(value)}</button>
-    `,
-  ).join("");
-
   return `
     <article class="layer-card${layer.muted ? " is-muted" : ""}" data-layer-id="${layer.id}">
       <div class="layer-heading">
@@ -198,28 +168,19 @@ function layerTemplate(layer, index) {
             </span>
           </label>
 
-          <div class="compact-control">
+          <label class="compact-control">
             <span>Subdivision</span>
-            <div class="subdivision-picker" data-subdivision-picker>
-              <button
-                type="button"
-                class="subdivision-trigger"
-                data-action="toggle-subdivision"
-                aria-haspopup="listbox"
-                aria-expanded="false"
-                aria-label="${escapeHtml(layer.name)} subdivision: ${escapeHtml(currentSubdivision.label)}"
-              >
-                ${subdivisionIcon(layer.steps.length)}
-                <span class="select-chevron" aria-hidden="true"></span>
-              </button>
-              <div
-                class="subdivision-menu"
-                role="listbox"
-                aria-label="${escapeHtml(layer.name)} subdivision"
-                hidden
-              >${subdivisionOptions}</div>
-            </div>
-          </div>
+            <input
+              class="small-number"
+              type="number"
+              min="1"
+              max="32"
+              inputmode="numeric"
+              value="${layer.steps.length}"
+              data-field="subdivision"
+              aria-label="${escapeHtml(layer.name)} subdivision"
+            />
+          </label>
         </div>
 
         <div class="pattern-wrap">
@@ -290,28 +251,6 @@ function stepTemplate(layer, step, stepIndex) {
       aria-label="Step ${stepIndex + 1}: ${labels[step]}"
       title="Step ${stepIndex + 1}: ${labels[step]}"
     ><span aria-hidden="true">${symbols[step]}</span></button>
-  `;
-}
-
-function subdivisionIcon(value) {
-  const count = Math.max(1, Math.min(7, Number(value) || 1));
-  const isWhole = count === 1;
-  const isHalf = count === 2;
-  const isTriplet = count === 3;
-  const spacing = count === 1 ? 0 : Math.min(25, 90 / (count - 1));
-  const start = 60 - (spacing * (count - 1)) / 2;
-  const notes = Array.from({ length: count }, (_, index) => {
-    const x = start + spacing * index;
-    const head = `<ellipse cx="${x}" cy="27" rx="6.5" ry="4.8" transform="rotate(-18 ${x} 27)" />`;
-    if (isWhole) return head;
-    return `${head}<path d="M ${x + 6} 26 V 9" />`;
-  }).join("");
-
-  return `
-    <svg class="note-pattern${isWhole || isHalf ? " is-open" : ""}" viewBox="0 0 120 38" aria-hidden="true" focusable="false">
-      ${isTriplet ? '<path class="triplet-bracket" d="M 34 7 V 4 H 86 V 7" /><text x="60" y="8">3</text>' : ""}
-      <g>${notes}</g>
-    </svg>
   `;
 }
 
@@ -445,27 +384,6 @@ elements.layers.addEventListener("click", (event) => {
   const { layer } = context;
 
   switch (actionElement.dataset.action) {
-    case "toggle-subdivision": {
-      const picker = actionElement.closest("[data-subdivision-picker]");
-      const menu = picker.querySelector(".subdivision-menu");
-      const willOpen = menu.hidden;
-      closeSubdivisionPickers(picker);
-      menu.hidden = !willOpen;
-      actionElement.setAttribute("aria-expanded", String(willOpen));
-      break;
-    }
-
-    case "set-subdivision":
-      updateLayer(
-        layer.id,
-        (current) => ({
-          ...current,
-          steps: resizePattern(current.steps, actionElement.dataset.subdivision),
-        }),
-        { restart: true },
-      );
-      break;
-
     case "step": {
       const stepIndex = Number(actionElement.dataset.stepIndex);
       updateLayer(
@@ -576,6 +494,17 @@ elements.layers.addEventListener("change", (event) => {
       );
       break;
 
+    case "subdivision":
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          steps: resizePattern(current.steps, event.target.value),
+        }),
+        { restart: true },
+      );
+      break;
+
     case "sound":
       updateLayer(
         layer.id,
@@ -592,30 +521,12 @@ engine.addEventListener("playstate", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.code === "Escape") {
-    const openPicker = document.activeElement?.closest?.("[data-subdivision-picker]");
-    closeSubdivisionPickers();
-    openPicker?.querySelector(".subdivision-trigger")?.focus();
-    return;
-  }
   if (event.code !== "Space" || event.repeat) return;
   const tag = document.activeElement?.tagName;
   if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;
   event.preventDefault();
   togglePlayback();
 });
-
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("[data-subdivision-picker]")) closeSubdivisionPickers();
-});
-
-function closeSubdivisionPickers(except = null) {
-  document.querySelectorAll("[data-subdivision-picker]").forEach((picker) => {
-    if (picker === except) return;
-    picker.querySelector(".subdivision-menu").hidden = true;
-    picker.querySelector(".subdivision-trigger").setAttribute("aria-expanded", "false");
-  });
-}
 
 window.addEventListener("pagehide", () => engine.stop());
 

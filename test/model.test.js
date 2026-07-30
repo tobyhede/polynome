@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import {
   STEP,
-  SUBDIVISIONS,
   activeStepIndex,
   createLayer,
   createPreset,
@@ -90,18 +89,6 @@ test("pattern states cycle accent to hit to rest to accent", () => {
   assert.equal(nextStepState(STEP.ACCENT), STEP.HIT);
   assert.equal(nextStepState(STEP.HIT), STEP.REST);
   assert.equal(nextStepState(STEP.REST), STEP.ACCENT);
-});
-
-test("subdivision choices provide whole, half, quarter, and triplet patterns", () => {
-  assert.deepEqual(
-    SUBDIVISIONS.map(({ value, label }) => [value, label]),
-    [
-      [1, "Whole"],
-      [2, "Half"],
-      [4, "Quarter"],
-      [3, "Triplet"],
-    ],
-  );
 });
 
 test("resizing a pattern preserves existing steps and fills new subdivisions", () => {

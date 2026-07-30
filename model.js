@@ -6,12 +6,6 @@ export const STEP = Object.freeze({
 
 export const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
 export const SOUNDS = Object.freeze(["high", "low", "wood"]);
-export const SUBDIVISIONS = Object.freeze([
-  Object.freeze({ value: 1, label: "Whole" }),
-  Object.freeze({ value: 2, label: "Half" }),
-  Object.freeze({ value: 4, label: "Quarter" }),
-  Object.freeze({ value: 3, label: "Triplet" }),
-]);
 
 let layerSequence = 0;
 
