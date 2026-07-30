@@ -1,0 +1,16 @@
+{
+  "name": "polynome",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny, zero-dependency polyrhythm and polymeter metronome for the browser.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "check": "node --check app.js && node --check metronome.js && node --check model.js && node --test && npm run bundle",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

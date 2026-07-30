@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A tiny polyrhythm and polymeter metronome with independent left/right balance for each rhythm."
+    />
+    <meta name="theme-color" content="#f5f4ef" />
+    <title>Polynome</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">METRONOME</p>
+          <h1>Polynome</h1>
+        </div>
+      </header>
+
+      <section class="transport" aria-label="Transport and tempo">
+        <button
+          id="play-button"
+          class="play-button"
+          type="button"
+          aria-pressed="false"
+          aria-label="Play metronome"
+        >
+          <span id="play-icon" class="play-icon" aria-hidden="true">▶</span>
+          <span id="play-label">Play</span>
+        </button>
+
+        <div class="tempo">
+          <div class="tempo-number">
+            <button id="bpm-down" class="tempo-nudge" type="button" aria-label="Decrease tempo">−</button>
+            <label>
+              <span class="sr-only">Tempo in quarter-note beats per minute</span>
+              <input id="bpm-input" type="number" min="30" max="300" inputmode="numeric" />
+            </label>
+            <button id="bpm-up" class="tempo-nudge" type="button" aria-label="Increase tempo">+</button>
+          </div>
+          <div class="tempo-unit">♩ BPM</div>
+          <input
+            id="bpm-slider"
+            class="tempo-slider"
+            type="range"
+            min="30"
+            max="300"
+            step="1"
+            aria-label="Tempo"
+          />
+        </div>
+
+        <label class="master-volume">
+          <span>Master</span>
+          <input id="master-volume" type="range" min="0" max="1" step="0.01" />
+        </label>
+      </section>
+
+      <section class="presets" aria-labelledby="preset-heading">
+        <h2 id="preset-heading">Start with</h2>
+        <div id="preset-list" class="preset-list"></div>
+      </section>
+
+      <section class="rhythms" aria-labelledby="rhythms-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LAYERS</p>
+            <h2 id="rhythms-heading">Rhythms</h2>
+          </div>
+          <button id="add-layer" class="add-button" type="button">+ Add rhythm</button>
+        </div>
+        <div id="layers" class="layer-list"></div>
+      </section>
+
+      <footer class="page-footer">
+        <p><strong>Space</strong> plays and stops.</p>
+        <p id="status" class="status" role="status" aria-live="polite">Stopped</p>
+      </footer>
+    </main>
+
+    <noscript>This metronome requires JavaScript.</noscript>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

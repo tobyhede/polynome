@@ -1,0 +1,247 @@
+import {
+  STEP,
+  activeStepIndex,
+  stepDurationSeconds,
+} from "./model.js";
+
+const LOOK_AHEAD_SECONDS = 0.12;
+const SCHEDULER_INTERVAL_MS = 25;
+const START_DELAY_SECONDS = 0.06;
+
+const SOUND_PROFILES = Object.freeze({
+  high: { frequency: 1240, type: "triangle", length: 0.032 },
+  low: { frequency: 690, type: "triangle", length: 0.042 },
+  wood: { frequency: 930, type: "sine", length: 0.026 },
+});
+
+export class MetronomeEngine extends EventTarget {
+  #context = null;
+  #master = null;
+  #layers = new Map();
+  #state = null;
+  #playing = false;
+  #origin = 0;
+  #timer = null;
+  #nextSteps = new Map();
+  #scheduledSources = new Set();
+
+  get playing() {
+    return this.#playing;
+  }
+
+  get origin() {
+    return this.#origin;
+  }
+
+  get currentTime() {
+    return this.#context?.currentTime ?? 0;
+  }
+
+  async start(state) {
+    this.#state = state;
+    this.#ensureContext();
+
+    if (this.#context.state === "suspended") {
+      await this.#context.resume();
+    }
+
+    this.stop({ preserveContext: true, emit: false });
+    this.#state = state;
+    this.#playing = true;
+    this.#origin = this.#context.currentTime + START_DELAY_SECONDS;
+    this.#nextSteps.clear();
+    this.#syncNodes();
+    this.#schedule();
+    this.#timer = window.setInterval(
+      () => this.#schedule(),
+      SCHEDULER_INTERVAL_MS,
+    );
+    this.dispatchEvent(new Event("playstate"));
+  }
+
+  stop({ preserveContext = true, emit = true } = {}) {
+    if (this.#timer !== null) {
+      window.clearInterval(this.#timer);
+      this.#timer = null;
+    }
+
+    this.#playing = false;
+    this.#nextSteps.clear();
+
+    for (const source of this.#scheduledSources) {
+      try {
+        source.stop();
+      } catch {
+        // Already stopped sources are harmless.
+      }
+    }
+    this.#scheduledSources.clear();
+
+    if (this.#context && this.#master) {
+      const now = this.#context.currentTime;
+      this.#master.gain.cancelScheduledValues(now);
+      this.#master.gain.setValueAtTime(0, now);
+    }
+
+    if (!preserveContext) {
+      for (const nodes of this.#layers.values()) {
+        nodes.gain.disconnect();
+        nodes.panner.disconnect();
+      }
+      this.#layers.clear();
+    }
+
+    if (emit) this.dispatchEvent(new Event("playstate"));
+  }
+
+  async toggle(state) {
+    if (this.#playing) {
+      this.stop();
+      return;
+    }
+    await this.start(state);
+  }
+
+  async restart(state) {
+    this.#state = state;
+    if (!this.#playing) {
+      this.#syncNodes();
+      return;
+    }
+    await this.start(state);
+  }
+
+  updateMix(state) {
+    this.#state = state;
+    if (this.#context) this.#syncNodes();
+  }
+
+  activeStep(layer) {
+    if (!this.#playing || !this.#context) return null;
+    return activeStepIndex(
+      this.#state.bpm,
+      layer,
+      this.#origin,
+      this.#context.currentTime,
+    );
+  }
+
+  #ensureContext() {
+    if (this.#context) return;
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error("This browser does not support the Web Audio API.");
+    }
+
+    this.#context = new AudioContextClass({ latencyHint: "interactive" });
+    this.#master = new GainNode(this.#context, { gain: 0.8 });
+    this.#master.connect(this.#context.destination);
+  }
+
+  #syncNodes() {
+    if (!this.#context || !this.#master || !this.#state) return;
+
+    this.#master.gain.setTargetAtTime(
+      this.#state.masterVolume,
+      this.#context.currentTime,
+      0.01,
+    );
+
+    const currentIds = new Set(this.#state.layers.map((layer) => layer.id));
+
+    for (const [id, nodes] of this.#layers.entries()) {
+      if (!currentIds.has(id)) {
+        nodes.gain.disconnect();
+        nodes.panner.disconnect();
+        this.#layers.delete(id);
+      }
+    }
+
+    for (const layer of this.#state.layers) {
+      let nodes = this.#layers.get(layer.id);
+      if (!nodes) {
+        const gain = new GainNode(this.#context, { gain: layer.volume });
+        const panner = new StereoPannerNode(this.#context, { pan: layer.pan });
+        gain.connect(panner);
+        panner.connect(this.#master);
+        nodes = { gain, panner };
+        this.#layers.set(layer.id, nodes);
+      }
+
+      nodes.gain.gain.setTargetAtTime(
+        layer.muted ? 0 : layer.volume,
+        this.#context.currentTime,
+        0.01,
+      );
+      nodes.panner.pan.setTargetAtTime(
+        layer.pan,
+        this.#context.currentTime,
+        0.01,
+      );
+    }
+  }
+
+  #schedule() {
+    if (!this.#playing || !this.#context || !this.#state) return;
+
+    const now = this.#context.currentTime;
+    const horizon = now + LOOK_AHEAD_SECONDS;
+
+    this.#syncNodes();
+
+    for (const layer of this.#state.layers) {
+      const stepDuration = stepDurationSeconds(this.#state.bpm, layer);
+      let absoluteStep = this.#nextSteps.get(layer.id) ?? 0;
+      let when = this.#origin + absoluteStep * stepDuration;
+
+      while (when < horizon) {
+        if (when >= now - 0.004) {
+          const patternIndex = absoluteStep % layer.steps.length;
+          const strength = layer.steps[patternIndex];
+          if (strength !== STEP.REST && !layer.muted) {
+            this.#scheduleClick(layer, strength, when);
+          }
+        }
+
+        absoluteStep += 1;
+        when = this.#origin + absoluteStep * stepDuration;
+      }
+
+      this.#nextSteps.set(layer.id, absoluteStep);
+    }
+  }
+
+  #scheduleClick(layer, strength, when) {
+    const output = this.#layers.get(layer.id)?.gain;
+    if (!output || !this.#context) return;
+
+    const profile = SOUND_PROFILES[layer.sound] || SOUND_PROFILES.high;
+    const accentMultiplier = strength === STEP.ACCENT ? 1.36 : 1;
+    const peak = strength === STEP.ACCENT ? 0.92 : 0.52;
+    const end = when + profile.length;
+
+    const oscillator = new OscillatorNode(this.#context, {
+      type: profile.type,
+      frequency: profile.frequency * accentMultiplier,
+    });
+    const envelope = new GainNode(this.#context, { gain: 0.0001 });
+
+    oscillator.connect(envelope);
+    envelope.connect(output);
+
+    envelope.gain.setValueAtTime(0.0001, when);
+    envelope.gain.exponentialRampToValueAtTime(peak, when + 0.0015);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
+    this.#scheduledSources.add(oscillator);
+    oscillator.addEventListener(
+      "ended",
+      () => this.#scheduledSources.delete(oscillator),
+      { once: true },
+    );
+
+    oscillator.start(when);
+    oscillator.stop(end + 0.002);
+  }
+}

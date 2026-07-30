@@ -1,0 +1,1911 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A tiny polyrhythm and polymeter metronome with independent left/right balance for each rhythm."
+    />
+    <meta name="theme-color" content="#f5f4ef" />
+    <title>Polynome</title>
+    <style>
+:root {
+  color-scheme: light;
+  --paper: #f5f4ef;
+  --card: #fffefb;
+  --ink: #171716;
+  --muted: #74716a;
+  --line: #d9d6ce;
+  --line-strong: #aaa69d;
+  --soft: #eceae3;
+  --soft-strong: #dfddd5;
+  --focus: #2d63c8;
+  --danger: #963b32;
+  --radius: 18px;
+  --shadow: 0 1px 0 rgba(15, 15, 14, 0.04), 0 12px 30px rgba(15, 15, 14, 0.05);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% -5%, rgba(255, 255, 255, 0.9), transparent 32rem),
+    var(--paper);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+input[type="range"],
+select {
+  accent-color: var(--ink);
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 2px;
+}
+
+input[type="number"] {
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+select,
+input[type="number"],
+input[type="text"] {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.app-shell {
+  width: min(960px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 46px 0 42px;
+}
+
+.page-header,
+.section-heading,
+.layer-heading,
+.page-footer,
+.mix-label,
+.pan-slider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-header {
+  margin-bottom: 28px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  margin-top: -3px;
+  font-size: clamp(2.6rem, 8vw, 5rem);
+  font-weight: 620;
+  letter-spacing: -0.075em;
+  line-height: 0.9;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.eyebrow {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.18em;
+}
+
+.transport {
+  display: grid;
+  grid-template-columns: 126px minmax(250px, 1fr) 120px;
+  gap: 30px;
+  align-items: center;
+  min-height: 174px;
+  padding: 24px 28px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.play-button {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  padding: 19px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: white;
+  cursor: pointer;
+  transition: transform 130ms ease, background-color 130ms ease;
+}
+
+.play-button:hover {
+  transform: scale(1.025);
+}
+
+.play-button:active {
+  transform: scale(0.98);
+}
+
+.play-button.is-playing {
+  background: #393835;
+}
+
+.play-icon {
+  align-self: end;
+  padding-left: 4px;
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
+.play-button.is-playing .play-icon {
+  padding-left: 0;
+  font-size: 1.25rem;
+}
+
+#play-label {
+  align-self: end;
+  font-size: 0.73rem;
+  font-weight: 720;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.tempo {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+}
+
+.tempo-number {
+  display: grid;
+  grid-template-columns: 38px minmax(100px, 160px) 38px;
+  align-items: center;
+}
+
+.tempo-number input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: clamp(3.4rem, 10vw, 5.8rem);
+  font-weight: 610;
+  letter-spacing: -0.08em;
+  line-height: 0.92;
+  text-align: center;
+}
+
+.tempo-nudge {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.tempo-nudge:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.tempo-unit {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 680;
+  letter-spacing: 0.08em;
+}
+
+.tempo-slider {
+  width: min(100%, 330px);
+  margin-top: 10px;
+}
+
+.master-volume {
+  display: grid;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.master-volume input {
+  width: 112px;
+}
+
+.presets {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 22px;
+  align-items: center;
+  margin: 25px 0 44px;
+}
+
+.presets h2 {
+  color: var(--muted);
+  font-size: 0.81rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset-button,
+.add-button {
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.83rem;
+  font-weight: 620;
+}
+
+.preset-button:hover,
+.add-button:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.preset-button.is-selected {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+}
+
+.rhythms > .section-heading {
+  margin-bottom: 15px;
+}
+
+.add-button {
+  background: var(--card);
+}
+
+.layer-list {
+  display: grid;
+  gap: 13px;
+}
+
+.layer-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(15, 15, 14, 0.025);
+  transition: opacity 120ms ease;
+}
+
+.layer-card.is-muted .layer-body {
+  opacity: 0.5;
+}
+
+.layer-heading {
+  min-height: 64px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.layer-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 31px;
+  width: 31px;
+  height: 31px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.layer-name {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 8px;
+  border-color: transparent !important;
+  background: transparent !important;
+  font-size: 1.02rem;
+  font-weight: 660;
+}
+
+.layer-name:hover,
+.layer-name:focus {
+  border-color: var(--line) !important;
+  background: var(--card) !important;
+}
+
+.layer-actions {
+  display: flex;
+  gap: 7px;
+  margin-left: 12px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 760;
+}
+
+.icon-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.icon-button.is-active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+}
+
+.remove-button {
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.remove-button:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.icon-button:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.layer-body {
+  display: grid;
+  grid-template-columns: 160px minmax(240px, 1fr);
+  gap: 24px 30px;
+  padding: 23px 24px 25px;
+  transition: opacity 120ms ease;
+}
+
+.rhythm-setup {
+  display: grid;
+  grid-template-columns: 1fr minmax(150px, 1.7fr);
+  gap: 10px;
+  align-self: start;
+}
+
+.compact-control,
+.mix-control {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 640;
+}
+
+.signature-input {
+  display: grid;
+  grid-template-columns: 40px auto 49px;
+  gap: 5px;
+  align-items: center;
+}
+
+.signature-input input,
+.signature-input select,
+.subdivision-select,
+.sound-control select {
+  height: 38px;
+  padding: 7px;
+  text-align: center;
+}
+
+.signature-input select {
+  padding-right: 3px;
+}
+
+.subdivision-select {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.pattern-wrap {
+  min-width: 0;
+}
+
+.pattern {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  min-height: 44px;
+  align-items: center;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  line-height: 1;
+  transition: transform 80ms ease, background-color 100ms ease, border-color 100ms ease;
+}
+
+.step:hover {
+  transform: translateY(-1px);
+}
+
+.step-accent {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+  font-size: 0.92rem;
+}
+
+.step-hit {
+  font-size: 1.55rem;
+}
+
+.step-rest {
+  border-style: dashed;
+  color: var(--line-strong);
+  font-size: 1rem;
+}
+
+.step.is-current::after {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid var(--ink);
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+
+.step-rest.is-current::after {
+  border-color: var(--line-strong);
+}
+
+.mix-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 150px minmax(150px, 0.7fr) minmax(240px, 1.3fr);
+  gap: 24px;
+  align-items: end;
+  padding-top: 21px;
+  border-top: 1px solid var(--line);
+}
+
+.sound-control select {
+  text-align: left;
+}
+
+.mix-control input[type="range"] {
+  width: 100%;
+}
+
+.mix-label {
+  gap: 10px;
+}
+
+.mix-label output {
+  color: var(--ink);
+  font-size: 0.69rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+
+.pan-slider {
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.pan-slider input {
+  flex: 1;
+}
+
+.page-footer {
+  gap: 24px;
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.page-footer strong {
+  color: var(--ink);
+}
+
+.status {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.status::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.play-button.is-playing ~ .tempo + .master-volume {
+  color: var(--ink);
+}
+
+.status.is-error {
+  color: var(--danger);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    width: min(100% - 22px, 620px);
+    padding-top: 28px;
+  }
+
+  .transport {
+    grid-template-columns: 105px 1fr;
+    gap: 18px;
+    padding: 20px;
+  }
+
+  .play-button {
+    width: 96px;
+    height: 96px;
+  }
+
+  .master-volume {
+    grid-column: 1 / -1;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    text-align: left;
+  }
+
+  .master-volume input {
+    width: 100%;
+  }
+
+  .presets {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .layer-body {
+    grid-template-columns: 1fr;
+  }
+
+  .rhythm-setup {
+    max-width: 330px;
+  }
+
+  .mix-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pan-control {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 500px) {
+  .page-header {
+    align-items: flex-end;
+  }
+
+  .transport {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .play-button {
+    width: 104px;
+    height: 104px;
+  }
+
+  .master-volume {
+    width: 100%;
+  }
+
+  .section-heading {
+    align-items: flex-end;
+  }
+
+  .layer-heading {
+    padding-inline: 12px;
+  }
+
+  .layer-body {
+    padding: 20px 16px 22px;
+  }
+
+  .mix-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pan-control {
+    grid-column: auto;
+  }
+
+  .page-footer {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+    </style>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">METRONOME</p>
+          <h1>Polynome</h1>
+        </div>
+      </header>
+
+      <section class="transport" aria-label="Transport and tempo">
+        <button
+          id="play-button"
+          class="play-button"
+          type="button"
+          aria-pressed="false"
+          aria-label="Play metronome"
+        >
+          <span id="play-icon" class="play-icon" aria-hidden="true">▶</span>
+          <span id="play-label">Play</span>
+        </button>
+
+        <div class="tempo">
+          <div class="tempo-number">
+            <button id="bpm-down" class="tempo-nudge" type="button" aria-label="Decrease tempo">−</button>
+            <label>
+              <span class="sr-only">Tempo in quarter-note beats per minute</span>
+              <input id="bpm-input" type="number" min="30" max="300" inputmode="numeric" />
+            </label>
+            <button id="bpm-up" class="tempo-nudge" type="button" aria-label="Increase tempo">+</button>
+          </div>
+          <div class="tempo-unit">♩ BPM</div>
+          <input
+            id="bpm-slider"
+            class="tempo-slider"
+            type="range"
+            min="30"
+            max="300"
+            step="1"
+            aria-label="Tempo"
+          />
+        </div>
+
+        <label class="master-volume">
+          <span>Master</span>
+          <input id="master-volume" type="range" min="0" max="1" step="0.01" />
+        </label>
+      </section>
+
+      <section class="presets" aria-labelledby="preset-heading">
+        <h2 id="preset-heading">Start with</h2>
+        <div id="preset-list" class="preset-list"></div>
+      </section>
+
+      <section class="rhythms" aria-labelledby="rhythms-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LAYERS</p>
+            <h2 id="rhythms-heading">Rhythms</h2>
+          </div>
+          <button id="add-layer" class="add-button" type="button">+ Add rhythm</button>
+        </div>
+        <div id="layers" class="layer-list"></div>
+      </section>
+
+      <footer class="page-footer">
+        <p><strong>Space</strong> plays and stops.</p>
+        <p id="status" class="status" role="status" aria-live="polite">Stopped</p>
+      </footer>
+    </main>
+
+    <noscript>This metronome requires JavaScript.</noscript>
+    <script>
+'use strict';
+
+const STEP = Object.freeze({
+  REST: "rest",
+  HIT: "hit",
+  ACCENT: "accent",
+});
+
+const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
+const SOUNDS = Object.freeze(["high", "low", "wood"]);
+const SUBDIVISIONS = Object.freeze([
+  Object.freeze({ value: 1, label: "Whole", symbol: "𝅝" }),
+  Object.freeze({ value: 2, label: "Half", symbol: "𝅗𝅥 𝅗𝅥" }),
+  Object.freeze({ value: 4, label: "Quarter", symbol: "♩ ♩ ♩ ♩" }),
+  Object.freeze({ value: 3, label: "Triplet", symbol: "♩ ♩ ♩" }),
+]);
+
+let layerSequence = 0;
+
+function makeId(prefix = "layer") {
+  layerSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${layerSequence.toString(36)}`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normaliseNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
+}
+
+function createPattern(length, firstStep = STEP.ACCENT) {
+  const safeLength = Math.round(normaliseNumber(length, 4, 1, 32));
+  return Array.from({ length: safeLength }, (_, index) =>
+    index === 0 ? firstStep : STEP.HIT,
+  );
+}
+
+function createLayer(overrides = {}) {
+  const steps = Array.isArray(overrides.steps)
+    ? overrides.steps.map(normaliseStep)
+    : createPattern(overrides.subdivision ?? overrides.pulses ?? 4);
+
+  return {
+    id: overrides.id || makeId(),
+    name: String(overrides.name || "Rhythm"),
+    signature: {
+      count: Math.round(
+        normaliseNumber(overrides.signature?.count, 4, 1, 32),
+      ),
+      unit: normaliseUnit(overrides.signature?.unit, 4),
+    },
+    steps: steps.length ? steps.slice(0, 32) : createPattern(4),
+    volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
+    pan: normaliseNumber(overrides.pan, 0, -1, 1),
+    sound: SOUNDS.includes(overrides.sound) ? overrides.sound : "high",
+    muted: Boolean(overrides.muted),
+  };
+}
+
+function createDefaultState() {
+  return createPreset("3:2");
+}
+
+function normaliseState(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const layers = Array.isArray(source.layers)
+    ? source.layers.slice(0, 12).map(createLayer)
+    : [];
+
+  return {
+    bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
+    masterVolume: normaliseNumber(source.masterVolume, 0.8, 0, 1),
+    layers: layers.length ? layers : createPreset("3:2").layers,
+  };
+}
+
+function normaliseStep(value) {
+  return Object.values(STEP).includes(value) ? value : STEP.HIT;
+}
+
+function normaliseUnit(value, fallback = 4) {
+  const parsed = Number(value);
+  return NOTE_UNITS.includes(parsed) ? parsed : fallback;
+}
+
+function nextStepState(step) {
+  switch (normaliseStep(step)) {
+    case STEP.ACCENT:
+      return STEP.HIT;
+    case STEP.HIT:
+      return STEP.REST;
+    default:
+      return STEP.ACCENT;
+  }
+}
+
+function resizePattern(steps, nextLength) {
+  const length = Math.round(normaliseNumber(nextLength, steps?.length || 4, 1, 32));
+  const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
+
+  return Array.from({ length }, (_, index) => {
+    if (source[index]) return source[index];
+    return index === 0 ? STEP.ACCENT : STEP.HIT;
+  });
+}
+
+/**
+ * Tempo is always displayed and interpreted as quarter-note BPM.
+ */
+function cycleDurationSeconds(bpm, signature) {
+  const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
+  const count = normaliseNumber(signature?.count, 4, 1, 64);
+  const unit = normaliseUnit(signature?.unit, 4);
+  const quarterSeconds = 60 / safeBpm;
+  return quarterSeconds * count * (4 / unit);
+}
+
+function stepDurationSeconds(bpm, layer) {
+  const stepCount = Math.max(1, layer?.steps?.length || 1);
+  return cycleDurationSeconds(bpm, layer?.signature) / stepCount;
+}
+
+function activeStepIndex(bpm, layer, transportOrigin, currentTime) {
+  if (currentTime < transportOrigin) return 0;
+  const duration = stepDurationSeconds(bpm, layer);
+  const absoluteStep = Math.floor((currentTime - transportOrigin) / duration);
+  return absoluteStep % layer.steps.length;
+}
+
+/**
+ * Pure event generation used by tests and available for future export/MIDI work.
+ */
+function eventsBetween({ bpm, layers }, fromTime, untilTime, origin = 0) {
+  if (untilTime <= fromTime) return [];
+
+  const events = [];
+
+  for (const layer of layers) {
+    const duration = stepDurationSeconds(bpm, layer);
+    const firstAbsoluteStep = Math.max(
+      0,
+      Math.ceil((fromTime - origin - Number.EPSILON) / duration),
+    );
+    const finalAbsoluteStep = Math.floor(
+      (untilTime - origin - Number.EPSILON) / duration,
+    );
+
+    for (
+      let absoluteStep = firstAbsoluteStep;
+      absoluteStep <= finalAbsoluteStep;
+      absoluteStep += 1
+    ) {
+      const patternIndex = absoluteStep % layer.steps.length;
+      const strength = layer.steps[patternIndex];
+      if (strength === STEP.REST || layer.muted) continue;
+
+      events.push({
+        layerId: layer.id,
+        absoluteStep,
+        patternIndex,
+        strength,
+        when: origin + absoluteStep * duration,
+      });
+    }
+  }
+
+  return events.sort((left, right) => {
+    if (left.when !== right.when) return left.when - right.when;
+    return left.layerId.localeCompare(right.layerId);
+  });
+}
+
+const PRESET_NAMES = Object.freeze([
+  "3:2",
+  "4:3",
+  "5:4",
+  "4/4 + 3/4",
+  "7/8 · 2+2+3",
+]);
+
+function createPreset(name) {
+  switch (name) {
+    case "4:3":
+      return {
+        bpm: 96,
+        masterVolume: 0.8,
+        layers: [
+          createLayer({
+            name: "Four",
+            signature: { count: 4, unit: 4 },
+            steps: createPattern(4),
+            pan: -0.72,
+            sound: "high",
+          }),
+          createLayer({
+            name: "Three",
+            signature: { count: 4, unit: 4 },
+            steps: createPattern(3),
+            pan: 0.72,
+            sound: "low",
+          }),
+        ],
+      };
+
+    case "5:4":
+      return {
+        bpm: 90,
+        masterVolume: 0.8,
+        layers: [
+          createLayer({
+            name: "Five",
+            signature: { count: 4, unit: 4 },
+            steps: createPattern(5),
+            pan: -0.72,
+            sound: "high",
+          }),
+          createLayer({
+            name: "Four",
+            signature: { count: 4, unit: 4 },
+            steps: createPattern(4),
+            pan: 0.72,
+            sound: "low",
+          }),
+        ],
+      };
+
+    case "4/4 + 3/4":
+      return {
+        bpm: 112,
+        masterVolume: 0.8,
+        layers: [
+          createLayer({
+            name: "4/4",
+            signature: { count: 4, unit: 4 },
+            steps: createPattern(4),
+            pan: -0.72,
+            sound: "high",
+          }),
+          createLayer({
+            name: "3/4",
+            signature: { count: 3, unit: 4 },
+            steps: createPattern(3),
+            pan: 0.72,
+            sound: "low",
+          }),
+        ],
+      };
+
+    case "7/8 · 2+2+3":
+      return {
+        bpm: 108,
+        masterVolume: 0.8,
+        layers: [
+          createLayer({
+            name: "7/8 · 2+2+3",
+            signature: { count: 7, unit: 8 },
+            steps: [
+              STEP.ACCENT,
+              STEP.HIT,
+              STEP.ACCENT,
+              STEP.HIT,
+              STEP.ACCENT,
+              STEP.HIT,
+              STEP.HIT,
+            ],
+            pan: 0,
+            sound: "wood",
+          }),
+        ],
+      };
+
+    case "3:2":
+    default:
+      return {
+        bpm: 96,
+        masterVolume: 0.8,
+        layers: [
+          createLayer({
+            name: "Three",
+            signature: { count: 2, unit: 4 },
+            steps: createPattern(3),
+            pan: -0.72,
+            sound: "high",
+          }),
+          createLayer({
+            name: "Two",
+            signature: { count: 2, unit: 4 },
+            steps: createPattern(2),
+            pan: 0.72,
+            sound: "low",
+          }),
+        ],
+      };
+  }
+}
+
+function panLabel(value) {
+  const pan = normaliseNumber(value, 0, -1, 1);
+  if (Math.abs(pan) < 0.04) return "Centre";
+  const percentage = Math.round(Math.abs(pan) * 100);
+  return pan < 0 ? `Left ${percentage}%` : `Right ${percentage}%`;
+}
+
+
+
+const LOOK_AHEAD_SECONDS = 0.12;
+const SCHEDULER_INTERVAL_MS = 25;
+const START_DELAY_SECONDS = 0.06;
+
+const SOUND_PROFILES = Object.freeze({
+  high: { frequency: 1240, type: "triangle", length: 0.032 },
+  low: { frequency: 690, type: "triangle", length: 0.042 },
+  wood: { frequency: 930, type: "sine", length: 0.026 },
+});
+
+class MetronomeEngine extends EventTarget {
+  #context = null;
+  #master = null;
+  #layers = new Map();
+  #state = null;
+  #playing = false;
+  #origin = 0;
+  #timer = null;
+  #nextSteps = new Map();
+  #scheduledSources = new Set();
+
+  get playing() {
+    return this.#playing;
+  }
+
+  get origin() {
+    return this.#origin;
+  }
+
+  get currentTime() {
+    return this.#context?.currentTime ?? 0;
+  }
+
+  async start(state) {
+    this.#state = state;
+    this.#ensureContext();
+
+    if (this.#context.state === "suspended") {
+      await this.#context.resume();
+    }
+
+    this.stop({ preserveContext: true, emit: false });
+    this.#state = state;
+    this.#playing = true;
+    this.#origin = this.#context.currentTime + START_DELAY_SECONDS;
+    this.#nextSteps.clear();
+    this.#syncNodes();
+    this.#schedule();
+    this.#timer = window.setInterval(
+      () => this.#schedule(),
+      SCHEDULER_INTERVAL_MS,
+    );
+    this.dispatchEvent(new Event("playstate"));
+  }
+
+  stop({ preserveContext = true, emit = true } = {}) {
+    if (this.#timer !== null) {
+      window.clearInterval(this.#timer);
+      this.#timer = null;
+    }
+
+    this.#playing = false;
+    this.#nextSteps.clear();
+
+    for (const source of this.#scheduledSources) {
+      try {
+        source.stop();
+      } catch {
+        // Already stopped sources are harmless.
+      }
+    }
+    this.#scheduledSources.clear();
+
+    if (this.#context && this.#master) {
+      const now = this.#context.currentTime;
+      this.#master.gain.cancelScheduledValues(now);
+      this.#master.gain.setValueAtTime(0, now);
+    }
+
+    if (!preserveContext) {
+      for (const nodes of this.#layers.values()) {
+        nodes.gain.disconnect();
+        nodes.panner.disconnect();
+      }
+      this.#layers.clear();
+    }
+
+    if (emit) this.dispatchEvent(new Event("playstate"));
+  }
+
+  async toggle(state) {
+    if (this.#playing) {
+      this.stop();
+      return;
+    }
+    await this.start(state);
+  }
+
+  async restart(state) {
+    this.#state = state;
+    if (!this.#playing) {
+      this.#syncNodes();
+      return;
+    }
+    await this.start(state);
+  }
+
+  updateMix(state) {
+    this.#state = state;
+    if (this.#context) this.#syncNodes();
+  }
+
+  activeStep(layer) {
+    if (!this.#playing || !this.#context) return null;
+    return activeStepIndex(
+      this.#state.bpm,
+      layer,
+      this.#origin,
+      this.#context.currentTime,
+    );
+  }
+
+  #ensureContext() {
+    if (this.#context) return;
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error("This browser does not support the Web Audio API.");
+    }
+
+    this.#context = new AudioContextClass({ latencyHint: "interactive" });
+    this.#master = new GainNode(this.#context, { gain: 0.8 });
+    this.#master.connect(this.#context.destination);
+  }
+
+  #syncNodes() {
+    if (!this.#context || !this.#master || !this.#state) return;
+
+    this.#master.gain.setTargetAtTime(
+      this.#state.masterVolume,
+      this.#context.currentTime,
+      0.01,
+    );
+
+    const currentIds = new Set(this.#state.layers.map((layer) => layer.id));
+
+    for (const [id, nodes] of this.#layers.entries()) {
+      if (!currentIds.has(id)) {
+        nodes.gain.disconnect();
+        nodes.panner.disconnect();
+        this.#layers.delete(id);
+      }
+    }
+
+    for (const layer of this.#state.layers) {
+      let nodes = this.#layers.get(layer.id);
+      if (!nodes) {
+        const gain = new GainNode(this.#context, { gain: layer.volume });
+        const panner = new StereoPannerNode(this.#context, { pan: layer.pan });
+        gain.connect(panner);
+        panner.connect(this.#master);
+        nodes = { gain, panner };
+        this.#layers.set(layer.id, nodes);
+      }
+
+      nodes.gain.gain.setTargetAtTime(
+        layer.muted ? 0 : layer.volume,
+        this.#context.currentTime,
+        0.01,
+      );
+      nodes.panner.pan.setTargetAtTime(
+        layer.pan,
+        this.#context.currentTime,
+        0.01,
+      );
+    }
+  }
+
+  #schedule() {
+    if (!this.#playing || !this.#context || !this.#state) return;
+
+    const now = this.#context.currentTime;
+    const horizon = now + LOOK_AHEAD_SECONDS;
+
+    this.#syncNodes();
+
+    for (const layer of this.#state.layers) {
+      const stepDuration = stepDurationSeconds(this.#state.bpm, layer);
+      let absoluteStep = this.#nextSteps.get(layer.id) ?? 0;
+      let when = this.#origin + absoluteStep * stepDuration;
+
+      while (when < horizon) {
+        if (when >= now - 0.004) {
+          const patternIndex = absoluteStep % layer.steps.length;
+          const strength = layer.steps[patternIndex];
+          if (strength !== STEP.REST && !layer.muted) {
+            this.#scheduleClick(layer, strength, when);
+          }
+        }
+
+        absoluteStep += 1;
+        when = this.#origin + absoluteStep * stepDuration;
+      }
+
+      this.#nextSteps.set(layer.id, absoluteStep);
+    }
+  }
+
+  #scheduleClick(layer, strength, when) {
+    const output = this.#layers.get(layer.id)?.gain;
+    if (!output || !this.#context) return;
+
+    const profile = SOUND_PROFILES[layer.sound] || SOUND_PROFILES.high;
+    const accentMultiplier = strength === STEP.ACCENT ? 1.36 : 1;
+    const peak = strength === STEP.ACCENT ? 0.92 : 0.52;
+    const end = when + profile.length;
+
+    const oscillator = new OscillatorNode(this.#context, {
+      type: profile.type,
+      frequency: profile.frequency * accentMultiplier,
+    });
+    const envelope = new GainNode(this.#context, { gain: 0.0001 });
+
+    oscillator.connect(envelope);
+    envelope.connect(output);
+
+    envelope.gain.setValueAtTime(0.0001, when);
+    envelope.gain.exponentialRampToValueAtTime(peak, when + 0.0015);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
+    this.#scheduledSources.add(oscillator);
+    oscillator.addEventListener(
+      "ended",
+      () => this.#scheduledSources.delete(oscillator),
+      { once: true },
+    );
+
+    oscillator.start(when);
+    oscillator.stop(end + 0.002);
+  }
+}
+
+
+
+
+const STORAGE_KEY = "polynome:v1";
+const LEGACY_STORAGE_KEY = "polyrhythm-metronome:v1";
+
+const elements = {
+  play: document.querySelector("#play-button"),
+  playIcon: document.querySelector("#play-icon"),
+  playLabel: document.querySelector("#play-label"),
+  bpm: document.querySelector("#bpm-input"),
+  bpmSlider: document.querySelector("#bpm-slider"),
+  bpmDown: document.querySelector("#bpm-down"),
+  bpmUp: document.querySelector("#bpm-up"),
+  masterVolume: document.querySelector("#master-volume"),
+  presetList: document.querySelector("#preset-list"),
+  layers: document.querySelector("#layers"),
+  addLayer: document.querySelector("#add-layer"),
+  status: document.querySelector("#status"),
+};
+
+const engine = new MetronomeEngine();
+let state = loadState();
+let activePreset = detectPreset(state);
+let animationFrame = null;
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+    return raw ? normaliseState(JSON.parse(raw)) : createDefaultState();
+  } catch {
+    return createDefaultState();
+  }
+}
+
+function persistState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // The app still works when storage is unavailable.
+  }
+}
+
+function setState(nextState, options = {}) {
+  state = normaliseState(nextState);
+  activePreset = options.keepPreset ? activePreset : null;
+  persistState();
+
+  if (options.render !== false) render();
+
+  if (options.restart && engine.playing) {
+    engine.restart(state).catch(showError);
+  } else {
+    engine.updateMix(state);
+  }
+}
+
+function render() {
+  renderTransport();
+  renderPresets();
+  renderLayers();
+}
+
+function renderTransport() {
+  elements.bpm.value = String(state.bpm);
+  elements.bpmSlider.value = String(state.bpm);
+  elements.masterVolume.value = String(state.masterVolume);
+  updatePlayButton();
+}
+
+function renderPresets() {
+  elements.presetList.innerHTML = PRESET_NAMES.map(
+    (name) => `
+      <button
+        type="button"
+        class="preset-button${activePreset === name ? " is-selected" : ""}"
+        data-preset="${escapeHtml(name)}"
+        aria-pressed="${activePreset === name}"
+      >${escapeHtml(name)}</button>
+    `,
+  ).join("");
+}
+
+function renderLayers() {
+  elements.layers.innerHTML = state.layers
+    .map((layer, index) => layerTemplate(layer, index))
+    .join("");
+}
+
+function layerTemplate(layer, index) {
+  const stepButtons = layer.steps
+    .map((step, stepIndex) => stepTemplate(layer, step, stepIndex))
+    .join("");
+
+  const unitOptions = NOTE_UNITS.map(
+    (unit) =>
+      `<option value="${unit}"${unit === layer.signature.unit ? " selected" : ""}>${unit}</option>`,
+  ).join("");
+
+  const soundOptions = SOUNDS.map((sound) => {
+    const label = sound.charAt(0).toUpperCase() + sound.slice(1);
+    return `<option value="${sound}"${sound === layer.sound ? " selected" : ""}>${label}</option>`;
+  }).join("");
+
+  const hasStandardSubdivision = SUBDIVISIONS.some(
+    (subdivision) => subdivision.value === layer.steps.length,
+  );
+  const subdivisionOptions = [
+    ...(hasStandardSubdivision
+      ? []
+      : [{
+          value: layer.steps.length,
+          label: `Custom (${layer.steps.length})`,
+          symbol: "• ".repeat(Math.min(layer.steps.length, 7)).trim(),
+        }]),
+    ...SUBDIVISIONS,
+  ].map(
+    ({ value, label, symbol }) =>
+      `<option value="${value}"${value === layer.steps.length ? " selected" : ""}>${symbol}  ${label}</option>`,
+  ).join("");
+
+  return `
+    <article class="layer-card${layer.muted ? " is-muted" : ""}" data-layer-id="${layer.id}">
+      <div class="layer-heading">
+        <span class="layer-number" aria-hidden="true">${index + 1}</span>
+        <input
+          class="layer-name"
+          type="text"
+          maxlength="28"
+          value="${escapeHtml(layer.name)}"
+          aria-label="Rhythm name"
+          data-field="name"
+        />
+        <div class="layer-actions">
+          <button
+            type="button"
+            class="icon-button${layer.muted ? " is-active" : ""}"
+            data-action="mute"
+            aria-pressed="${layer.muted}"
+            aria-label="${layer.muted ? "Unmute" : "Mute"} ${escapeHtml(layer.name)}"
+            title="${layer.muted ? "Unmute" : "Mute"}"
+          >${layer.muted ? "M" : "M"}</button>
+          <button
+            type="button"
+            class="icon-button remove-button"
+            data-action="remove"
+            aria-label="Remove ${escapeHtml(layer.name)}"
+            title="Remove rhythm"
+            ${state.layers.length === 1 ? "disabled" : ""}
+          >×</button>
+        </div>
+      </div>
+
+      <div class="layer-body">
+        <div class="rhythm-setup">
+          <label class="compact-control">
+            <span>Signature</span>
+            <span class="signature-input">
+              <input
+                type="number"
+                min="1"
+                max="32"
+                inputmode="numeric"
+                value="${layer.signature.count}"
+                data-field="signature-count"
+                aria-label="Cycle numerator"
+              />
+              <span aria-hidden="true">/</span>
+              <select data-field="signature-unit" aria-label="Cycle denominator">
+                ${unitOptions}
+              </select>
+            </span>
+          </label>
+
+          <label class="compact-control">
+            <span>Subdivision</span>
+            <select
+              class="subdivision-select"
+              data-field="subdivision"
+              aria-label="${escapeHtml(layer.name)} subdivision"
+            >${subdivisionOptions}</select>
+          </label>
+        </div>
+
+        <div class="pattern-wrap">
+          <div class="pattern" role="group" aria-label="${escapeHtml(layer.name)} pattern">
+            ${stepButtons}
+          </div>
+        </div>
+
+        <div class="mix-grid">
+          <label class="mix-control sound-control">
+            <span>Sound</span>
+            <select data-field="sound">${soundOptions}</select>
+          </label>
+
+          <label class="mix-control">
+            <span class="mix-label"><span>Level</span><output data-output="volume">${Math.round(layer.volume * 100)}%</output></span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value="${layer.volume}"
+              data-field="volume"
+              aria-label="${escapeHtml(layer.name)} level"
+            />
+          </label>
+
+          <label class="mix-control pan-control">
+            <span class="mix-label"><span>Ear balance</span><output data-output="pan">${panLabel(layer.pan)}</output></span>
+            <span class="pan-slider">
+              <span aria-hidden="true">L</span>
+              <input
+                type="range"
+                min="-1"
+                max="1"
+                step="0.01"
+                value="${layer.pan}"
+                data-field="pan"
+                aria-label="${escapeHtml(layer.name)} left and right balance"
+              />
+              <span aria-hidden="true">R</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function stepTemplate(layer, step, stepIndex) {
+  const labels = {
+    [STEP.ACCENT]: "Accent",
+    [STEP.HIT]: "Hit",
+    [STEP.REST]: "Rest",
+  };
+  const symbols = {
+    [STEP.ACCENT]: "●",
+    [STEP.HIT]: "•",
+    [STEP.REST]: "–",
+  };
+
+  return `
+    <button
+      type="button"
+      class="step step-${step}"
+      data-action="step"
+      data-step-index="${stepIndex}"
+      aria-label="Step ${stepIndex + 1}: ${labels[step]}"
+      title="Step ${stepIndex + 1}: ${labels[step]}"
+    ><span aria-hidden="true">${symbols[step]}</span></button>
+  `;
+}
+
+function updatePlayButton() {
+  const playing = engine.playing;
+  elements.play.classList.toggle("is-playing", playing);
+  elements.play.setAttribute("aria-pressed", String(playing));
+  elements.playIcon.textContent = playing ? "■" : "▶";
+  elements.playLabel.textContent = playing ? "Stop" : "Play";
+  elements.status.textContent = playing ? "Playing" : "Stopped";
+}
+
+function updateActiveSteps() {
+  if (!engine.playing) {
+    document.querySelectorAll(".step.is-current").forEach((element) => {
+      element.classList.remove("is-current");
+    });
+    animationFrame = null;
+    return;
+  }
+
+  for (const layer of state.layers) {
+    const activeIndex = engine.activeStep(layer);
+    const card = elements.layers.querySelector(`[data-layer-id="${CSS.escape(layer.id)}"]`);
+    if (!card) continue;
+
+    card.querySelectorAll(".step").forEach((element, index) => {
+      element.classList.toggle("is-current", index === activeIndex);
+    });
+  }
+
+  animationFrame = requestAnimationFrame(updateActiveSteps);
+}
+
+function startAnimation() {
+  if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+  animationFrame = requestAnimationFrame(updateActiveSteps);
+}
+
+function showError(error) {
+  console.error(error);
+  elements.status.textContent = error?.message || "Audio could not start";
+  elements.status.classList.add("is-error");
+  window.setTimeout(() => elements.status.classList.remove("is-error"), 4000);
+}
+
+async function togglePlayback() {
+  try {
+    await engine.toggle(state);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function changeTempo(nextBpm) {
+  const bpm = Math.round(normaliseNumber(nextBpm, state.bpm, 30, 300));
+  setState({ ...state, bpm }, { restart: true });
+}
+
+function updateLayer(layerId, updater, options = {}) {
+  const layers = state.layers.map((layer) =>
+    layer.id === layerId ? updater(layer) : layer,
+  );
+  setState({ ...state, layers }, options);
+}
+
+function findLayerContext(target) {
+  const card = target.closest("[data-layer-id]");
+  if (!card) return null;
+  const layer = state.layers.find((candidate) => candidate.id === card.dataset.layerId);
+  return layer ? { card, layer } : null;
+}
+
+elements.play.addEventListener("click", togglePlayback);
+elements.bpmDown.addEventListener("click", () => changeTempo(state.bpm - 1));
+elements.bpmUp.addEventListener("click", () => changeTempo(state.bpm + 1));
+
+elements.bpm.addEventListener("change", (event) => changeTempo(event.target.value));
+elements.bpmSlider.addEventListener("input", (event) => {
+  const bpm = Math.round(normaliseNumber(event.target.value, state.bpm, 30, 300));
+  state = { ...state, bpm };
+  elements.bpm.value = String(bpm);
+  activePreset = null;
+  persistState();
+});
+elements.bpmSlider.addEventListener("change", () => {
+  renderPresets();
+  if (engine.playing) engine.restart(state).catch(showError);
+});
+
+elements.masterVolume.addEventListener("input", (event) => {
+  const masterVolume = normaliseNumber(event.target.value, state.masterVolume, 0, 1);
+  state = { ...state, masterVolume };
+  persistState();
+  engine.updateMix(state);
+});
+
+elements.presetList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-preset]");
+  if (!button) return;
+  const presetName = button.dataset.preset;
+  activePreset = presetName;
+  state = normaliseState(createPreset(presetName));
+  persistState();
+  render();
+  if (engine.playing) engine.restart(state).catch(showError);
+});
+
+elements.addLayer.addEventListener("click", () => {
+  const index = state.layers.length;
+  const pan = index % 2 === 0 ? -0.5 : 0.5;
+  const layer = createLayer({
+    name: `Rhythm ${index + 1}`,
+    signature: { count: 4, unit: 4 },
+    subdivision: 4,
+    pan,
+    sound: index % 2 === 0 ? "high" : "low",
+  });
+  setState(
+    { ...state, layers: [...state.layers, layer] },
+    { restart: true },
+  );
+});
+
+elements.layers.addEventListener("click", (event) => {
+  const actionElement = event.target.closest("[data-action]");
+  if (!actionElement) return;
+
+  const context = findLayerContext(actionElement);
+  if (!context) return;
+  const { layer } = context;
+
+  switch (actionElement.dataset.action) {
+    case "step": {
+      const stepIndex = Number(actionElement.dataset.stepIndex);
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          steps: current.steps.map((step, index) =>
+            index === stepIndex ? nextStepState(step) : step,
+          ),
+        }),
+        { restart: true },
+      );
+      break;
+    }
+
+    case "mute":
+      updateLayer(
+        layer.id,
+        (current) => ({ ...current, muted: !current.muted }),
+        { mixOnly: true },
+      );
+      break;
+
+    case "remove":
+      if (state.layers.length <= 1) return;
+      setState(
+        {
+          ...state,
+          layers: state.layers.filter((candidate) => candidate.id !== layer.id),
+        },
+        { restart: true },
+      );
+      break;
+  }
+});
+
+elements.layers.addEventListener("input", (event) => {
+  const field = event.target.dataset.field;
+  if (!field) return;
+
+  const context = findLayerContext(event.target);
+  if (!context) return;
+  const { card, layer } = context;
+
+  if (field === "name") {
+    layer.name = event.target.value;
+    activePreset = null;
+    persistState();
+    return;
+  }
+
+  if (field === "volume") {
+    const volume = normaliseNumber(event.target.value, layer.volume, 0, 1);
+    layer.volume = volume;
+    card.querySelector('[data-output="volume"]').textContent = `${Math.round(volume * 100)}%`;
+    activePreset = null;
+    persistState();
+    engine.updateMix(state);
+    return;
+  }
+
+  if (field === "pan") {
+    const pan = normaliseNumber(event.target.value, layer.pan, -1, 1);
+    layer.pan = pan;
+    card.querySelector('[data-output="pan"]').textContent = panLabel(pan);
+    activePreset = null;
+    persistState();
+    engine.updateMix(state);
+  }
+});
+
+elements.layers.addEventListener("change", (event) => {
+  const field = event.target.dataset.field;
+  if (!field || ["name", "volume", "pan"].includes(field)) return;
+
+  const context = findLayerContext(event.target);
+  if (!context) return;
+  const { layer } = context;
+
+  switch (field) {
+    case "signature-count":
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          signature: {
+            ...current.signature,
+            count: Math.round(
+              normaliseNumber(event.target.value, current.signature.count, 1, 32),
+            ),
+          },
+        }),
+        { restart: true },
+      );
+      break;
+
+    case "signature-unit":
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          signature: {
+            ...current.signature,
+            unit: Number(event.target.value),
+          },
+        }),
+        { restart: true },
+      );
+      break;
+
+    case "subdivision":
+      updateLayer(
+        layer.id,
+        (current) => ({
+          ...current,
+          steps: resizePattern(current.steps, event.target.value),
+        }),
+        { restart: true },
+      );
+      break;
+
+    case "sound":
+      updateLayer(
+        layer.id,
+        (current) => ({ ...current, sound: event.target.value }),
+        { restart: false },
+      );
+      break;
+  }
+});
+
+engine.addEventListener("playstate", () => {
+  updatePlayButton();
+  if (engine.playing) startAnimation();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.code !== "Space" || event.repeat) return;
+  const tag = document.activeElement?.tagName;
+  if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;
+  event.preventDefault();
+  togglePlayback();
+});
+
+window.addEventListener("pagehide", () => engine.stop());
+
+function detectPreset(candidateState) {
+  for (const name of PRESET_NAMES) {
+    const preset = normaliseState(createPreset(name));
+    if (sameMusicalState(candidateState, preset)) return name;
+  }
+  return null;
+}
+
+function sameMusicalState(left, right) {
+  if (left.bpm !== right.bpm || left.layers.length !== right.layers.length) return false;
+  return left.layers.every((layer, index) => {
+    const comparison = right.layers[index];
+    return (
+      layer.name === comparison.name &&
+      layer.signature.count === comparison.signature.count &&
+      layer.signature.unit === comparison.signature.unit &&
+      layer.steps.join(",") === comparison.steps.join(",") &&
+      Math.abs(layer.pan - comparison.pan) < 0.001 &&
+      layer.sound === comparison.sound
+    );
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+render();
+
+    </script>
+  </body>
+</html>
