@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   STEP,
+  createDefaultState,
   createLayer,
   createPreset,
   cycleDurationSeconds,
@@ -18,6 +19,18 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
     `Expected ${actual} to be within ${tolerance} of ${expected}`,
   );
 };
+
+test("the application loads the 3:2 preset in 2/4", () => {
+  const state = createDefaultState();
+
+  assert.deepEqual(
+    state.layers.map((layer) => layer.signature),
+    [
+      { count: 2, unit: 4 },
+      { count: 2, unit: 4 },
+    ],
+  );
+});
 
 test("cycle duration uses quarter-note BPM as the shared reference", () => {
   closeTo(cycleDurationSeconds(120, { count: 4, unit: 4 }), 2);
@@ -112,30 +125,32 @@ test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
   closeTo(threeCycle * 4, 6);
 });
 
-test("ratio presets use paired subdivisions over one shared quarter-note meter", () => {
-  for (const [name, subdivisions] of [
-    ["3:2", [3, 2]],
-    ["4:3", [4, 3]],
-    ["5:4", [5, 4]],
-  ]) {
-    const layers = createPreset(name).layers;
+test("ratio presets expose their meters and meter-relative grids", () => {
+  const presetLayers = Object.fromEntries(
+    ["3:2", "4:3", "5:4"].map((name) => [
+      name,
+      createPreset(name).layers.map((layer) => ({
+        signature: layer.signature,
+        subdivision: layer.subdivision,
+        positions: layer.steps.length,
+      })),
+    ]),
+  );
 
-    assert.deepEqual(
-      layers.map((layer) => layer.signature),
-      [
-        { count: 1, unit: 4 },
-        { count: 1, unit: 4 },
-      ],
-    );
-    assert.deepEqual(
-      layers.map((layer) => layer.subdivision),
-      subdivisions,
-    );
-    assert.deepEqual(
-      layers.map((layer) => layer.steps.length),
-      subdivisions,
-    );
-  }
+  assert.deepEqual(presetLayers, {
+    "3:2": [
+      { signature: { count: 2, unit: 4 }, subdivision: 3, positions: 6 },
+      { signature: { count: 2, unit: 4 }, subdivision: 2, positions: 4 },
+    ],
+    "4:3": [
+      { signature: { count: 4, unit: 4 }, subdivision: 4, positions: 16 },
+      { signature: { count: 4, unit: 4 }, subdivision: 3, positions: 12 },
+    ],
+    "5:4": [
+      { signature: { count: 4, unit: 4 }, subdivision: 5, positions: 20 },
+      { signature: { count: 4, unit: 4 }, subdivision: 4, positions: 16 },
+    ],
+  });
 });
 
 test("meter presets use one pulse per signature unit and pattern-only emphasis", () => {

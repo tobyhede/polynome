@@ -146,14 +146,14 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Four",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 4, unit: 4 },
             subdivision: 4,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Three",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 4, unit: 4 },
             subdivision: 3,
             pan: 0.72,
             sound: "low",
@@ -168,14 +168,14 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Five",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 4, unit: 4 },
             subdivision: 5,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Four",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 4, unit: 4 },
             subdivision: 4,
             pan: 0.72,
             sound: "low",
@@ -237,14 +237,14 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Three",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 2, unit: 4 },
             subdivision: 3,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Two",
-            signature: { count: 1, unit: 4 },
+            signature: { count: 2, unit: 4 },
             subdivision: 2,
             pan: 0.72,
             sound: "low",
