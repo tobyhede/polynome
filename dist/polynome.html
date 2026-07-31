@@ -419,7 +419,7 @@ h2 {
 
 .layer-body {
   display: grid;
-  grid-template-columns: 210px minmax(240px, 1fr);
+  grid-template-columns: minmax(300px, 0.8fr) minmax(240px, 1.2fr);
   gap: 24px 30px;
   padding: 23px 24px 25px;
   transition: opacity 120ms ease;
@@ -427,7 +427,7 @@ h2 {
 
 .rhythm-setup {
   display: grid;
-  grid-template-columns: 1fr 82px;
+  grid-template-columns: 1fr minmax(190px, 1.4fr);
   gap: 10px;
   align-self: start;
 }
@@ -450,7 +450,7 @@ h2 {
 
 .signature-input input,
 .signature-input select,
-.small-number,
+.subdivision-select,
 .sound-control select {
   height: 38px;
   padding: 7px;
@@ -461,18 +461,22 @@ h2 {
   padding-right: 3px;
 }
 
-.small-number {
+.subdivision-select {
   width: 100%;
+  text-align: left;
 }
 
 .pattern-wrap {
   min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .pattern {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 9px;
+  width: max-content;
   min-height: 44px;
   align-items: center;
 }
@@ -650,7 +654,7 @@ h2 {
   }
 
   .rhythm-setup {
-    max-width: 220px;
+    max-width: 430px;
   }
 
   .mix-grid {
@@ -817,27 +821,35 @@ function normaliseNumber(value, fallback, min, max) {
 }
 
 function createPattern(length, firstStep = STEP.ACCENT) {
-  const safeLength = Math.round(normaliseNumber(length, 4, 1, 32));
+  const safeLength = Math.round(normaliseNumber(length, 4, 1, 160));
   return Array.from({ length: safeLength }, (_, index) =>
     index === 0 ? firstStep : STEP.HIT,
   );
 }
 
 function createLayer(overrides = {}) {
+  const signature = {
+    count: Math.round(
+      normaliseNumber(overrides.signature?.count, 4, 1, 32),
+    ),
+    unit: normaliseUnit(overrides.signature?.unit, 4),
+  };
+  const subdivision = Math.round(
+    normaliseNumber(overrides.subdivision, 1, 1, 5),
+  );
   const steps = Array.isArray(overrides.steps)
-    ? overrides.steps.map(normaliseStep)
-    : createPattern(overrides.subdivision ?? overrides.pulses ?? 4);
+    ? resizePattern(
+        overrides.steps.map(normaliseStep),
+        signature.count * subdivision,
+      )
+    : createPattern(signature.count * subdivision);
 
   return {
     id: overrides.id || makeId(),
     name: String(overrides.name || "Rhythm"),
-    signature: {
-      count: Math.round(
-        normaliseNumber(overrides.signature?.count, 4, 1, 32),
-      ),
-      unit: normaliseUnit(overrides.signature?.unit, 4),
-    },
-    steps: steps.length ? steps.slice(0, 32) : createPattern(4),
+    signature,
+    subdivision,
+    steps,
     volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : "high",
@@ -883,7 +895,9 @@ function nextStepState(step) {
 }
 
 function resizePattern(steps, nextLength) {
-  const length = Math.round(normaliseNumber(nextLength, steps?.length || 4, 1, 32));
+  const length = Math.round(
+    normaliseNumber(nextLength, steps?.length || 4, 1, 160),
+  );
   const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
 
   return Array.from({ length }, (_, index) => {
@@ -904,58 +918,12 @@ function cycleDurationSeconds(bpm, signature) {
 }
 
 function stepDurationSeconds(bpm, layer) {
-  const stepCount = Math.max(1, layer?.steps?.length || 1);
-  return cycleDurationSeconds(bpm, layer?.signature) / stepCount;
-}
-
-function activeStepIndex(bpm, layer, transportOrigin, currentTime) {
-  if (currentTime < transportOrigin) return 0;
-  const duration = stepDurationSeconds(bpm, layer);
-  const absoluteStep = Math.floor((currentTime - transportOrigin) / duration);
-  return absoluteStep % layer.steps.length;
-}
-
-/**
- * Pure event generation used by tests and available for future export/MIDI work.
- */
-function eventsBetween({ bpm, layers }, fromTime, untilTime, origin = 0) {
-  if (untilTime <= fromTime) return [];
-
-  const events = [];
-
-  for (const layer of layers) {
-    const duration = stepDurationSeconds(bpm, layer);
-    const firstAbsoluteStep = Math.max(
-      0,
-      Math.ceil((fromTime - origin - Number.EPSILON) / duration),
-    );
-    const finalAbsoluteStep = Math.floor(
-      (untilTime - origin - Number.EPSILON) / duration,
-    );
-
-    for (
-      let absoluteStep = firstAbsoluteStep;
-      absoluteStep <= finalAbsoluteStep;
-      absoluteStep += 1
-    ) {
-      const patternIndex = absoluteStep % layer.steps.length;
-      const strength = layer.steps[patternIndex];
-      if (strength === STEP.REST || layer.muted) continue;
-
-      events.push({
-        layerId: layer.id,
-        absoluteStep,
-        patternIndex,
-        strength,
-        when: origin + absoluteStep * duration,
-      });
-    }
-  }
-
-  return events.sort((left, right) => {
-    if (left.when !== right.when) return left.when - right.when;
-    return left.layerId.localeCompare(right.layerId);
-  });
+  const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
+  const unit = normaliseUnit(layer?.signature?.unit, 4);
+  const subdivision = Math.round(
+    normaliseNumber(layer?.subdivision, 1, 1, 5),
+  );
+  return (60 / safeBpm) * (4 / unit) / subdivision;
 }
 
 const PRESET_NAMES = Object.freeze([
@@ -975,15 +943,15 @@ function createPreset(name) {
         layers: [
           createLayer({
             name: "Four",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            signature: { count: 1, unit: 4 },
+            subdivision: 4,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Three",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(3),
+            signature: { count: 1, unit: 4 },
+            subdivision: 3,
             pan: 0.72,
             sound: "low",
           }),
@@ -997,15 +965,15 @@ function createPreset(name) {
         layers: [
           createLayer({
             name: "Five",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(5),
+            signature: { count: 1, unit: 4 },
+            subdivision: 5,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Four",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            signature: { count: 1, unit: 4 },
+            subdivision: 4,
             pan: 0.72,
             sound: "low",
           }),
@@ -1020,14 +988,14 @@ function createPreset(name) {
           createLayer({
             name: "4/4",
             signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            subdivision: 1,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "3/4",
             signature: { count: 3, unit: 4 },
-            steps: createPattern(3),
+            subdivision: 1,
             pan: 0.72,
             sound: "low",
           }),
@@ -1042,6 +1010,7 @@ function createPreset(name) {
           createLayer({
             name: "7/8 · 2+2+3",
             signature: { count: 7, unit: 8 },
+            subdivision: 1,
             steps: [
               STEP.ACCENT,
               STEP.HIT,
@@ -1065,15 +1034,15 @@ function createPreset(name) {
         layers: [
           createLayer({
             name: "Three",
-            signature: { count: 2, unit: 4 },
-            steps: createPattern(3),
+            signature: { count: 1, unit: 4 },
+            subdivision: 3,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Two",
-            signature: { count: 2, unit: 4 },
-            steps: createPattern(2),
+            signature: { count: 1, unit: 4 },
+            subdivision: 2,
             pan: 0.72,
             sound: "low",
           }),
@@ -1088,6 +1057,116 @@ function panLabel(value) {
   const percentage = Math.round(Math.abs(pan) * 100);
   return pan < 0 ? `Left ${percentage}%` : `Right ${percentage}%`;
 }
+
+
+
+const LATENESS_TOLERANCE_SECONDS = 0.004;
+
+class SharedTransport {
+  #origin = 0;
+  #schedulingPosition = 0;
+  #timing = null;
+
+  get origin() {
+    return this.#origin;
+  }
+
+  start({ bpm, layers }, origin) {
+    this.#origin = origin;
+    this.#schedulingPosition = origin;
+    this.#timing = {
+      bpm,
+      layers: layers.map((layer) => ({
+        id: layer.id,
+        signature: { ...layer.signature },
+        subdivision: layer.subdivision,
+        steps: [...layer.steps],
+      })),
+    };
+  }
+
+  plan(currentTime, horizon) {
+    if (!this.#timing || horizon <= this.#schedulingPosition) return [];
+
+    const events = [];
+    const fromTime = this.#schedulingPosition;
+    const candidateFromTime = Math.max(
+      fromTime,
+      currentTime - LATENESS_TOLERANCE_SECONDS,
+    );
+
+    for (const layer of this.#timing.layers) {
+      const duration = stepDurationSeconds(this.#timing.bpm, layer);
+      const firstAbsoluteStep = Math.max(
+        0,
+        Math.floor((candidateFromTime - this.#origin) / duration),
+      );
+      const finalAbsoluteStep = Math.ceil(
+        (horizon - this.#origin) / duration,
+      );
+
+      for (
+        let absoluteStep = firstAbsoluteStep;
+        absoluteStep <= finalAbsoluteStep;
+        absoluteStep += 1
+      ) {
+        const patternPosition = absoluteStep % layer.steps.length;
+        const strength = layer.steps[patternPosition];
+        const audioTime = this.#origin + absoluteStep * duration;
+        if (
+          strength === STEP.REST ||
+          audioTime < fromTime ||
+          audioTime >= horizon ||
+          audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
+        ) {
+          continue;
+        }
+
+        events.push({
+          layerId: layer.id,
+          absoluteStep,
+          patternPosition,
+          strength,
+          audioTime,
+        });
+      }
+    }
+
+    this.#schedulingPosition = horizon;
+    return events.sort((left, right) => {
+      if (left.audioTime !== right.audioTime) {
+        return left.audioTime - right.audioTime;
+      }
+      return left.layerId.localeCompare(right.layerId);
+    });
+  }
+
+  patternPosition(layerId, currentTime) {
+    const layer = this.#timing?.layers.find(
+      (candidate) => candidate.id === layerId,
+    );
+    if (!layer) return null;
+    if (currentTime < this.#origin) return 0;
+
+    const duration = stepDurationSeconds(this.#timing.bpm, layer);
+    let absoluteStep = Math.floor((currentTime - this.#origin) / duration);
+
+    while (
+      this.#origin + (absoluteStep + 1) * duration <= currentTime
+    ) {
+      absoluteStep += 1;
+    }
+    while (
+      absoluteStep > 0 &&
+      this.#origin + absoluteStep * duration > currentTime
+    ) {
+      absoluteStep -= 1;
+    }
+
+    return absoluteStep % layer.steps.length;
+  }
+}
+
 
 
 
@@ -1107,9 +1186,8 @@ class MetronomeEngine extends EventTarget {
   #layers = new Map();
   #state = null;
   #playing = false;
-  #origin = 0;
+  #transport = new SharedTransport();
   #timer = null;
-  #nextSteps = new Map();
   #scheduledSources = new Set();
 
   get playing() {
@@ -1117,7 +1195,7 @@ class MetronomeEngine extends EventTarget {
   }
 
   get origin() {
-    return this.#origin;
+    return this.#transport.origin;
   }
 
   get currentTime() {
@@ -1135,12 +1213,28 @@ class MetronomeEngine extends EventTarget {
     this.stop({ preserveContext: true, emit: false });
     this.#state = state;
     this.#playing = true;
-    this.#origin = this.#context.currentTime + START_DELAY_SECONDS;
-    this.#nextSteps.clear();
+    this.#transport.start(
+      state,
+      this.#context.currentTime + START_DELAY_SECONDS,
+    );
     this.#syncNodes();
-    this.#schedule();
+    try {
+      this.#schedule();
+    } catch (error) {
+      this.stop({ preserveContext: true, emit: false });
+      throw error;
+    }
     this.#timer = window.setInterval(
-      () => this.#schedule(),
+      () => {
+        try {
+          this.#schedule();
+        } catch (error) {
+          this.stop();
+          this.dispatchEvent(
+            new CustomEvent("audioerror", { detail: error }),
+          );
+        }
+      },
       SCHEDULER_INTERVAL_MS,
     );
     this.dispatchEvent(new Event("playstate"));
@@ -1153,7 +1247,6 @@ class MetronomeEngine extends EventTarget {
     }
 
     this.#playing = false;
-    this.#nextSteps.clear();
 
     for (const source of this.#scheduledSources) {
       try {
@@ -1205,12 +1298,7 @@ class MetronomeEngine extends EventTarget {
 
   activeStep(layer) {
     if (!this.#playing || !this.#context) return null;
-    return activeStepIndex(
-      this.#state.bpm,
-      layer,
-      this.#origin,
-      this.#context.currentTime,
-    );
+    return this.#transport.patternPosition(layer.id, this.#context.currentTime);
   }
 
   #ensureContext() {
@@ -1277,25 +1365,14 @@ class MetronomeEngine extends EventTarget {
 
     this.#syncNodes();
 
-    for (const layer of this.#state.layers) {
-      const stepDuration = stepDurationSeconds(this.#state.bpm, layer);
-      let absoluteStep = this.#nextSteps.get(layer.id) ?? 0;
-      let when = this.#origin + absoluteStep * stepDuration;
-
-      while (when < horizon) {
-        if (when >= now - 0.004) {
-          const patternIndex = absoluteStep % layer.steps.length;
-          const strength = layer.steps[patternIndex];
-          if (strength !== STEP.REST && !layer.muted) {
-            this.#scheduleClick(layer, strength, when);
-          }
-        }
-
-        absoluteStep += 1;
-        when = this.#origin + absoluteStep * stepDuration;
+    const layersById = new Map(
+      this.#state.layers.map((layer) => [layer.id, layer]),
+    );
+    for (const event of this.#transport.plan(now, horizon)) {
+      const layer = layersById.get(event.layerId);
+      if (layer) {
+        this.#scheduleClick(layer, event.strength, event.audioTime);
       }
-
-      this.#nextSteps.set(layer.id, absoluteStep);
     }
   }
 
@@ -1336,8 +1413,8 @@ class MetronomeEngine extends EventTarget {
 
 
 
-const STORAGE_KEY = "polynome:v1";
-const LEGACY_STORAGE_KEY = "polyrhythm-metronome:v1";
+const STORAGE_KEY = "polynome";
+const RETIRED_STORAGE_KEYS = ["polynome:v1", "polyrhythm-metronome:v1"];
 
 const elements = {
   play: document.querySelector("#play-button"),
@@ -1361,7 +1438,8 @@ let animationFrame = null;
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+    for (const key of RETIRED_STORAGE_KEYS) localStorage.removeItem(key);
+    const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? normaliseState(JSON.parse(raw)) : createDefaultState();
   } catch {
     return createDefaultState();
@@ -1436,6 +1514,10 @@ function layerTemplate(layer, index) {
     const label = sound.charAt(0).toUpperCase() + sound.slice(1);
     return `<option value="${sound}"${sound === layer.sound ? " selected" : ""}>${label}</option>`;
   }).join("");
+  const subdivisionChoices = subdivisionOptions(
+    layer.signature.unit,
+    layer.subdivision,
+  );
 
   return `
     <article class="layer-card${layer.muted ? " is-muted" : ""}" data-layer-id="${layer.id}">
@@ -1481,10 +1563,10 @@ function layerTemplate(layer, index) {
                 inputmode="numeric"
                 value="${layer.signature.count}"
                 data-field="signature-count"
-                aria-label="Cycle numerator"
+                aria-label="Meter numerator"
               />
               <span aria-hidden="true">/</span>
-              <select data-field="signature-unit" aria-label="Cycle denominator">
+              <select data-field="signature-unit" aria-label="Meter denominator">
                 ${unitOptions}
               </select>
             </span>
@@ -1492,16 +1574,11 @@ function layerTemplate(layer, index) {
 
           <label class="compact-control">
             <span>Subdivision</span>
-            <input
-              class="small-number"
-              type="number"
-              min="1"
-              max="32"
-              inputmode="numeric"
-              value="${layer.steps.length}"
+            <select
+              class="subdivision-select"
               data-field="subdivision"
-              aria-label="${escapeHtml(layer.name)} subdivision"
-            />
+              aria-label="${escapeHtml(layer.name)} subdivision per signature unit"
+            >${subdivisionChoices}</select>
           </label>
         </div>
 
@@ -1550,6 +1627,30 @@ function layerTemplate(layer, index) {
       </div>
     </article>
   `;
+}
+
+function subdivisionOptions(unit, selected) {
+  const unitNames = {
+    1: "whole note",
+    2: "half note",
+    4: "quarter note",
+    8: "eighth note",
+    16: "sixteenth note",
+    32: "thirty-second note",
+  };
+  const unitName = unitNames[unit] || "signature unit";
+
+  return [1, 2, 3, 4, 5]
+    .map((subdivision) => {
+      const pulseLabel = subdivision === 1 ? "pulse" : "pulses";
+      const qualifier = subdivision === 3
+        ? " (triplet)"
+        : subdivision === 5
+          ? " (quintuplet)"
+          : "";
+      return `<option value="${subdivision}"${subdivision === selected ? " selected" : ""}>${subdivision} ${pulseLabel} per ${unitName}${qualifier}</option>`;
+    })
+    .join("");
 }
 
 function stepTemplate(layer, step, stepIndex) {
@@ -1687,7 +1788,7 @@ elements.addLayer.addEventListener("click", () => {
   const layer = createLayer({
     name: `Rhythm ${index + 1}`,
     signature: { count: 4, unit: 4 },
-    subdivision: 4,
+    subdivision: 1,
     pan,
     sound: index % 2 === 0 ? "high" : "low",
   });
@@ -1821,7 +1922,7 @@ elements.layers.addEventListener("change", (event) => {
         layer.id,
         (current) => ({
           ...current,
-          steps: resizePattern(current.steps, event.target.value),
+          subdivision: Number(event.target.value),
         }),
         { restart: true },
       );
@@ -1841,6 +1942,8 @@ engine.addEventListener("playstate", () => {
   updatePlayButton();
   if (engine.playing) startAnimation();
 });
+
+engine.addEventListener("audioerror", (event) => showError(event.detail));
 
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat) return;
@@ -1868,6 +1971,7 @@ function sameMusicalState(left, right) {
       layer.name === comparison.name &&
       layer.signature.count === comparison.signature.count &&
       layer.signature.unit === comparison.signature.unit &&
+      layer.subdivision === comparison.subdivision &&
       layer.steps.join(",") === comparison.steps.join(",") &&
       Math.abs(layer.pan - comparison.pan) < 0.001 &&
       layer.sound === comparison.sound

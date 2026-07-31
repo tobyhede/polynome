@@ -9,13 +9,15 @@ const names = {
   app: `app-${version}.js`,
   metronome: `metronome-${version}.js`,
   model: `model-${version}.js`,
+  sharedTransport: `shared-transport-${version}.js`,
   styles: `styles-${version}.css`,
 };
 
-const [html, styles, model, metronome, app] = await Promise.all([
+const [html, styles, model, sharedTransport, metronome, app] = await Promise.all([
   readFile(join(root, "index.html"), "utf8"),
   readFile(join(root, "styles.css"), "utf8"),
   readFile(join(root, "model.js"), "utf8"),
+  readFile(join(root, "shared-transport.js"), "utf8"),
   readFile(join(root, "metronome.js"), "utf8"),
   readFile(join(root, "app.js"), "utf8"),
 ]);
@@ -23,7 +25,13 @@ const [html, styles, model, metronome, app] = await Promise.all([
 const siteHtml = html
   .replace("./styles.css", `./${names.styles}`)
   .replace("./app.js", `./${names.app}`);
-const siteMetronome = metronome.replace("./model.js", `./${names.model}`);
+const siteSharedTransport = sharedTransport.replace(
+  "./model.js",
+  `./${names.model}`,
+);
+const siteMetronome = metronome
+  .replace("./model.js", `./${names.model}`)
+  .replace("./shared-transport.js", `./${names.sharedTransport}`);
 const siteApp = app
   .replace("./metronome.js", `./${names.metronome}`)
   .replace("./model.js", `./${names.model}`);
@@ -33,6 +41,7 @@ await Promise.all([
   writeFile(join(output, "index.html"), siteHtml),
   writeFile(join(output, names.styles), styles),
   writeFile(join(output, names.model), model),
+  writeFile(join(output, names.sharedTransport), siteSharedTransport),
   writeFile(join(output, names.metronome), siteMetronome),
   writeFile(join(output, names.app), siteApp),
   writeFile(join(output, ".nojekyll"), ""),

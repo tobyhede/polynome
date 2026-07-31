@@ -24,27 +24,35 @@ export function normaliseNumber(value, fallback, min, max) {
 }
 
 export function createPattern(length, firstStep = STEP.ACCENT) {
-  const safeLength = Math.round(normaliseNumber(length, 4, 1, 32));
+  const safeLength = Math.round(normaliseNumber(length, 4, 1, 160));
   return Array.from({ length: safeLength }, (_, index) =>
     index === 0 ? firstStep : STEP.HIT,
   );
 }
 
 export function createLayer(overrides = {}) {
+  const signature = {
+    count: Math.round(
+      normaliseNumber(overrides.signature?.count, 4, 1, 32),
+    ),
+    unit: normaliseUnit(overrides.signature?.unit, 4),
+  };
+  const subdivision = Math.round(
+    normaliseNumber(overrides.subdivision, 1, 1, 5),
+  );
   const steps = Array.isArray(overrides.steps)
-    ? overrides.steps.map(normaliseStep)
-    : createPattern(overrides.subdivision ?? overrides.pulses ?? 4);
+    ? resizePattern(
+        overrides.steps.map(normaliseStep),
+        signature.count * subdivision,
+      )
+    : createPattern(signature.count * subdivision);
 
   return {
     id: overrides.id || makeId(),
     name: String(overrides.name || "Rhythm"),
-    signature: {
-      count: Math.round(
-        normaliseNumber(overrides.signature?.count, 4, 1, 32),
-      ),
-      unit: normaliseUnit(overrides.signature?.unit, 4),
-    },
-    steps: steps.length ? steps.slice(0, 32) : createPattern(4),
+    signature,
+    subdivision,
+    steps,
     volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : "high",
@@ -90,7 +98,9 @@ export function nextStepState(step) {
 }
 
 export function resizePattern(steps, nextLength) {
-  const length = Math.round(normaliseNumber(nextLength, steps?.length || 4, 1, 32));
+  const length = Math.round(
+    normaliseNumber(nextLength, steps?.length || 4, 1, 160),
+  );
   const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
 
   return Array.from({ length }, (_, index) => {
@@ -111,58 +121,12 @@ export function cycleDurationSeconds(bpm, signature) {
 }
 
 export function stepDurationSeconds(bpm, layer) {
-  const stepCount = Math.max(1, layer?.steps?.length || 1);
-  return cycleDurationSeconds(bpm, layer?.signature) / stepCount;
-}
-
-export function activeStepIndex(bpm, layer, transportOrigin, currentTime) {
-  if (currentTime < transportOrigin) return 0;
-  const duration = stepDurationSeconds(bpm, layer);
-  const absoluteStep = Math.floor((currentTime - transportOrigin) / duration);
-  return absoluteStep % layer.steps.length;
-}
-
-/**
- * Pure event generation used by tests and available for future export/MIDI work.
- */
-export function eventsBetween({ bpm, layers }, fromTime, untilTime, origin = 0) {
-  if (untilTime <= fromTime) return [];
-
-  const events = [];
-
-  for (const layer of layers) {
-    const duration = stepDurationSeconds(bpm, layer);
-    const firstAbsoluteStep = Math.max(
-      0,
-      Math.ceil((fromTime - origin - Number.EPSILON) / duration),
-    );
-    const finalAbsoluteStep = Math.floor(
-      (untilTime - origin - Number.EPSILON) / duration,
-    );
-
-    for (
-      let absoluteStep = firstAbsoluteStep;
-      absoluteStep <= finalAbsoluteStep;
-      absoluteStep += 1
-    ) {
-      const patternIndex = absoluteStep % layer.steps.length;
-      const strength = layer.steps[patternIndex];
-      if (strength === STEP.REST || layer.muted) continue;
-
-      events.push({
-        layerId: layer.id,
-        absoluteStep,
-        patternIndex,
-        strength,
-        when: origin + absoluteStep * duration,
-      });
-    }
-  }
-
-  return events.sort((left, right) => {
-    if (left.when !== right.when) return left.when - right.when;
-    return left.layerId.localeCompare(right.layerId);
-  });
+  const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
+  const unit = normaliseUnit(layer?.signature?.unit, 4);
+  const subdivision = Math.round(
+    normaliseNumber(layer?.subdivision, 1, 1, 5),
+  );
+  return (60 / safeBpm) * (4 / unit) / subdivision;
 }
 
 export const PRESET_NAMES = Object.freeze([
@@ -182,15 +146,15 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Four",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            signature: { count: 1, unit: 4 },
+            subdivision: 4,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Three",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(3),
+            signature: { count: 1, unit: 4 },
+            subdivision: 3,
             pan: 0.72,
             sound: "low",
           }),
@@ -204,15 +168,15 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Five",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(5),
+            signature: { count: 1, unit: 4 },
+            subdivision: 5,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Four",
-            signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            signature: { count: 1, unit: 4 },
+            subdivision: 4,
             pan: 0.72,
             sound: "low",
           }),
@@ -227,14 +191,14 @@ export function createPreset(name) {
           createLayer({
             name: "4/4",
             signature: { count: 4, unit: 4 },
-            steps: createPattern(4),
+            subdivision: 1,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "3/4",
             signature: { count: 3, unit: 4 },
-            steps: createPattern(3),
+            subdivision: 1,
             pan: 0.72,
             sound: "low",
           }),
@@ -249,6 +213,7 @@ export function createPreset(name) {
           createLayer({
             name: "7/8 · 2+2+3",
             signature: { count: 7, unit: 8 },
+            subdivision: 1,
             steps: [
               STEP.ACCENT,
               STEP.HIT,
@@ -272,15 +237,15 @@ export function createPreset(name) {
         layers: [
           createLayer({
             name: "Three",
-            signature: { count: 2, unit: 4 },
-            steps: createPattern(3),
+            signature: { count: 1, unit: 4 },
+            subdivision: 3,
             pan: -0.72,
             sound: "high",
           }),
           createLayer({
             name: "Two",
-            signature: { count: 2, unit: 4 },
-            steps: createPattern(2),
+            signature: { count: 1, unit: 4 },
+            subdivision: 2,
             pan: 0.72,
             sound: "low",
           }),

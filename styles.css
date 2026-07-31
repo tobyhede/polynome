@@ -407,7 +407,7 @@ h2 {
 
 .layer-body {
   display: grid;
-  grid-template-columns: 210px minmax(240px, 1fr);
+  grid-template-columns: minmax(300px, 0.8fr) minmax(240px, 1.2fr);
   gap: 24px 30px;
   padding: 23px 24px 25px;
   transition: opacity 120ms ease;
@@ -415,7 +415,7 @@ h2 {
 
 .rhythm-setup {
   display: grid;
-  grid-template-columns: 1fr 82px;
+  grid-template-columns: 1fr minmax(190px, 1.4fr);
   gap: 10px;
   align-self: start;
 }
@@ -438,7 +438,7 @@ h2 {
 
 .signature-input input,
 .signature-input select,
-.small-number,
+.subdivision-select,
 .sound-control select {
   height: 38px;
   padding: 7px;
@@ -449,18 +449,22 @@ h2 {
   padding-right: 3px;
 }
 
-.small-number {
+.subdivision-select {
   width: 100%;
+  text-align: left;
 }
 
 .pattern-wrap {
   min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .pattern {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 9px;
+  width: max-content;
   min-height: 44px;
   align-items: center;
 }
@@ -638,7 +642,7 @@ h2 {
   }
 
   .rhythm-setup {
-    max-width: 220px;
+    max-width: 430px;
   }
 
   .mix-grid {

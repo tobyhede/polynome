@@ -3,11 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   STEP,
-  activeStepIndex,
   createLayer,
   createPreset,
   cycleDurationSeconds,
-  eventsBetween,
   nextStepState,
   normaliseState,
   resizePattern,
@@ -27,21 +25,78 @@ test("cycle duration uses quarter-note BPM as the shared reference", () => {
   closeTo(cycleDurationSeconds(60, { count: 3, unit: 4 }), 3);
 });
 
-test("3:2 produces three and two evenly spaced events in one shared cycle", () => {
-  const state = createPreset("3:2");
-  const cycle = cycleDurationSeconds(state.bpm, state.layers[0].signature);
-  const events = eventsBetween(state, 0, cycle, 0);
+test("a rhythm layer creates one pattern position per meter-relative pulse", () => {
+  const layer = createLayer({
+    signature: { count: 4, unit: 4 },
+    subdivision: 3,
+  });
 
-  const three = events.filter((event) => event.layerId === state.layers[0].id);
-  const two = events.filter((event) => event.layerId === state.layers[1].id);
+  assert.equal(layer.subdivision, 3);
+  assert.equal(layer.steps.length, 12);
+});
 
-  assert.equal(three.length, 3);
-  assert.equal(two.length, 2);
-  closeTo(three[0].when, 0);
-  closeTo(three[1].when, cycle / 3);
-  closeTo(three[2].when, (cycle * 2) / 3);
-  closeTo(two[0].when, 0);
-  closeTo(two[1].when, cycle / 2);
+test("a rhythm layer preserves supplied emphasis while filling its meter-relative grid", () => {
+  const layer = createLayer({
+    signature: { count: 2, unit: 4 },
+    subdivision: 2,
+    steps: [STEP.ACCENT, STEP.REST],
+  });
+
+  assert.deepEqual(layer.steps, [
+    STEP.ACCENT,
+    STEP.REST,
+    STEP.HIT,
+    STEP.HIT,
+  ]);
+});
+
+test("state normalisation clamps subdivision and keeps the full meter-relative grid", () => {
+  const state = normaliseState({
+    layers: [
+      {
+        signature: { count: 32, unit: 4 },
+        subdivision: 99,
+        steps: [STEP.ACCENT, STEP.REST],
+      },
+    ],
+  });
+
+  assert.equal(state.layers[0].subdivision, 5);
+  assert.equal(state.layers[0].steps.length, 160);
+  assert.deepEqual(state.layers[0].steps.slice(0, 2), [
+    STEP.ACCENT,
+    STEP.REST,
+  ]);
+});
+
+test("meter and subdivision edits resize the pattern while preserving emphasis", () => {
+  const original = createLayer({
+    signature: { count: 2, unit: 4 },
+    subdivision: 2,
+    steps: [STEP.ACCENT, STEP.REST, STEP.HIT, STEP.ACCENT],
+  });
+  const widerMeter = createLayer({
+    ...original,
+    signature: { ...original.signature, count: 3 },
+  });
+  const simplerGrid = createLayer({
+    ...widerMeter,
+    subdivision: 1,
+  });
+
+  assert.deepEqual(widerMeter.steps, [
+    STEP.ACCENT,
+    STEP.REST,
+    STEP.HIT,
+    STEP.ACCENT,
+    STEP.HIT,
+    STEP.HIT,
+  ]);
+  assert.deepEqual(simplerGrid.steps, [
+    STEP.ACCENT,
+    STEP.REST,
+    STEP.HIT,
+  ]);
 });
 
 test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
@@ -57,32 +112,64 @@ test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
   closeTo(threeCycle * 4, 6);
 });
 
-test("rests never generate audio events", () => {
-  const layer = createLayer({
-    id: "rests",
-    signature: { count: 4, unit: 4 },
-    steps: [STEP.ACCENT, STEP.REST, STEP.HIT, STEP.REST],
-  });
-  const state = { bpm: 120, layers: [layer] };
-  const events = eventsBetween(state, 0, 2, 0);
+test("ratio presets use paired subdivisions over one shared quarter-note meter", () => {
+  for (const [name, subdivisions] of [
+    ["3:2", [3, 2]],
+    ["4:3", [4, 3]],
+    ["5:4", [5, 4]],
+  ]) {
+    const layers = createPreset(name).layers;
 
-  assert.deepEqual(
-    events.map((event) => event.patternIndex),
-    [0, 2],
-  );
+    assert.deepEqual(
+      layers.map((layer) => layer.signature),
+      [
+        { count: 1, unit: 4 },
+        { count: 1, unit: 4 },
+      ],
+    );
+    assert.deepEqual(
+      layers.map((layer) => layer.subdivision),
+      subdivisions,
+    );
+    assert.deepEqual(
+      layers.map((layer) => layer.steps.length),
+      subdivisions,
+    );
+  }
 });
 
-test("step timing is derived from the transport origin and does not accumulate", () => {
+test("meter presets use one pulse per signature unit and pattern-only emphasis", () => {
+  const polymeter = createPreset("4/4 + 3/4");
+  const sevenEight = createPreset("7/8 · 2+2+3").layers[0];
+
+  assert.deepEqual(
+    polymeter.layers.map((layer) => ({
+      subdivision: layer.subdivision,
+      positions: layer.steps.length,
+    })),
+    [
+      { subdivision: 1, positions: 4 },
+      { subdivision: 1, positions: 3 },
+    ],
+  );
+  assert.equal(sevenEight.subdivision, 1);
+  assert.equal(sevenEight.steps.length, 7);
+  assert.deepEqual(
+    sevenEight.steps
+      .map((step, index) => step === STEP.ACCENT ? index : null)
+      .filter((index) => index !== null),
+    [0, 2, 4],
+  );
+  assert.equal("groups" in sevenEight, false);
+});
+
+test("step duration follows subdivision within each signature unit", () => {
   const layer = createLayer({
     signature: { count: 4, unit: 4 },
-    steps: [STEP.ACCENT, STEP.HIT, STEP.HIT],
+    subdivision: 3,
   });
-  const duration = stepDurationSeconds(137, layer);
-  const origin = 1.234;
-  const active = activeStepIndex(137, layer, origin, origin + duration * 2002.2);
 
-  assert.equal(active, 1);
-  closeTo(origin + duration * 2002, origin + duration * 2002);
+  closeTo(stepDurationSeconds(120, layer), 1 / 6);
 });
 
 test("pattern states cycle accent to hit to rest to accent", () => {

@@ -3,10 +3,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const [html, css, model, metronome, app] = await Promise.all([
+const [html, css, model, sharedTransport, metronome, app] = await Promise.all([
   readFile(join(root, "index.html"), "utf8"),
   readFile(join(root, "styles.css"), "utf8"),
   readFile(join(root, "model.js"), "utf8"),
+  readFile(join(root, "shared-transport.js"), "utf8"),
   readFile(join(root, "metronome.js"), "utf8"),
   readFile(join(root, "app.js"), "utf8"),
 ]);
@@ -22,6 +23,7 @@ function withoutExports(source) {
 const javascript = [
   "'use strict';",
   withoutExports(withoutImports(model)),
+  withoutExports(withoutImports(sharedTransport)),
   withoutExports(withoutImports(metronome)),
   withoutExports(withoutImports(app)),
 ].join("\n\n");

@@ -1,8 +1,5 @@
-import {
-  STEP,
-  activeStepIndex,
-  stepDurationSeconds,
-} from "./model.js";
+import { STEP } from "./model.js";
+import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
@@ -20,9 +17,8 @@ export class MetronomeEngine extends EventTarget {
   #layers = new Map();
   #state = null;
   #playing = false;
-  #origin = 0;
+  #transport = new SharedTransport();
   #timer = null;
-  #nextSteps = new Map();
   #scheduledSources = new Set();
 
   get playing() {
@@ -30,7 +26,7 @@ export class MetronomeEngine extends EventTarget {
   }
 
   get origin() {
-    return this.#origin;
+    return this.#transport.origin;
   }
 
   get currentTime() {
@@ -48,12 +44,28 @@ export class MetronomeEngine extends EventTarget {
     this.stop({ preserveContext: true, emit: false });
     this.#state = state;
     this.#playing = true;
-    this.#origin = this.#context.currentTime + START_DELAY_SECONDS;
-    this.#nextSteps.clear();
+    this.#transport.start(
+      state,
+      this.#context.currentTime + START_DELAY_SECONDS,
+    );
     this.#syncNodes();
-    this.#schedule();
+    try {
+      this.#schedule();
+    } catch (error) {
+      this.stop({ preserveContext: true, emit: false });
+      throw error;
+    }
     this.#timer = window.setInterval(
-      () => this.#schedule(),
+      () => {
+        try {
+          this.#schedule();
+        } catch (error) {
+          this.stop();
+          this.dispatchEvent(
+            new CustomEvent("audioerror", { detail: error }),
+          );
+        }
+      },
       SCHEDULER_INTERVAL_MS,
     );
     this.dispatchEvent(new Event("playstate"));
@@ -66,7 +78,6 @@ export class MetronomeEngine extends EventTarget {
     }
 
     this.#playing = false;
-    this.#nextSteps.clear();
 
     for (const source of this.#scheduledSources) {
       try {
@@ -118,12 +129,7 @@ export class MetronomeEngine extends EventTarget {
 
   activeStep(layer) {
     if (!this.#playing || !this.#context) return null;
-    return activeStepIndex(
-      this.#state.bpm,
-      layer,
-      this.#origin,
-      this.#context.currentTime,
-    );
+    return this.#transport.patternPosition(layer.id, this.#context.currentTime);
   }
 
   #ensureContext() {
@@ -190,25 +196,14 @@ export class MetronomeEngine extends EventTarget {
 
     this.#syncNodes();
 
-    for (const layer of this.#state.layers) {
-      const stepDuration = stepDurationSeconds(this.#state.bpm, layer);
-      let absoluteStep = this.#nextSteps.get(layer.id) ?? 0;
-      let when = this.#origin + absoluteStep * stepDuration;
-
-      while (when < horizon) {
-        if (when >= now - 0.004) {
-          const patternIndex = absoluteStep % layer.steps.length;
-          const strength = layer.steps[patternIndex];
-          if (strength !== STEP.REST && !layer.muted) {
-            this.#scheduleClick(layer, strength, when);
-          }
-        }
-
-        absoluteStep += 1;
-        when = this.#origin + absoluteStep * stepDuration;
+    const layersById = new Map(
+      this.#state.layers.map((layer) => [layer.id, layer]),
+    );
+    for (const event of this.#transport.plan(now, horizon)) {
+      const layer = layersById.get(event.layerId);
+      if (layer) {
+        this.#scheduleClick(layer, event.strength, event.audioTime);
       }
-
-      this.#nextSteps.set(layer.id, absoluteStep);
     }
   }
 

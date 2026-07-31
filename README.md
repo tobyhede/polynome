@@ -4,7 +4,7 @@ A deliberately small browser metronome with:
 
 - multiple independent rhythm layers
 - polyrhythm and polymeter presets
-- editable cycle/signature and subdivision per layer
+- editable meter and subdivision per signature unit for every layer
 - accent, hit, and rest steps
 - independent volume and stereo pan for each rhythm
 - sample-accurate Web Audio scheduling from one shared transport clock
@@ -48,16 +48,17 @@ npm run check
 
 Each layer has:
 
-- a cycle such as `2/4`, `4/4`, or `7/8`
-- an evenly spaced subdivision pattern within that cycle
+- a meter such as `1/4`, `4/4`, or `7/8`
+- a subdivision of 1–5 equal pulses within each signature unit
+- exactly `signature count × subdivision` editable pattern positions
 - a pattern containing accents, hits, and rests
 - its own sound, volume, mute state, and stereo position
 
 Examples:
 
-- `3:2`: two layers share a `2/4` cycle; one uses a triplet subdivision and one uses a half-note subdivision.
+- `3:2`: two layers share a `1/4` meter with three and two pulses per quarter respectively.
 - `4/4 + 3/4`: each layer has a different cycle length, so their downbeats realign after 12 quarter notes.
-- `7/8 · 2+2+3`: one custom seven-step subdivision accents steps 1, 3, and 5.
+- `7/8 · 2+2+3`: seven eighth-note positions use accents at steps 1, 3, and 5; grouping is not stored separately.
 
 Tempo is always expressed as quarter-note BPM (`♩ BPM`).
 
@@ -78,6 +79,7 @@ index.html       Interface shell
 styles.css       Responsive visual design
 app.js           UI state, persistence, and interaction
 model.js         Pure rhythm model and timing maths
+shared-transport.js  Stateful meter-relative event planning and playhead
 metronome.js     Web Audio graph and look-ahead scheduler
 server.mjs       Zero-dependency local static server
 scripts/          Single-file bundler
@@ -88,6 +90,6 @@ test/            Node built-in tests
 ## Current limitations
 
 - Tempo reference is fixed to the quarter note.
-- Changes to cycle or subdivision restart the shared transport when playing.
+- Changes to meter or subdivision restart the shared transport when playing.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.

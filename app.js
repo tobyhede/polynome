@@ -11,11 +11,10 @@ import {
   normaliseNumber,
   normaliseState,
   panLabel,
-  resizePattern,
 } from "./model.js";
 
-const STORAGE_KEY = "polynome:v1";
-const LEGACY_STORAGE_KEY = "polyrhythm-metronome:v1";
+const STORAGE_KEY = "polynome";
+const RETIRED_STORAGE_KEYS = ["polynome:v1", "polyrhythm-metronome:v1"];
 
 const elements = {
   play: document.querySelector("#play-button"),
@@ -39,7 +38,8 @@ let animationFrame = null;
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+    for (const key of RETIRED_STORAGE_KEYS) localStorage.removeItem(key);
+    const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? normaliseState(JSON.parse(raw)) : createDefaultState();
   } catch {
     return createDefaultState();
@@ -114,6 +114,10 @@ function layerTemplate(layer, index) {
     const label = sound.charAt(0).toUpperCase() + sound.slice(1);
     return `<option value="${sound}"${sound === layer.sound ? " selected" : ""}>${label}</option>`;
   }).join("");
+  const subdivisionChoices = subdivisionOptions(
+    layer.signature.unit,
+    layer.subdivision,
+  );
 
   return `
     <article class="layer-card${layer.muted ? " is-muted" : ""}" data-layer-id="${layer.id}">
@@ -159,10 +163,10 @@ function layerTemplate(layer, index) {
                 inputmode="numeric"
                 value="${layer.signature.count}"
                 data-field="signature-count"
-                aria-label="Cycle numerator"
+                aria-label="Meter numerator"
               />
               <span aria-hidden="true">/</span>
-              <select data-field="signature-unit" aria-label="Cycle denominator">
+              <select data-field="signature-unit" aria-label="Meter denominator">
                 ${unitOptions}
               </select>
             </span>
@@ -170,16 +174,11 @@ function layerTemplate(layer, index) {
 
           <label class="compact-control">
             <span>Subdivision</span>
-            <input
-              class="small-number"
-              type="number"
-              min="1"
-              max="32"
-              inputmode="numeric"
-              value="${layer.steps.length}"
+            <select
+              class="subdivision-select"
               data-field="subdivision"
-              aria-label="${escapeHtml(layer.name)} subdivision"
-            />
+              aria-label="${escapeHtml(layer.name)} subdivision per signature unit"
+            >${subdivisionChoices}</select>
           </label>
         </div>
 
@@ -228,6 +227,30 @@ function layerTemplate(layer, index) {
       </div>
     </article>
   `;
+}
+
+function subdivisionOptions(unit, selected) {
+  const unitNames = {
+    1: "whole note",
+    2: "half note",
+    4: "quarter note",
+    8: "eighth note",
+    16: "sixteenth note",
+    32: "thirty-second note",
+  };
+  const unitName = unitNames[unit] || "signature unit";
+
+  return [1, 2, 3, 4, 5]
+    .map((subdivision) => {
+      const pulseLabel = subdivision === 1 ? "pulse" : "pulses";
+      const qualifier = subdivision === 3
+        ? " (triplet)"
+        : subdivision === 5
+          ? " (quintuplet)"
+          : "";
+      return `<option value="${subdivision}"${subdivision === selected ? " selected" : ""}>${subdivision} ${pulseLabel} per ${unitName}${qualifier}</option>`;
+    })
+    .join("");
 }
 
 function stepTemplate(layer, step, stepIndex) {
@@ -365,7 +388,7 @@ elements.addLayer.addEventListener("click", () => {
   const layer = createLayer({
     name: `Rhythm ${index + 1}`,
     signature: { count: 4, unit: 4 },
-    subdivision: 4,
+    subdivision: 1,
     pan,
     sound: index % 2 === 0 ? "high" : "low",
   });
@@ -499,7 +522,7 @@ elements.layers.addEventListener("change", (event) => {
         layer.id,
         (current) => ({
           ...current,
-          steps: resizePattern(current.steps, event.target.value),
+          subdivision: Number(event.target.value),
         }),
         { restart: true },
       );
@@ -519,6 +542,8 @@ engine.addEventListener("playstate", () => {
   updatePlayButton();
   if (engine.playing) startAnimation();
 });
+
+engine.addEventListener("audioerror", (event) => showError(event.detail));
 
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat) return;
@@ -546,6 +571,7 @@ function sameMusicalState(left, right) {
       layer.name === comparison.name &&
       layer.signature.count === comparison.signature.count &&
       layer.signature.unit === comparison.signature.unit &&
+      layer.subdivision === comparison.subdivision &&
       layer.steps.join(",") === comparison.steps.join(",") &&
       Math.abs(layer.pan - comparison.pan) < 0.001 &&
       layer.sound === comparison.sound
