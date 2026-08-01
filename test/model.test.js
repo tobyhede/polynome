@@ -2,14 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  PRESET_NAMES,
   STEP,
   createDefaultState,
   createLayer,
   createPreset,
+  cycleSpanSeconds,
   cycleDurationSeconds,
   nextStepState,
   normaliseState,
   resizePattern,
+  sequenceSummary,
   stepDurationSeconds,
 } from "../model.js";
 
@@ -20,16 +23,46 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
   );
 };
 
-test("the application loads the 3:2 preset in 2/4", () => {
+test("the application loads one cycle containing one 4/4 rhythm", () => {
   const state = createDefaultState();
 
-  assert.deepEqual(
-    state.layers.map((layer) => layer.signature),
-    [
-      { count: 2, unit: 4 },
-      { count: 2, unit: 4 },
+  assert.equal(state.cycles.length, 1);
+  assert.equal(state.cycles[0].repetitions, 1);
+  assert.deepEqual(state.cycles[0].rhythms.map((layer) => ({
+    signature: layer.signature,
+    subdivision: layer.subdivision,
+    positions: layer.steps.length,
+  })), [
+    {
+      signature: { count: 4, unit: 4 },
+      subdivision: 1,
+      positions: 4,
+    },
+  ]);
+});
+
+test("the preset catalogue starts with meter-first rhythms", () => {
+  assert.deepEqual(PRESET_NAMES, ["4/4", "4/4 + 3/4"]);
+});
+
+test("sequence summary distinguishes simultaneous rhythms from sequential cycles", () => {
+  const state = normaliseState({
+    cycles: [
+      {
+        repetitions: 4,
+        rhythms: [
+          { signature: { count: 4, unit: 4 } },
+          { signature: { count: 3, unit: 4 } },
+        ],
+      },
+      {
+        repetitions: 1,
+        rhythms: [{ signature: { count: 4, unit: 4 } }],
+      },
     ],
-  );
+  });
+
+  assert.equal(sequenceSummary(state), "4(4/4 + 3/4), 1(4/4)");
 });
 
 test("cycle duration uses quarter-note BPM as the shared reference", () => {
@@ -65,18 +98,19 @@ test("a rhythm layer preserves supplied emphasis while filling its meter-relativ
 
 test("state normalisation clamps subdivision and keeps the full meter-relative grid", () => {
   const state = normaliseState({
-    layers: [
-      {
-        signature: { count: 32, unit: 4 },
-        subdivision: 99,
-        steps: [STEP.ACCENT, STEP.REST],
-      },
+    cycles: [
+      { rhythms: [{
+          signature: { count: 32, unit: 4 },
+          subdivision: 99,
+          steps: [STEP.ACCENT, STEP.REST],
+      }] },
     ],
   });
 
-  assert.equal(state.layers[0].subdivision, 5);
-  assert.equal(state.layers[0].steps.length, 160);
-  assert.deepEqual(state.layers[0].steps.slice(0, 2), [
+  const layer = state.cycles[0].rhythms[0];
+  assert.equal(layer.subdivision, 5);
+  assert.equal(layer.steps.length, 160);
+  assert.deepEqual(layer.steps.slice(0, 2), [
     STEP.ACCENT,
     STEP.REST,
   ]);
@@ -116,8 +150,8 @@ test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
   const state = createPreset("4/4 + 3/4");
   state.bpm = 120;
 
-  const fourCycle = cycleDurationSeconds(state.bpm, state.layers[0].signature);
-  const threeCycle = cycleDurationSeconds(state.bpm, state.layers[1].signature);
+  const fourCycle = cycleDurationSeconds(state.bpm, state.cycles[0].rhythms[0].signature);
+  const threeCycle = cycleDurationSeconds(state.bpm, state.cycles[0].rhythms[1].signature);
 
   closeTo(fourCycle, 2);
   closeTo(threeCycle, 1.5);
@@ -125,40 +159,22 @@ test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
   closeTo(threeCycle * 4, 6);
 });
 
-test("ratio presets expose their meters and meter-relative grids", () => {
-  const presetLayers = Object.fromEntries(
-    ["3:2", "4:3", "5:4"].map((name) => [
-      name,
-      createPreset(name).layers.map((layer) => ({
-        signature: layer.signature,
-        subdivision: layer.subdivision,
-        positions: layer.steps.length,
-      })),
-    ]),
-  );
+test("a cycle span completes every contained meter and ignores subdivision", () => {
+  const cycle = {
+    rhythms: [
+      createLayer({ signature: { count: 4, unit: 4 }, subdivision: 5 }),
+      createLayer({ signature: { count: 3, unit: 4 }, subdivision: 2 }),
+    ],
+  };
 
-  assert.deepEqual(presetLayers, {
-    "3:2": [
-      { signature: { count: 2, unit: 4 }, subdivision: 3, positions: 6 },
-      { signature: { count: 2, unit: 4 }, subdivision: 2, positions: 4 },
-    ],
-    "4:3": [
-      { signature: { count: 4, unit: 4 }, subdivision: 4, positions: 16 },
-      { signature: { count: 4, unit: 4 }, subdivision: 3, positions: 12 },
-    ],
-    "5:4": [
-      { signature: { count: 4, unit: 4 }, subdivision: 5, positions: 20 },
-      { signature: { count: 4, unit: 4 }, subdivision: 4, positions: 16 },
-    ],
-  });
+  closeTo(cycleSpanSeconds(120, cycle), 6);
 });
 
-test("meter presets use one pulse per signature unit and pattern-only emphasis", () => {
+test("the 4/4 + 3/4 preset uses quarter-note pulses in both meters", () => {
   const polymeter = createPreset("4/4 + 3/4");
-  const sevenEight = createPreset("7/8 · 2+2+3").layers[0];
 
   assert.deepEqual(
-    polymeter.layers.map((layer) => ({
+    polymeter.cycles[0].rhythms.map((layer) => ({
       subdivision: layer.subdivision,
       positions: layer.steps.length,
     })),
@@ -167,15 +183,10 @@ test("meter presets use one pulse per signature unit and pattern-only emphasis",
       { subdivision: 1, positions: 3 },
     ],
   );
-  assert.equal(sevenEight.subdivision, 1);
-  assert.equal(sevenEight.steps.length, 7);
   assert.deepEqual(
-    sevenEight.steps
-      .map((step, index) => step === STEP.ACCENT ? index : null)
-      .filter((index) => index !== null),
-    [0, 2, 4],
+    polymeter.cycles[0].rhythms.map((layer) => layer.pan),
+    [0, 0],
   );
-  assert.equal("groups" in sevenEight, false);
 });
 
 test("step duration follows subdivision within each signature unit", () => {
@@ -204,9 +215,25 @@ test("resizing a pattern preserves existing steps and fills new subdivisions", (
   assert.deepEqual(resizePattern(original, 1), [STEP.ACCENT]);
 });
 
-test("state normalisation clamps unsafe values and preserves at least one layer", () => {
-  const state = normaliseState({ bpm: 9999, masterVolume: -2, layers: [] });
+test("state normalisation clamps unsafe values and preserves a non-empty sequence", () => {
+  const state = normaliseState({ bpm: 9999, masterVolume: -2, cycles: [] });
   assert.equal(state.bpm, 300);
   assert.equal(state.masterVolume, 0);
-  assert.ok(state.layers.length >= 1);
+  assert.ok(state.cycles.length >= 1);
+  assert.ok(state.cycles[0].rhythms.length >= 1);
+});
+
+test("state normalisation limits repetitions and total rhythms", () => {
+  const state = normaliseState({
+    cycles: [
+      { repetitions: 99, rhythms: Array.from({ length: 8 }, () => ({})) },
+      { repetitions: -4, rhythms: Array.from({ length: 8 }, () => ({})) },
+    ],
+  });
+
+  assert.deepEqual(state.cycles.map((cycle) => cycle.repetitions), [32, 1]);
+  assert.equal(
+    state.cycles.reduce((total, cycle) => total + cycle.rhythms.length, 0),
+    12,
+  );
 });

@@ -1,6 +1,6 @@
 # Polynome
 
-Polynome describes multiple independently repeating rhythms derived from one shared musical time reference.
+Polynome describes ordered cycles of independently repeating rhythms derived from one shared musical time reference.
 
 ## Language
 
@@ -13,11 +13,27 @@ The audio time at which the current shared transport begins.
 _Avoid_: Start tick, timer start
 
 **Transport run**:
-One continuous use of the shared transport, beginning at a transport origin and retaining the same tempo, meters, and patterns until stopped or restarted.
+One continuous traversal of the sequence, beginning at a transport origin and retaining the same tempo, cycles, meters, and patterns until stopped or restarted.
 _Avoid_: Session
 
+**Sequence**:
+A non-empty ordered list of cycles that play one after another and repeat from the beginning until stopped.
+_Avoid_: Playlist, arrangement
+
+**Cycle**:
+A non-empty exclusive group of rhythm layers that begin together and play concurrently for a complete cycle span.
+_Avoid_: Section, rhythm group
+
+**Cycle span**:
+The shortest duration after which every rhythm layer in a cycle returns to its downbeat together.
+_Avoid_: Bar, measure
+
+**Cycle repetition**:
+One traversal of a complete cycle span. A cycle may repeat its span before the sequence advances.
+_Avoid_: Count, loop
+
 **Rhythm layer**:
-An independently repeating meter-relative grid and pattern with its own sound, level, and stereo position, timed by the shared transport.
+An independently repeating meter-relative grid and pattern that belongs to exactly one cycle, with its own sound, level, and stereo position.
 _Avoid_: Track, voice
 
 **Meter**:
@@ -29,7 +45,7 @@ One `1/denominator` duration within a meter; a meter contains `numerator` signat
 _Avoid_: Beat
 
 **Subdivision**:
-The number of equal pulses within each signature unit of a rhythm layer's meter.
+The number of equal pulses within each signature unit of a rhythm layer's meter. A subdivision of one leaves the signature unit undivided; in `/4` meters this produces quarter-note pulses.
 _Avoid_: Total steps, pulses per cycle
 
 **Meter-relative grid**:

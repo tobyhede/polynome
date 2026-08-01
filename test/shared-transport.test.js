@@ -4,6 +4,117 @@ import assert from "node:assert/strict";
 import { STEP, createLayer, createPreset } from "../model.js";
 import { SharedTransport } from "../shared-transport.js";
 
+const sequence = (bpm, rhythms, repetitions = 1) => ({
+  bpm,
+  cycles: [{ id: "cycle", repetitions, rhythms }],
+});
+
+test("cycles play sequentially after their complete repetitions and the sequence loops", () => {
+  const first = createLayer({
+    id: "first",
+    signature: { count: 1, unit: 4 },
+  });
+  const second = createLayer({
+    id: "second",
+    signature: { count: 1, unit: 4 },
+  });
+  const transport = new SharedTransport();
+
+  transport.start({
+    bpm: 60,
+    cycles: [
+      { id: "first-cycle", repetitions: 2, rhythms: [first] },
+      { id: "second-cycle", repetitions: 1, rhythms: [second] },
+    ],
+  }, 10);
+
+  assert.deepEqual(
+    transport.plan(9.9, 14).map(({ layerId, audioTime }) => ({ layerId, audioTime })),
+    [
+      { layerId: "first", audioTime: 10 },
+      { layerId: "first", audioTime: 11 },
+      { layerId: "second", audioTime: 12 },
+      { layerId: "first", audioTime: 13 },
+    ],
+  );
+});
+
+test("transport position identifies the active cycle and repetition", () => {
+  const transport = new SharedTransport();
+  transport.start({
+    bpm: 60,
+    cycles: [
+      {
+        id: "four-four-cycle",
+        repetitions: 2,
+        rhythms: [createLayer({ signature: { count: 4, unit: 4 } })],
+      },
+      {
+        id: "three-four-cycle",
+        repetitions: 2,
+        rhythms: [createLayer({ signature: { count: 3, unit: 4 } })],
+      },
+    ],
+  }, 10);
+
+  assert.deepEqual(transport.position(14.5), {
+    cycleId: "four-four-cycle",
+    cycleIndex: 0,
+    repetitionIndex: 1,
+  });
+  assert.deepEqual(transport.position(18.5), {
+    cycleId: "three-four-cycle",
+    cycleIndex: 1,
+    repetitionIndex: 0,
+  });
+  assert.deepEqual(transport.position(24.5), {
+    cycleId: "four-four-cycle",
+    cycleIndex: 0,
+    repetitionIndex: 0,
+  });
+});
+
+test("inactive rhythms have no visual pattern position", () => {
+  const first = createLayer({ id: "first", signature: { count: 1, unit: 4 } });
+  const second = createLayer({ id: "second", signature: { count: 1, unit: 4 } });
+  const transport = new SharedTransport();
+  transport.start({
+    bpm: 60,
+    cycles: [
+      { id: "one", repetitions: 1, rhythms: [first] },
+      { id: "two", repetitions: 1, rhythms: [second] },
+    ],
+  }, 0);
+
+  assert.equal(transport.patternPosition("first", 1.25), null);
+  assert.equal(transport.patternPosition("second", 1.25), 0);
+});
+
+test("a polymeter cycle does not advance until every rhythm returns to downbeat", () => {
+  const four = createLayer({ id: "four", signature: { count: 4, unit: 4 } });
+  const three = createLayer({ id: "three", signature: { count: 3, unit: 4 } });
+  const next = createLayer({ id: "next", signature: { count: 1, unit: 4 } });
+  const transport = new SharedTransport();
+  transport.start({
+    bpm: 60,
+    cycles: [
+      { id: "polymeter", repetitions: 1, rhythms: [four, three] },
+      { id: "next-cycle", repetitions: 1, rhythms: [next] },
+    ],
+  }, 0);
+
+  const events = transport.plan(0, 13);
+  assert.equal(events.find((event) => event.layerId === "next").audioTime, 12);
+  assert.deepEqual(
+    events.filter((event) => event.layerId === "four").map((event) => event.audioTime),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  );
+  assert.deepEqual(
+    events.filter((event) => event.layerId === "three").map((event) => event.audioTime),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  );
+});
+
 test("4/4 with one pulse per quarter plans four quarter-note events", () => {
   const layer = createLayer({
     id: "four-four-k1",
@@ -12,7 +123,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 10);
+  transport.start(sequence(60, [layer]), 10);
 
   assert.deepEqual(transport.plan(9.9, 14), [
     {
@@ -54,7 +165,7 @@ test("4/4 with two pulses per quarter plans half-quarter intervals", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 0);
+  transport.start(sequence(60, [layer]), 0);
 
   assert.deepEqual(
     transport.plan(0, 1.1).map((event) => event.audioTime),
@@ -70,7 +181,7 @@ test("4/4 with three pulses per quarter plans triplet intervals", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 0);
+  transport.start(sequence(60, [layer]), 0);
 
   assert.deepEqual(
     transport.plan(0, 1.1).map((event) => event.audioTime),
@@ -86,7 +197,7 @@ test("5/4 with one pulse per quarter plans five positions per meter", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 120, layers: [layer] }, 0);
+  transport.start(sequence(120, [layer]), 0);
 
   assert.deepEqual(
     transport.plan(0, 2.5).map((event) => event.audioTime),
@@ -102,7 +213,7 @@ test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 0);
+  transport.start(sequence(60, [layer]), 0);
 
   assert.deepEqual(
     transport.plan(0, 3.5).map((event) => event.audioTime),
@@ -119,7 +230,7 @@ test("a computed fractional event exactly at the horizon remains excluded", () =
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 30, layers: [layer] }, 12345.678);
+  transport.start(sequence(30, [layer]), 12345.678);
 
   assert.deepEqual(
     transport.plan(12345.67, 12351.011333333334).map((event) => ({
@@ -141,7 +252,7 @@ test("a rest produces no rhythm event", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 120, layers: [layer] }, 0);
+  transport.start(sequence(120, [layer]), 0);
 
   assert.deepEqual(
     transport.plan(0, 2).map((event) => event.patternPosition),
@@ -157,7 +268,7 @@ test("overlapping polls plan each absolute step only once", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 120, layers: [layer] }, 5);
+  transport.start(sequence(120, [layer]), 5);
   transport.plan(4.9, 6.1);
 
   assert.deepEqual(transport.plan(5.98, 6.6), [
@@ -179,7 +290,7 @@ test("a late poll discards missed events without restarting transport phase", ()
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 120, layers: [layer] }, 10);
+  transport.start(sequence(120, [layer]), 10);
 
   assert.deepEqual(transport.plan(12.2, 13.1), [
     {
@@ -205,7 +316,7 @@ test("a transport run retains its starting timing snapshot", () => {
     signature: { count: 2, unit: 4 },
     steps: [STEP.ACCENT, STEP.REST],
   });
-  const state = { bpm: 60, layers: [layer] };
+  const state = sequence(60, [layer]);
   const transport = new SharedTransport();
 
   transport.start(state, 20);
@@ -233,7 +344,7 @@ test("visual pattern position derives from the transport origin", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 30);
+  transport.start(sequence(60, [layer]), 30);
 
   assert.equal(transport.patternPosition("playhead", 29.9), 0);
   assert.equal(transport.patternPosition("playhead", 30.8), 2);
@@ -247,7 +358,7 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 96, layers: [layer] }, 0.06);
+  transport.start(sequence(96, [layer]), 0.06);
   const event = transport
     .plan(0, 1)
     .find((candidate) => candidate.absoluteStep === 2);
@@ -267,66 +378,6 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   );
 });
 
-test("the 3:2 preset repeats three and two events over one quarter note", () => {
-  const state = createPreset("3:2");
-  state.bpm = 60;
-  state.layers[0].id = "three";
-  state.layers[1].id = "two";
-  const transport = new SharedTransport();
-
-  transport.start(state, 40);
-  const events = transport.plan(39.9, 41);
-
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "three").map((event) => event.audioTime),
-    [40, 40.333333333333336, 40.666666666666664],
-  );
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "two").map((event) => event.audioTime),
-    [40, 40.5],
-  );
-});
-
-test("the 4:3 preset repeats four and three events over one quarter note", () => {
-  const state = createPreset("4:3");
-  state.bpm = 60;
-  state.layers[0].id = "four";
-  state.layers[1].id = "three";
-  const transport = new SharedTransport();
-
-  transport.start(state, 0);
-  const events = transport.plan(0, 1);
-
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "four").map((event) => event.audioTime),
-    [0, 0.25, 0.5, 0.75],
-  );
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "three").map((event) => event.audioTime),
-    [0, 0.3333333333333333, 0.6666666666666666],
-  );
-});
-
-test("the 5:4 preset repeats five and four events over one quarter note", () => {
-  const state = createPreset("5:4");
-  state.bpm = 60;
-  state.layers[0].id = "five";
-  state.layers[1].id = "four";
-  const transport = new SharedTransport();
-
-  transport.start(state, 0);
-  const events = transport.plan(0, 1);
-
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "five").map((event) => event.audioTime),
-    [0, 0.2, 0.4, 0.6000000000000001, 0.8],
-  );
-  assert.deepEqual(
-    events.filter((event) => event.layerId === "four").map((event) => event.audioTime),
-    [0, 0.25, 0.5, 0.75],
-  );
-});
-
 test("mute does not change a rhythm layer event timeline", () => {
   const layer = createLayer({
     id: "muted",
@@ -336,7 +387,7 @@ test("mute does not change a rhythm layer event timeline", () => {
   });
   const transport = new SharedTransport();
 
-  transport.start({ bpm: 60, layers: [layer] }, 50);
+  transport.start(sequence(60, [layer]), 50);
 
   assert.deepEqual(transport.plan(49.9, 51), [
     {
@@ -356,7 +407,7 @@ test("starting a new transport run resets origin and scheduling position togethe
     steps: [STEP.ACCENT],
   });
   const transport = new SharedTransport();
-  const state = { bpm: 60, layers: [layer] };
+  const state = sequence(60, [layer]);
 
   transport.start(state, 60);
   transport.plan(59.9, 61);

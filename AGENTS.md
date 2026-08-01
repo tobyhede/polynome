@@ -44,7 +44,7 @@ Any change to timing, signatures, pulse generation, or step semantics must inclu
 For browser changes, manually verify:
 
 1. Play and stop from the button and Space key.
-2. Presets `3:2`, `4:3`, `5:4`, and `4/4 + 3/4`.
+2. Presets `4/4` and `4/4 + 3/4`.
 3. Headphone separation at hard left and hard right.
 4. Accent, hit, and rest cycling.
 5. Signature and pulse edits while playing.
@@ -70,3 +70,17 @@ Require explicit product justification before adding:
 - effects chains
 - recording
 - tempo automation
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.

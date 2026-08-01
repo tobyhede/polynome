@@ -152,8 +152,8 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 - `stepDuration = measureDuration / steps.length` is mathematically correct for evenly distributing an arbitrary pulse count across a cycle. It is not itself a timing error.
 - Calling `steps.length` a **subdivision** is misleading because it is currently the total pulses per cycle, not divisions per beat or denominator unit.
 - The UI allows meter and raw pattern length to vary independently without explaining whether the result is a note grid, a tuplet across a beat, or an n:m division across the whole cycle.
-- The current 3:2 preset is a valid three-against-two division of one shared two-quarter span. It should not be used as evidence that the meter numerator always determines pattern length.
-- The current 7/8 preset is musically reasonable as seven eighth-note positions accented 2+2+3, but the model stores the grouping only implicitly in accent states.
+- The former 3:2 preset was a valid three-against-two division of one shared two-quarter span. It should not be used as evidence that the meter numerator always determines pattern length.
+- The former 7/8 preset was musically reasonable as seven eighth-note positions accented 2+2+3, but the model stored the grouping only implicitly in accent states.
 
 ## Presets and persistence implications
 
@@ -168,6 +168,7 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 
 - Every rhythm layer uses a meter-relative grid with `N*K` pattern positions.
 - The subdivision dropdown supports `K = 1..5` pulses per signature unit.
-- Ratio presets `3:2`, `4:3`, and `5:4` use a `1/4` meter so their pattern sizes remain literal.
+- The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter.
+- Ratio presets remain out of scope until the product has an explicit shared-cycle pulse model.
 - Emphasis remains entirely in accent/hit/rest pattern states; no grouping state or control is introduced.
 - Existing persisted state is discarded rather than migrated because its subdivision meaning is ambiguous.

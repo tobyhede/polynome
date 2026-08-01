@@ -1,4 +1,4 @@
-import { STEP, stepDurationSeconds } from "./model.js";
+import { STEP, cycleSpanSeconds, stepDurationSeconds } from "./model.js";
 
 const LATENESS_TOLERANCE_SECONDS = 0.004;
 
@@ -11,17 +11,34 @@ export class SharedTransport {
     return this.#origin;
   }
 
-  start({ bpm, layers }, origin) {
+  start({ bpm, cycles, layers }, origin) {
     this.#origin = origin;
     this.#schedulingPosition = origin;
+    const sourceCycles = cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }];
+    let offset = 0;
+    const timingCycles = sourceCycles.map((cycle) => {
+      const rhythms = cycle.rhythms.map((rhythm) => ({
+        id: rhythm.id,
+        signature: { ...rhythm.signature },
+        subdivision: rhythm.subdivision,
+        steps: [...rhythm.steps],
+      }));
+      const span = cycleSpanSeconds(bpm, { rhythms });
+      const timingCycle = {
+        id: cycle.id,
+        repetitions: cycle.repetitions,
+        rhythms,
+        span,
+        offset,
+      };
+      offset += span * cycle.repetitions;
+      return timingCycle;
+    });
+
     this.#timing = {
       bpm,
-      layers: layers.map((layer) => ({
-        id: layer.id,
-        signature: { ...layer.signature },
-        subdivision: layer.subdivision,
-        steps: [...layer.steps],
-      })),
+      cycles: timingCycles,
+      sequenceDuration: offset,
     };
   }
 
@@ -34,41 +51,74 @@ export class SharedTransport {
       fromTime,
       currentTime - LATENESS_TOLERANCE_SECONDS,
     );
+    const { bpm, cycles, sequenceDuration } = this.#timing;
+    const firstSequence = Math.max(
+      0,
+      Math.floor((candidateFromTime - this.#origin) / sequenceDuration),
+    );
+    const finalSequence = Math.max(
+      firstSequence,
+      Math.ceil((horizon - this.#origin) / sequenceDuration),
+    );
 
-    for (const layer of this.#timing.layers) {
-      const duration = stepDurationSeconds(this.#timing.bpm, layer);
-      const firstAbsoluteStep = Math.max(
-        0,
-        Math.floor((candidateFromTime - this.#origin) / duration),
-      );
-      const finalAbsoluteStep = Math.ceil(
-        (horizon - this.#origin) / duration,
-      );
+    for (
+      let sequenceIndex = firstSequence;
+      sequenceIndex <= finalSequence;
+      sequenceIndex += 1
+    ) {
+      const sequenceOrigin = this.#origin + sequenceIndex * sequenceDuration;
 
-      for (
-        let absoluteStep = firstAbsoluteStep;
-        absoluteStep <= finalAbsoluteStep;
-        absoluteStep += 1
-      ) {
-        const patternPosition = absoluteStep % layer.steps.length;
-        const strength = layer.steps[patternPosition];
-        const audioTime = this.#origin + absoluteStep * duration;
-        if (
-          strength === STEP.REST ||
-          audioTime < fromTime ||
-          audioTime >= horizon ||
-          audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
+      for (const cycle of cycles) {
+        for (
+          let repetitionIndex = 0;
+          repetitionIndex < cycle.repetitions;
+          repetitionIndex += 1
         ) {
-          continue;
-        }
+          const repetitionOrigin = sequenceOrigin
+            + cycle.offset
+            + repetitionIndex * cycle.span;
+          if (repetitionOrigin >= horizon) continue;
+          if (repetitionOrigin + cycle.span < candidateFromTime) continue;
 
-        events.push({
-          layerId: layer.id,
-          absoluteStep,
-          patternPosition,
-          strength,
-          audioTime,
-        });
+          for (const rhythm of cycle.rhythms) {
+            const duration = stepDurationSeconds(bpm, rhythm);
+            const stepsPerSpan = Math.round(cycle.span / duration);
+            const firstStep = Math.max(
+              0,
+              Math.floor((candidateFromTime - repetitionOrigin) / duration),
+            );
+
+            for (
+              let localStep = firstStep;
+              localStep < stepsPerSpan;
+              localStep += 1
+            ) {
+              const audioTime = repetitionOrigin + localStep * duration;
+              if (audioTime >= horizon) break;
+              const patternPosition = localStep % rhythm.steps.length;
+              const strength = rhythm.steps[patternPosition];
+              if (
+                strength === STEP.REST
+                || audioTime < fromTime
+                || audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
+              ) {
+                continue;
+              }
+
+              events.push({
+                layerId: rhythm.id,
+                absoluteStep: (
+                  (sequenceIndex * cycle.repetitions + repetitionIndex)
+                  * stepsPerSpan
+                  + localStep
+                ),
+                patternPosition,
+                strength,
+                audioTime,
+              });
+            }
+          }
+        }
       }
     }
 
@@ -81,28 +131,57 @@ export class SharedTransport {
     });
   }
 
+  position(currentTime) {
+    if (!this.#timing) return null;
+    if (currentTime < this.#origin) {
+      return { cycleId: this.#timing.cycles[0].id, cycleIndex: 0, repetitionIndex: 0 };
+    }
+
+    const elapsed = (currentTime - this.#origin) % this.#timing.sequenceDuration;
+    for (let cycleIndex = 0; cycleIndex < this.#timing.cycles.length; cycleIndex += 1) {
+      const cycle = this.#timing.cycles[cycleIndex];
+      const cycleDuration = cycle.span * cycle.repetitions;
+      if (elapsed < cycle.offset + cycleDuration) {
+        return {
+          cycleId: cycle.id,
+          cycleIndex,
+          repetitionIndex: Math.floor((elapsed - cycle.offset) / cycle.span),
+        };
+      }
+    }
+
+    return { cycleId: this.#timing.cycles[0].id, cycleIndex: 0, repetitionIndex: 0 };
+  }
+
   patternPosition(layerId, currentTime) {
-    const layer = this.#timing?.layers.find(
-      (candidate) => candidate.id === layerId,
-    );
-    if (!layer) return null;
+    if (!this.#timing) return null;
+    const position = this.position(currentTime);
+    const cycle = this.#timing.cycles[position.cycleIndex];
+    const rhythm = cycle.rhythms.find((candidate) => candidate.id === layerId);
+    if (!rhythm) return null;
     if (currentTime < this.#origin) return 0;
 
-    const duration = stepDurationSeconds(this.#timing.bpm, layer);
-    let absoluteStep = Math.floor((currentTime - this.#origin) / duration);
+    const sequenceIndex = Math.floor(
+      (currentTime - this.#origin) / this.#timing.sequenceDuration,
+    );
+    const repetitionOrigin = this.#origin
+      + sequenceIndex * this.#timing.sequenceDuration
+      + cycle.offset
+      + position.repetitionIndex * cycle.span;
+    const elapsed = currentTime - repetitionOrigin;
+    const duration = stepDurationSeconds(this.#timing.bpm, rhythm);
+    let absoluteStep = Math.floor(elapsed / duration);
 
-    while (
-      this.#origin + (absoluteStep + 1) * duration <= currentTime
-    ) {
+    while (repetitionOrigin + (absoluteStep + 1) * duration <= currentTime) {
       absoluteStep += 1;
     }
     while (
-      absoluteStep > 0 &&
-      this.#origin + absoluteStep * duration > currentTime
+      absoluteStep > 0
+      && repetitionOrigin + absoluteStep * duration > currentTime
     ) {
       absoluteStep -= 1;
     }
 
-    return absoluteStep % layer.steps.length;
+    return absoluteStep % rhythm.steps.length;
   }
 }

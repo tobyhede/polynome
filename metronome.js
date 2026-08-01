@@ -132,6 +132,11 @@ export class MetronomeEngine extends EventTarget {
     return this.#transport.patternPosition(layer.id, this.#context.currentTime);
   }
 
+  activePosition() {
+    if (!this.#playing || !this.#context) return null;
+    return this.#transport.position(this.#context.currentTime);
+  }
+
   #ensureContext() {
     if (this.#context) return;
 
@@ -154,7 +159,8 @@ export class MetronomeEngine extends EventTarget {
       0.01,
     );
 
-    const currentIds = new Set(this.#state.layers.map((layer) => layer.id));
+    const rhythms = this.#state.cycles.flatMap((cycle) => cycle.rhythms);
+    const currentIds = new Set(rhythms.map((layer) => layer.id));
 
     for (const [id, nodes] of this.#layers.entries()) {
       if (!currentIds.has(id)) {
@@ -164,7 +170,7 @@ export class MetronomeEngine extends EventTarget {
       }
     }
 
-    for (const layer of this.#state.layers) {
+    for (const layer of rhythms) {
       let nodes = this.#layers.get(layer.id);
       if (!nodes) {
         const gain = new GainNode(this.#context, { gain: layer.volume });
@@ -197,7 +203,9 @@ export class MetronomeEngine extends EventTarget {
     this.#syncNodes();
 
     const layersById = new Map(
-      this.#state.layers.map((layer) => [layer.id, layer]),
+      this.#state.cycles
+        .flatMap((cycle) => cycle.rhythms)
+        .map((layer) => [layer.id, layer]),
     );
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);

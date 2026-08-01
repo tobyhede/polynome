@@ -49,7 +49,6 @@ export function createLayer(overrides = {}) {
 
   return {
     id: overrides.id || makeId(),
-    name: String(overrides.name || "Rhythm"),
     signature,
     subdivision,
     steps,
@@ -60,20 +59,44 @@ export function createLayer(overrides = {}) {
   };
 }
 
+export function createCycle(overrides = {}) {
+  const rhythms = Array.isArray(overrides.rhythms)
+    ? overrides.rhythms.slice(0, 12).map(createLayer)
+    : [];
+
+  return {
+    id: overrides.id || makeId("cycle"),
+    repetitions: Math.round(
+      normaliseNumber(overrides.repetitions, 1, 1, 32),
+    ),
+    rhythms: rhythms.length ? rhythms : [createLayer()],
+  };
+}
+
 export function createDefaultState() {
-  return createPreset("3:2");
+  return createPreset("4/4");
 }
 
 export function normaliseState(input) {
   const source = input && typeof input === "object" ? input : {};
-  const layers = Array.isArray(source.layers)
-    ? source.layers.slice(0, 12).map(createLayer)
+  let remainingRhythms = 12;
+  const cycles = Array.isArray(source.cycles)
+    ? source.cycles.flatMap((cycle) => {
+        if (remainingRhythms <= 0) return [];
+        const candidate = cycle && typeof cycle === "object" ? cycle : {};
+        const rhythms = Array.isArray(candidate.rhythms)
+          ? candidate.rhythms.slice(0, remainingRhythms)
+          : [];
+        if (!rhythms.length) return [];
+        remainingRhythms -= rhythms.length;
+        return [createCycle({ ...candidate, rhythms })];
+      })
     : [];
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
     masterVolume: normaliseNumber(source.masterVolume, 0.8, 0, 1),
-    layers: layers.length ? layers : createPreset("3:2").layers,
+    cycles: cycles.length ? cycles : createPreset("4/4").cycles,
   };
 }
 
@@ -120,6 +143,34 @@ export function cycleDurationSeconds(bpm, signature) {
   return quarterSeconds * count * (4 / unit);
 }
 
+function greatestCommonDivisor(left, right) {
+  let a = Math.abs(left);
+  let b = Math.abs(right);
+  while (b) [a, b] = [b, a % b];
+  return a || 1;
+}
+
+function leastCommonMultiple(left, right) {
+  return Math.abs(left * right) / greatestCommonDivisor(left, right);
+}
+
+export function cycleSpanSeconds(bpm, cycle) {
+  const rhythms = Array.isArray(cycle?.rhythms) && cycle.rhythms.length
+    ? cycle.rhythms
+    : [createLayer()];
+  const spanInThirtySecondNotes = rhythms
+    .map((rhythm) => {
+      const count = Math.round(
+        normaliseNumber(rhythm.signature?.count, 4, 1, 32),
+      );
+      const unit = normaliseUnit(rhythm.signature?.unit, 4);
+      return count * (32 / unit);
+    })
+    .reduce(leastCommonMultiple);
+  const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
+  return spanInThirtySecondNotes * quarterSeconds / 8;
+}
+
 export function stepDurationSeconds(bpm, layer) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
   const unit = normaliseUnit(layer?.signature?.unit, 4);
@@ -130,128 +181,66 @@ export function stepDurationSeconds(bpm, layer) {
 }
 
 export const PRESET_NAMES = Object.freeze([
-  "3:2",
-  "4:3",
-  "5:4",
+  "4/4",
   "4/4 + 3/4",
-  "7/8 · 2+2+3",
 ]);
 
 export function createPreset(name) {
   switch (name) {
-    case "4:3":
-      return {
-        bpm: 96,
-        masterVolume: 0.8,
-        layers: [
-          createLayer({
-            name: "Four",
-            signature: { count: 4, unit: 4 },
-            subdivision: 4,
-            pan: -0.72,
-            sound: "high",
-          }),
-          createLayer({
-            name: "Three",
-            signature: { count: 4, unit: 4 },
-            subdivision: 3,
-            pan: 0.72,
-            sound: "low",
-          }),
-        ],
-      };
-
-    case "5:4":
-      return {
-        bpm: 90,
-        masterVolume: 0.8,
-        layers: [
-          createLayer({
-            name: "Five",
-            signature: { count: 4, unit: 4 },
-            subdivision: 5,
-            pan: -0.72,
-            sound: "high",
-          }),
-          createLayer({
-            name: "Four",
-            signature: { count: 4, unit: 4 },
-            subdivision: 4,
-            pan: 0.72,
-            sound: "low",
-          }),
-        ],
-      };
-
     case "4/4 + 3/4":
       return {
         bpm: 112,
         masterVolume: 0.8,
-        layers: [
-          createLayer({
-            name: "4/4",
-            signature: { count: 4, unit: 4 },
-            subdivision: 1,
-            pan: -0.72,
-            sound: "high",
-          }),
-          createLayer({
-            name: "3/4",
-            signature: { count: 3, unit: 4 },
-            subdivision: 1,
-            pan: 0.72,
-            sound: "low",
-          }),
-        ],
-      };
-
-    case "7/8 · 2+2+3":
-      return {
-        bpm: 108,
-        masterVolume: 0.8,
-        layers: [
-          createLayer({
-            name: "7/8 · 2+2+3",
-            signature: { count: 7, unit: 8 },
-            subdivision: 1,
-            steps: [
-              STEP.ACCENT,
-              STEP.HIT,
-              STEP.ACCENT,
-              STEP.HIT,
-              STEP.ACCENT,
-              STEP.HIT,
-              STEP.HIT,
+        cycles: [
+          createCycle({
+            rhythms: [
+              createLayer({
+                signature: { count: 4, unit: 4 },
+                subdivision: 1,
+                pan: 0,
+                sound: "high",
+              }),
+              createLayer({
+                signature: { count: 3, unit: 4 },
+                subdivision: 1,
+                pan: 0,
+                sound: "low",
+              }),
             ],
-            pan: 0,
-            sound: "wood",
           }),
         ],
       };
 
-    case "3:2":
+    case "4/4":
     default:
       return {
         bpm: 96,
         masterVolume: 0.8,
-        layers: [
-          createLayer({
-            name: "Three",
-            signature: { count: 2, unit: 4 },
-            subdivision: 3,
-            pan: -0.72,
-            sound: "high",
-          }),
-          createLayer({
-            name: "Two",
-            signature: { count: 2, unit: 4 },
-            subdivision: 2,
-            pan: 0.72,
-            sound: "low",
+        cycles: [
+          createCycle({
+            rhythms: [
+              createLayer({
+                signature: { count: 4, unit: 4 },
+                subdivision: 1,
+                pan: 0,
+                sound: "high",
+              }),
+            ],
           }),
         ],
       };
   }
+}
+
+export function sequenceSummary(state) {
+  return state.cycles
+    .map((cycle) => {
+      const rhythms = cycle.rhythms
+        .map((rhythm) => `${rhythm.signature.count}/${rhythm.signature.unit}`)
+        .join(" + ");
+      return `${cycle.repetitions}(${rhythms})`;
+    })
+    .join(", ");
 }
 
 export function panLabel(value) {

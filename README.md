@@ -2,7 +2,7 @@
 
 A deliberately small browser metronome with:
 
-- multiple independent rhythm layers
+- ordered cycles of one or more simultaneous rhythm layers
 - polyrhythm and polymeter presets
 - editable meter and subdivision per signature unit for every layer
 - accent, hit, and rest steps
@@ -44,7 +44,12 @@ npm test
 npm run check
 ```
 
-## Rhythm model
+## Sequence model
+
+A sequence contains one or more cycles that play in order and then loop. Each
+cycle repeats its complete shared span before the sequence advances. Rhythms
+inside a cycle begin together and continue until all their meter downbeats
+realign.
 
 Each layer has:
 
@@ -56,21 +61,21 @@ Each layer has:
 
 Examples:
 
-- `3:2`: two layers share a `1/4` meter with three and two pulses per quarter respectively.
-- `4/4 + 3/4`: each layer has a different cycle length, so their downbeats realign after 12 quarter notes.
-- `7/8 · 2+2+3`: seven eighth-note positions use accents at steps 1, 3, and 5; grouping is not stored separately.
+- `1(4/4)`: one cycle containing one 4/4 rhythm.
+- `1(4/4 + 3/4)`: one cycle containing simultaneous 4/4 and 3/4 rhythms; their downbeats realign after 12 quarter notes.
+- `4(4/4), 3(3/4)`: four complete 4/4 cycles followed by three complete 3/4 cycles.
 
 Tempo is always expressed as quarter-note BPM (`♩ BPM`).
 
 ## Timing design
 
-JavaScript timers do not play sounds directly. A short look-ahead loop fills the browser audio queue, while every click is scheduled against `AudioContext.currentTime` at an exact time derived from:
+JavaScript timers do not play sounds directly. A short look-ahead loop fills the browser audio queue, while every click is scheduled against `AudioContext.currentTime` at an exact time derived from the shared transport origin, sequence position, cycle repetition, and absolute rhythm step. Intervals are never accumulated from the previous event.
 
 ```text
-transport origin + absolute step index × step duration
+transport origin + sequence offset + cycle offset + repetition offset + step index × step duration
 ```
 
-This prevents cumulative drift between rhythm layers.
+This prevents cumulative drift between rhythm layers and cycle transitions.
 
 ## Files
 
@@ -78,8 +83,8 @@ This prevents cumulative drift between rhythm layers.
 index.html       Interface shell
 styles.css       Responsive visual design
 app.js           UI state, persistence, and interaction
-model.js         Pure rhythm model and timing maths
-shared-transport.js  Stateful meter-relative event planning and playhead
+model.js         Pure sequence, cycle, rhythm, and timing model
+shared-transport.js  Stateful sequence event planning and playhead
 metronome.js     Web Audio graph and look-ahead scheduler
 server.mjs       Zero-dependency local static server
 scripts/          Single-file bundler
@@ -90,6 +95,6 @@ test/            Node built-in tests
 ## Current limitations
 
 - Tempo reference is fixed to the quarter note.
-- Changes to meter or subdivision restart the shared transport when playing.
+- Changes to sequence timing or structure restart the shared transport when playing.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.
