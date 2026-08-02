@@ -10,10 +10,6 @@ const SOUND_PROFILES = Object.freeze({
   wood: { frequency: 930, type: "sine", length: 0.026 },
 });
 
-function configurationCycles(configuration) {
-  return configuration.sequence?.cycles || configuration.cycles || [];
-}
-
 export class MetronomeEngine extends EventTarget {
   #context = null;
   #master = null;
@@ -167,7 +163,7 @@ export class MetronomeEngine extends EventTarget {
       0.01,
     );
 
-    const rhythms = configurationCycles(this.#state)
+    const rhythms = this.#state.sequence.cycles
       .flatMap((cycle) => cycle.rhythms);
     const currentIds = new Set(rhythms.map((layer) => layer.id));
 
@@ -212,7 +208,7 @@ export class MetronomeEngine extends EventTarget {
     this.#syncNodes();
 
     const layersById = new Map(
-      configurationCycles(this.#state)
+      this.#state.sequence.cycles
         .flatMap((cycle) => cycle.rhythms)
         .map((layer) => [layer.id, layer]),
     );

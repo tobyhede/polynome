@@ -269,6 +269,125 @@ test("Configuration description exposes domain choices and unavailable final rem
   );
 });
 
+test("structural edit availability agrees with final Cycle and Rhythm enforcement", () => {
+  const single = createConfiguration();
+  const onlyCycle = single.sequence.cycles[0];
+  const onlyRhythm = onlyCycle.rhythms[0];
+  const singleAvailability = describeConfiguration(single).availability;
+
+  const finalCycleRemoval = changeConfiguration(single, {
+    type: "remove-cycle",
+    cycleId: onlyCycle.id,
+  });
+  assert.deepEqual(singleAvailability.cycles[onlyCycle.id].remove, {
+    available: false,
+    reason: finalCycleRemoval.reason,
+  });
+
+  const finalRhythmRemoval = changeConfiguration(single, {
+    type: "remove-rhythm",
+    cycleId: onlyCycle.id,
+    rhythmId: onlyRhythm.id,
+  });
+  assert.deepEqual(
+    singleAvailability.cycles[onlyCycle.id].rhythms[onlyRhythm.id].remove,
+    { available: false, reason: finalRhythmRemoval.reason },
+  );
+
+  const twoCycles = changeConfiguration(single, { type: "add-cycle" }).configuration;
+  const [activeCycle, inactiveCycle] = twoCycles.sequence.cycles;
+  const withInactiveCycle = changeConfiguration(twoCycles, {
+    type: "set-cycle-repetitions",
+    cycleId: inactiveCycle.id,
+    repetitions: 0,
+  }).configuration;
+  const finalActiveRemoval = changeConfiguration(withInactiveCycle, {
+    type: "remove-cycle",
+    cycleId: activeCycle.id,
+  });
+
+  assert.deepEqual(
+    describeConfiguration(withInactiveCycle).availability.cycles[activeCycle.id].remove,
+    { available: false, reason: finalActiveRemoval.reason },
+  );
+});
+
+test("the global Rhythm limit controls both structural additions", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [{ rhythms: Array.from({ length: 12 }, () => ({})) }],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const description = describeConfiguration(configuration);
+
+  for (const [availability, edit] of [
+    [description.availability.addCycle, { type: "add-cycle" }],
+    [
+      description.availability.cycles[cycle.id].addRhythm,
+      { type: "add-rhythm", cycleId: cycle.id },
+    ],
+  ]) {
+    const result = changeConfiguration(configuration, edit);
+    assert.deepEqual(availability, {
+      available: false,
+      reason: result.reason,
+    });
+    assert.strictEqual(result.configuration, configuration);
+  }
+});
+
+test("Cycle-repetition availability agrees with every offered edit", () => {
+  const single = createConfiguration();
+  const secondCycle = changeConfiguration(single, { type: "add-cycle" }).configuration;
+  const [first, second] = secondCycle.sequence.cycles;
+  const scenarios = [
+    [single, single.sequence.cycles[0]],
+    [secondCycle, first],
+    [
+      changeConfiguration(secondCycle, {
+        type: "set-cycle-repetitions",
+        cycleId: first.id,
+        repetitions: 0,
+      }).configuration,
+      second,
+    ],
+  ];
+
+  for (const [configuration, cycle] of scenarios) {
+    const description = describeConfiguration(configuration);
+    for (const repetitions of description.choices.repetitions) {
+      const offered = description.availability.cycles[cycle.id]
+        .repetitions[repetitions];
+      const result = changeConfiguration(configuration, {
+        type: "set-cycle-repetitions",
+        cycleId: cycle.id,
+        repetitions,
+      });
+
+      if (!offered.available) {
+        assert.strictEqual(result.configuration, configuration);
+        assert.equal(result.consequence, "none");
+        assert.equal(result.reason, offered.reason);
+      } else if (repetitions === cycle.repetitions) {
+        assert.strictEqual(result.configuration, configuration);
+        assert.equal(result.consequence, "none");
+        assert.equal(result.reason, null);
+      } else {
+        assert.notStrictEqual(result.configuration, configuration);
+        assert.equal(result.consequence, "restart-transport-run");
+        assert.equal(result.reason, null);
+        assert.equal(
+          result.configuration.sequence.cycles
+            .find((candidate) => candidate.id === cycle.id)
+            .repetitions,
+          repetitions,
+        );
+      }
+    }
+  }
+});
+
 test("loaded Configuration is repaired into the valid nested shape", () => {
   const configuration = createConfiguration({
     bpm: 9999,

@@ -22,7 +22,25 @@ const createLayer = (overrides = {}) => {
 
 const sequence = (bpm, rhythms, repetitions = 1) => ({
   bpm,
-  cycles: [{ id: "cycle", repetitions, rhythms }],
+  sequence: {
+    cycles: [{ id: "cycle", repetitions, rhythms }],
+  },
+});
+
+test("legacy flat rhythm shapes are not valid shared-transport input", () => {
+  const rhythm = createLayer({ id: "legacy" });
+
+  assert.throws(
+    () => new SharedTransport().start({
+      bpm: 60,
+      cycles: [{ id: "legacy-cycle", repetitions: 1, rhythms: [rhythm] }],
+    }, 0),
+    TypeError,
+  );
+  assert.throws(
+    () => new SharedTransport().start({ bpm: 60, layers: [rhythm] }, 0),
+    TypeError,
+  );
 });
 
 test("cycles play sequentially after their complete repetitions and the sequence loops", () => {
@@ -38,10 +56,12 @@ test("cycles play sequentially after their complete repetitions and the sequence
 
   transport.start({
     bpm: 60,
-    cycles: [
-      { id: "first-cycle", repetitions: 2, rhythms: [first] },
-      { id: "second-cycle", repetitions: 1, rhythms: [second] },
-    ],
+    sequence: {
+      cycles: [
+        { id: "first-cycle", repetitions: 2, rhythms: [first] },
+        { id: "second-cycle", repetitions: 1, rhythms: [second] },
+      ],
+    },
   }, 10);
 
   assert.deepEqual(
@@ -59,18 +79,20 @@ test("transport position identifies the active cycle and repetition", () => {
   const transport = new SharedTransport();
   transport.start({
     bpm: 60,
-    cycles: [
-      {
-        id: "four-four-cycle",
-        repetitions: 2,
-        rhythms: [createLayer({ signature: { count: 4, unit: 4 } })],
-      },
-      {
-        id: "three-four-cycle",
-        repetitions: 2,
-        rhythms: [createLayer({ signature: { count: 3, unit: 4 } })],
-      },
-    ],
+    sequence: {
+      cycles: [
+        {
+          id: "four-four-cycle",
+          repetitions: 2,
+          rhythms: [createLayer({ signature: { count: 4, unit: 4 } })],
+        },
+        {
+          id: "three-four-cycle",
+          repetitions: 2,
+          rhythms: [createLayer({ signature: { count: 3, unit: 4 } })],
+        },
+      ],
+    },
   }, 10);
 
   assert.deepEqual(transport.position(14.5), {
@@ -97,10 +119,12 @@ test("inactive cycles are skipped by scheduling and transport position", () => {
 
   transport.start({
     bpm: 60,
-    cycles: [
-      { id: "off-cycle", repetitions: 0, rhythms: [inactive] },
-      { id: "on-cycle", repetitions: 1, rhythms: [active] },
-    ],
+    sequence: {
+      cycles: [
+        { id: "off-cycle", repetitions: 0, rhythms: [inactive] },
+        { id: "on-cycle", repetitions: 1, rhythms: [active] },
+      ],
+    },
   }, 10);
 
   assert.deepEqual(transport.position(9.9), {
@@ -120,10 +144,12 @@ test("inactive rhythms have no visual pattern position", () => {
   const transport = new SharedTransport();
   transport.start({
     bpm: 60,
-    cycles: [
-      { id: "one", repetitions: 1, rhythms: [first] },
-      { id: "two", repetitions: 1, rhythms: [second] },
-    ],
+    sequence: {
+      cycles: [
+        { id: "one", repetitions: 1, rhythms: [first] },
+        { id: "two", repetitions: 1, rhythms: [second] },
+      ],
+    },
   }, 0);
 
   assert.equal(transport.patternPosition("first", 1.25), null);
@@ -137,10 +163,12 @@ test("a polymeter cycle does not advance until every rhythm returns to downbeat"
   const transport = new SharedTransport();
   transport.start({
     bpm: 60,
-    cycles: [
-      { id: "polymeter", repetitions: 1, rhythms: [four, three] },
-      { id: "next-cycle", repetitions: 1, rhythms: [next] },
-    ],
+    sequence: {
+      cycles: [
+        { id: "polymeter", repetitions: 1, rhythms: [four, three] },
+        { id: "next-cycle", repetitions: 1, rhythms: [next] },
+      ],
+    },
   }, 0);
 
   const events = transport.plan(0, 13);
@@ -362,6 +390,18 @@ test("step-level edits preserve transport position and affect future events", ()
   ]);
 });
 
+test("step-level updates reject legacy flat rhythm shapes", () => {
+  const rhythm = createLayer({ id: "legacy-levels" });
+  const transport = new SharedTransport();
+
+  transport.start(sequence(60, [rhythm]), 0);
+
+  assert.throws(
+    () => transport.updateStepLevels({ bpm: 60, layers: [rhythm] }),
+    TypeError,
+  );
+});
+
 test("overlapping polls plan each absolute step only once", () => {
   const layer = createLayer({
     id: "steady",
@@ -507,10 +547,12 @@ test("a sequence with no active cycles schedules nothing and reports no position
 
   transport.start({
     bpm: 60,
-    cycles: [
-      { id: "first-cycle", repetitions: 0, rhythms: [createLayer({ id: "first" })] },
-      { id: "second-cycle", repetitions: 0, rhythms: [createLayer({ id: "second" })] },
-    ],
+    sequence: {
+      cycles: [
+        { id: "first-cycle", repetitions: 0, rhythms: [createLayer({ id: "first" })] },
+        { id: "second-cycle", repetitions: 0, rhythms: [createLayer({ id: "second" })] },
+      ],
+    },
   }, 10);
 
   assert.deepEqual(transport.plan(10.5, 12), []);

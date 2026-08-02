@@ -17,7 +17,7 @@ There is strong prior art for the concept, but no universal term.
 | REAPER | **Project** | Project settings include BPM, time signature, timebase, and other properties, and are saved with the project file. [REAPER User Guide](https://www.reaper.fm/userguide.php), [REAPER API](https://www.reaper.fm/sdk/reascript/reascripthelp.html) |
 | Elektron Digitakt | **Project** | A project contains patterns plus general settings and states; loading one makes it the device's active working state. Patterns separately contain sequence data, BPM, length, swing, and time signature. [Digitakt User Manual, section 5.2](https://elektron.se/wp-content/uploads/2024/09/Digitakt_User_Manual_ENG_OS1.51_231108.pdf) |
 | Roland MC-101 | **Project data** | The groovebox saves Project Data separately from Audio Data, and Roland describes creating and saving a project. [Roland MC-101](https://www.roland.com/global/products/mc-101/support/), [Roland video manual](https://www.roland.com/us/rtv/product_support/mc-101_video_manual/?lang=en-US) |
-| Soundbrenner Metronome | **Song** / **rhythm** | The library saves songs and setlists; support material also calls an individual metronome setup a rhythm. [Soundbrenner app manual](https://www.soundbrenner.com/pages/manual-the-metronome-app), [Soundbrenner tips](https://support.soundbrenner.com/hc/en-us/articles/213762407-Tips-tricks-for-The-Metronome) |
+| Soundbrenner Metronome | **Song** | The library saves songs and organizes them into setlists. [Soundbrenner app manual](https://www.soundbrenner.com/pages/manual-the-metronome-app) |
 
 ## Distinctions
 
@@ -32,8 +32,8 @@ There is strong prior art for the concept, but no universal term.
 
 ## Recommendation
 
-Use **Metronome project** as the domain term and `project.js` as the dedicated deep module if one noun must cover tempo, master level, Sequence construction and editing, normalization of persisted input, edit availability, transitions, and their transport consequences.
+For the current product, use **Configuration** as internal implementation terminology and `configuration.js` as the dedicated deep module covering tempo, master level, Sequence construction and editing, normalization of persisted input, edit availability, transitions, and their transport consequences. Continue to use **Sequence** for the musical structure; Configuration is not a new user-facing domain term.
 
-This is the strongest prior art and avoids collisions with Polynome's existing **Sequence**, **Rhythm layer**, and **Transport run**. The qualification “Metronome” keeps it proportionate: it is a metronome project, not a DAW project.
+This fits Polynome's present interaction model: the application auto-persists one unnamed value and has no project, file, or library management. Although **Project** has the strongest broad music-software precedent, adopting it now would imply a user-visible artifact and management model that the product does not provide.
 
-There is one product-design caveat: Polynome currently auto-persists a single unnamed value and does not expose project management. If “project” would imply a user-visible file/library feature that does not exist, keep **metronome state** as an internal implementation name instead and defer a new domain noun. **Metronome configuration** is understandable, but it is not the music-software prior-art choice.
+Defer **Metronome project** and `project.js` until Polynome introduces user-visible project, file, or library management. At that point the prior art above supports revisiting Project as the domain term without colliding with **Sequence**, **Rhythm layer**, or **Transport run**.
