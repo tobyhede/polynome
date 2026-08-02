@@ -21,9 +21,10 @@ The core promise is:
 
 ## Architecture
 
-- `model.js`: pure domain functions and timing maths. It must remain browser- and DOM-independent.
+- `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
+- `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
 - `metronome.js`: Web Audio nodes, transport, and look-ahead scheduler.
-- `app.js`: UI state, event handling, local persistence, and visual playhead.
+- `app.js`: DOM interaction, persistence I/O, transient interface state, transport-consequence execution, and visual playhead.
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
 
@@ -39,7 +40,7 @@ Run:
 npm run check
 ```
 
-Any change to timing, signatures, pulse generation, or step semantics must include or update tests in `test/model.test.js`.
+Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`.
 
 For browser changes, manually verify:
 

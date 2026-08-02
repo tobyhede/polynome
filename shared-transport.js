@@ -11,11 +11,11 @@ export class SharedTransport {
     return this.#origin;
   }
 
-  start({ bpm, cycles, layers }, origin) {
+  start({ bpm, sequence, cycles, layers }, origin) {
     this.#origin = origin;
     this.#schedulingPosition = origin;
     const sourceCycles = (
-      cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }]
+      sequence?.cycles || cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }]
     ).filter((cycle) => cycle.repetitions > 0);
     if (!sourceCycles.length) {
       this.#timing = null;
@@ -48,9 +48,9 @@ export class SharedTransport {
     };
   }
 
-  updateStepLevels({ cycles, layers }) {
+  updateStepLevels({ sequence, cycles, layers }) {
     if (!this.#timing) return;
-    const sourceRhythms = (cycles || [{ rhythms: layers }])
+    const sourceRhythms = (sequence?.cycles || cycles || [{ rhythms: layers }])
       .flatMap((cycle) => cycle.rhythms || []);
     const stepsByRhythm = new Map(
       sourceRhythms.map((rhythm) => [rhythm.id, rhythm.steps]),

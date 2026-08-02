@@ -1,19 +1,10 @@
 import { MetronomeEngine } from "./metronome.js";
 import {
-  MAX_REPETITIONS,
-  NOTE_UNITS,
-  PRESET_NAMES,
-  SOUNDS,
-  STEP,
-  createCycle,
-  createDefaultState,
-  createLayer,
-  createPreset,
-  nextStepState,
-  normaliseNumber,
-  normaliseState,
-  panLabel,
-} from "./model.js";
+  changeConfiguration,
+  createConfiguration,
+  describeConfiguration,
+} from "./configuration.js";
+import { panLabel } from "./model.js";
 
 const STORAGE_KEY = "polynome-redesign";
 const RETIRED_STORAGE_KEYS = [
@@ -23,7 +14,6 @@ const RETIRED_STORAGE_KEYS = [
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
-const MAX_RHYTHMS = 12;
 
 const elements = {
   play: document.querySelector("#play-button"),
@@ -48,19 +38,27 @@ const elements = {
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
 let state = loadState();
-let activePreset = detectPreset(state);
+let description = describeConfiguration(state);
+const {
+  meterUnits: NOTE_UNITS,
+  presetNames: PRESET_NAMES,
+  repetitions: REPETITIONS,
+  sounds: SOUNDS,
+  subdivisions: SUBDIVISIONS,
+} = description.choices;
 let presetsOpen = false;
 let helpOpen = false;
 let openSubdivisionMenu = null;
 let animationFrame = null;
+let tempoBeforePreview = null;
 
 function loadState() {
   try {
     for (const key of RETIRED_STORAGE_KEYS) localStorage.removeItem(key);
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normaliseState(JSON.parse(raw)) : createDefaultState();
+    return createConfiguration(raw ? JSON.parse(raw) : undefined);
   } catch {
-    return createDefaultState();
+    return createConfiguration();
   }
 }
 
@@ -72,27 +70,22 @@ function persistState() {
   }
 }
 
-function rhythmCount() {
-  return state.cycles.reduce((total, cycle) => total + cycle.rhythms.length, 0);
-}
-
-function activeCycleCount() {
-  return state.cycles.filter((cycle) => cycle.repetitions > 0).length;
-}
-
-function setState(nextState, options = {}) {
-  state = normaliseState(nextState);
-  activePreset = options.keepPreset ? activePreset : null;
+function applyEdit(edit, options = {}) {
+  const result = changeConfiguration(state, edit);
+  state = result.configuration;
+  description = describeConfiguration(state);
   persistState();
   if (options.render !== false) render();
 
-  if (options.restart && engine.playing) {
+  if (options.deferConsequence || result.consequence === "none") return result;
+  if (result.consequence === "restart-transport-run" && engine.playing) {
     engine.restart(state).catch(showError);
-  } else if (options.stepLevels) {
+  } else if (result.consequence === "update-step-levels") {
     engine.updateStepLevels(state);
   } else {
     engine.updateMix(state);
   }
+  return result;
 }
 
 function render() {
@@ -144,19 +137,19 @@ function renderPresets() {
   elements.presetList.innerHTML = PRESET_NAMES.map((name) => `
     <button
       type="button"
-      class="preset-button${activePreset === name ? " is-selected" : ""}"
+      class="preset-button${description.selectedPreset === name ? " is-selected" : ""}"
       data-preset="${escapeHtml(name)}"
-      aria-pressed="${activePreset === name}"
+      aria-pressed="${description.selectedPreset === name}"
     >${escapeHtml(name)}</button>
   `).join("");
 }
 
 function renderCycles() {
   const focusKey = focusSelector(document.activeElement);
-  elements.cycles.innerHTML = state.cycles
+  elements.cycles.innerHTML = state.sequence.cycles
     .map((cycle, index) => cycleTemplate(cycle, index))
     .join("");
-  elements.addCycle.disabled = rhythmCount() >= MAX_RHYTHMS;
+  elements.addCycle.disabled = !description.availability.addCycle.available;
   if (focusKey) elements.cycles.querySelector(focusKey)?.focus();
 }
 
@@ -196,16 +189,14 @@ function focusSelector(element) {
 }
 
 function cycleTemplate(cycle, cycleIndex) {
-  const activeCount = activeCycleCount();
-  const cycleTitle = state.cycles.length > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
-  const finalActive = cycle.repetitions > 0 && activeCount === 1;
-  const removeDisabled = state.cycles.length === 1 || finalActive;
-  const dots = Array.from({ length: MAX_REPETITIONS }, (_, index) => {
-    const value = index + 1;
+  const cycleAvailability = description.availability.cycles[cycle.id];
+  const cycleTitle = state.sequence.cycles.length > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
+  const removeDisabled = !cycleAvailability.remove.available;
+  const dots = REPETITIONS.slice(1).map((value, index) => {
     const selected = value <= cycle.repetitions;
-    const wouldDisableFinal = finalActive && cycle.repetitions === 1 && value === 1;
     const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
-    const actionLabel = wouldDisableFinal
+    const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
+    const actionLabel = unavailable
       ? `${cycleTitle} must remain active at 1 repetition`
       : nextRepetitions === 0
         ? `Disable ${cycleTitle}`
@@ -219,14 +210,14 @@ function cycleTemplate(cycle, cycleIndex) {
         data-repetition-index="${index}"
         aria-label="${actionLabel}"
         aria-pressed="${selected}"
-        ${wouldDisableFinal ? "disabled" : ""}
+        ${unavailable ? "disabled" : ""}
       ></button>
     `;
   }).join("");
 
   return `
     <section class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}" data-cycle-id="${cycle.id}" aria-labelledby="cycle-${cycle.id}-heading">
-      <article class="cycle-card" ${state.cycles.length === 1 ? "hidden" : ""}>
+      <article class="cycle-card" ${state.sequence.cycles.length === 1 ? "hidden" : ""}>
         <div class="card-heading cycle-heading">
           <h2 id="cycle-${cycle.id}-heading">${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span>${cycle.repetitions}</span></h2>
           <button
@@ -247,7 +238,7 @@ function cycleTemplate(cycle, cycleIndex) {
         type="button"
         class="chip-button add-rhythm"
         data-action="add-rhythm"
-        ${rhythmCount() >= MAX_RHYTHMS ? "disabled" : ""}
+        ${!cycleAvailability.addRhythm.available ? "disabled" : ""}
       >+ Rhythm</button>
     </section>
   `;
@@ -273,7 +264,7 @@ function rhythmTemplate(rhythm, cycle) {
         <div class="rhythm-actions">
           <button type="button" class="icon-button${rhythm.muted ? " is-active" : ""}" data-action="mute" aria-pressed="${rhythm.muted}" aria-label="${rhythm.muted ? "Unmute" : "Mute"} ${label}">M</button>
           <button type="button" class="icon-button edit-button${open ? " is-active" : ""}" data-action="toggle-settings" aria-expanded="${open}" aria-controls="${drawerId}" aria-label="Edit ${label}">${pencilIcon()}</button>
-          <button type="button" class="icon-button remove-button" data-action="remove-rhythm" aria-label="Remove ${label}" ${cycle.rhythms.length === 1 ? "disabled" : ""}>×</button>
+          <button type="button" class="icon-button remove-button" data-action="remove-rhythm" aria-label="Remove ${label}" ${!description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available ? "disabled" : ""}>×</button>
         </div>
       </div>
 
@@ -322,7 +313,7 @@ function rhythmSettingsTemplate(rhythm) {
             <span aria-hidden="true">▼</span>
           </button>
           <div id="${subdivisionMenuId}" class="subdivision-menu" role="listbox" aria-label="${label} subdivision" ${subdivisionOpen ? "" : "hidden"}>
-            ${[1, 2, 3, 4, 5].map((subdivision) => `
+            ${SUBDIVISIONS.map((subdivision) => `
               <button
                 type="button"
                 role="option"
@@ -434,7 +425,7 @@ function updateActiveSteps() {
   }
 
   const position = engine.activePosition();
-  for (const cycle of state.cycles) {
+  for (const cycle of state.sequence.cycles) {
     const cycleElement = elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"]`);
     if (!cycleElement) continue;
     const active = cycle.id === position?.cycleId;
@@ -474,28 +465,13 @@ async function togglePlayback() {
 }
 
 function changeTempo(nextBpm) {
-  const bpm = Math.round(normaliseNumber(nextBpm, state.bpm, 30, 300));
-  setState({ ...state, bpm }, { restart: true });
-}
-
-function updateCycle(cycleId, updater, options = {}) {
-  setState({
-    ...state,
-    cycles: state.cycles.map((cycle) => cycle.id === cycleId ? updater(cycle) : cycle),
-  }, options);
-}
-
-function updateRhythm(cycleId, rhythmId, updater, options = {}) {
-  updateCycle(cycleId, (cycle) => ({
-    ...cycle,
-    rhythms: cycle.rhythms.map((rhythm) => rhythm.id === rhythmId ? updater(rhythm) : rhythm),
-  }), options);
+  applyEdit({ type: "set-tempo", bpm: nextBpm });
 }
 
 function findContext(target) {
   const cycleElement = target.closest("[data-cycle-id]");
   if (!cycleElement) return null;
-  const cycle = state.cycles.find((candidate) => candidate.id === cycleElement.dataset.cycleId);
+  const cycle = state.sequence.cycles.find((candidate) => candidate.id === cycleElement.dataset.cycleId);
   if (!cycle) return null;
   const rhythmElement = target.closest("[data-layer-id]");
   const rhythm = rhythmElement
@@ -532,35 +508,38 @@ elements.helpToggle.addEventListener("click", () => {
 });
 elements.bpm.addEventListener("change", (event) => changeTempo(event.target.value));
 elements.bpmSlider.addEventListener("input", (event) => {
-  state = { ...state, bpm: Math.round(normaliseNumber(event.target.value, state.bpm, 30, 300)) };
-  activePreset = null;
-  persistState();
+  if (tempoBeforePreview === null) tempoBeforePreview = state.bpm;
+  applyEdit(
+    { type: "set-tempo", bpm: event.target.value },
+    { deferConsequence: true, render: false },
+  );
   renderTransport();
   renderPresets();
 });
 elements.bpmSlider.addEventListener("change", () => {
-  if (engine.playing) engine.restart(state).catch(showError);
+  if (
+    engine.playing
+    && tempoBeforePreview !== null
+    && state.bpm !== tempoBeforePreview
+  ) {
+    engine.restart(state).catch(showError);
+  }
+  tempoBeforePreview = null;
 });
 elements.masterVolume.addEventListener("input", (event) => {
-  state = { ...state, masterVolume: normaliseNumber(event.target.value, state.masterVolume, 0, 1) };
-  persistState();
-  engine.updateMix(state);
+  applyEdit(
+    { type: "set-master-volume", masterVolume: event.target.value },
+    { render: false },
+  );
+  renderPresets();
 });
 elements.presetList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-preset]");
   if (!button) return;
-  activePreset = button.dataset.preset;
-  state = normaliseState(createPreset(activePreset));
-  persistState();
-  render();
-  if (engine.playing) engine.restart(state).catch(showError);
+  applyEdit({ type: "apply-preset", name: button.dataset.preset });
 });
 elements.addCycle.addEventListener("click", () => {
-  if (rhythmCount() >= MAX_RHYTHMS) return;
-  setState({
-    ...state,
-    cycles: [...state.cycles, createCycle({ repetitions: 1, rhythms: [createLayer()] })],
-  }, { restart: true });
+  applyEdit({ type: "add-cycle" });
 });
 
 elements.cycles.addEventListener("click", (event) => {
@@ -574,25 +553,27 @@ elements.cycles.addEventListener("click", (event) => {
     case "set-repetitions": {
       const value = Number(actionElement.dataset.repetitions);
       const repetitions = cycle.repetitions === value ? value - 1 : value;
-      if (repetitions === 0 && cycle.repetitions > 0 && activeCycleCount() === 1) return;
-      updateCycle(cycle.id, (current) => ({ ...current, repetitions }), { restart: true });
+      applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
       break;
     }
     case "remove-cycle":
-      if (state.cycles.length <= 1 || (cycle.repetitions > 0 && activeCycleCount() === 1)) return;
-      setState({ ...state, cycles: state.cycles.filter((candidate) => candidate.id !== cycle.id) }, { restart: true });
+      applyEdit({ type: "remove-cycle", cycleId: cycle.id });
       // The removed control cannot be refocused, so fall back to a stable neighbour.
       elements.addCycle.focus();
       break;
     case "add-rhythm":
-      if (rhythmCount() >= MAX_RHYTHMS) return;
-      updateCycle(cycle.id, (current) => ({ ...current, rhythms: [...current.rhythms, createLayer()] }), { restart: true });
+      applyEdit({ type: "add-rhythm", cycleId: cycle.id });
       break;
     case "remove-rhythm": {
-      if (!rhythm || cycle.rhythms.length <= 1) return;
+      if (!rhythm) return;
+      const result = applyEdit({
+        type: "remove-rhythm",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+      });
+      if (result.reason !== null) return;
       openRhythms.delete(rhythm.id);
       if (openSubdivisionMenu === rhythm.id) openSubdivisionMenu = null;
-      updateCycle(cycle.id, (current) => ({ ...current, rhythms: current.rhythms.filter((candidate) => candidate.id !== rhythm.id) }), { restart: true });
       // The removed control cannot be refocused, so fall back to a stable neighbour.
       elements.cycles
         .querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"] .add-rhythm`)
@@ -615,29 +596,42 @@ elements.cycles.addEventListener("click", (event) => {
     case "set-subdivision":
       if (!rhythm) return;
       openSubdivisionMenu = null;
-      updateRhythm(cycle.id, rhythm.id, (current) => ({
-        ...current,
+      applyEdit({
+        type: "set-subdivision",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
         subdivision: Number(actionElement.dataset.subdivision),
-      }), { restart: true });
+      });
       requestAnimationFrame(() => {
         elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`)?.focus();
       });
       break;
     case "mute":
-      if (rhythm) updateRhythm(cycle.id, rhythm.id, (current) => ({ ...current, muted: !current.muted }), { keepPreset: true });
+      if (rhythm) applyEdit({
+        type: "set-muted",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        muted: !rhythm.muted,
+      });
       break;
     case "step": {
       if (!rhythm) return;
       const index = Number(actionElement.dataset.stepIndex);
-      updateRhythm(cycle.id, rhythm.id, (current) => ({
-        ...current,
-        steps: current.steps.map((step, stepIndex) => stepIndex === index ? nextStepState(step) : step),
-      }), { stepLevels: true });
+      applyEdit({
+        type: "advance-step-level",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        position: index,
+      });
       break;
     }
     case "sound":
-      // Sound is part of preset identity in sameMusicalState, so it must clear the preset.
-      if (rhythm) updateRhythm(cycle.id, rhythm.id, (current) => ({ ...current, sound: actionElement.dataset.sound }));
+      if (rhythm) applyEdit({
+        type: "set-sound",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        sound: actionElement.dataset.sound,
+      });
       break;
   }
 });
@@ -704,15 +698,29 @@ elements.cycles.addEventListener("input", (event) => {
   if (!context?.rhythm) return;
   const { rhythmElement, rhythm } = context;
   if (field === "volume") {
-    rhythm.volume = normaliseNumber(event.target.value, rhythm.volume, 0, 1);
-    rhythmElement.querySelector('[data-output="volume"]').textContent = `${Math.round(rhythm.volume * 100)}%`;
+    const result = applyEdit({
+      type: "set-rhythm-volume",
+      cycleId: context.cycle.id,
+      rhythmId: rhythm.id,
+      volume: event.target.value,
+    }, { render: false });
+    const volume = result.configuration.sequence.cycles
+      .find(({ id }) => id === context.cycle.id).rhythms
+      .find(({ id }) => id === rhythm.id).volume;
+    rhythmElement.querySelector('[data-output="volume"]').textContent = `${Math.round(volume * 100)}%`;
   } else {
-    rhythm.pan = normaliseNumber(event.target.value, rhythm.pan, -1, 1);
-    rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(rhythm.pan);
+    const result = applyEdit({
+      type: "set-stereo-position",
+      cycleId: context.cycle.id,
+      rhythmId: rhythm.id,
+      pan: event.target.value,
+    }, { render: false });
+    const pan = result.configuration.sequence.cycles
+      .find(({ id }) => id === context.cycle.id).rhythms
+      .find(({ id }) => id === rhythm.id).pan;
+    rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(pan);
   }
-  activePreset = null;
-  persistState();
-  engine.updateMix(state);
+  renderPresets();
 });
 
 elements.cycles.addEventListener("change", (event) => {
@@ -722,15 +730,19 @@ elements.cycles.addEventListener("change", (event) => {
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
   if (field === "signature-count") {
-    updateRhythm(cycle.id, rhythm.id, (current) => ({
-      ...current,
-      signature: { ...current.signature, count: Math.round(normaliseNumber(event.target.value, current.signature.count, 1, 32)) },
-    }), { restart: true });
+    applyEdit({
+      type: "set-meter-count",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      count: event.target.value,
+    });
   } else if (field === "signature-unit") {
-    updateRhythm(cycle.id, rhythm.id, (current) => ({
-      ...current,
-      signature: { ...current.signature, unit: Number(event.target.value) },
-    }), { restart: true });
+    applyEdit({
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      unit: event.target.value,
+    });
   }
 });
 
@@ -747,30 +759,6 @@ document.addEventListener("keydown", (event) => {
   togglePlayback();
 });
 window.addEventListener("pagehide", () => engine.stop());
-
-function detectPreset(candidateState) {
-  for (const name of PRESET_NAMES) {
-    if (sameMusicalState(candidateState, normaliseState(createPreset(name)))) return name;
-  }
-  return null;
-}
-
-function sameMusicalState(left, right) {
-  if (left.bpm !== right.bpm || left.cycles.length !== right.cycles.length) return false;
-  return left.cycles.every((cycle, cycleIndex) => {
-    const comparisonCycle = right.cycles[cycleIndex];
-    if (cycle.repetitions !== comparisonCycle.repetitions || cycle.rhythms.length !== comparisonCycle.rhythms.length) return false;
-    return cycle.rhythms.every((rhythm, rhythmIndex) => {
-      const comparison = comparisonCycle.rhythms[rhythmIndex];
-      return rhythm.signature.count === comparison.signature.count
-        && rhythm.signature.unit === comparison.signature.unit
-        && rhythm.subdivision === comparison.subdivision
-        && rhythm.steps.join(",") === comparison.steps.join(",")
-        && Math.abs(rhythm.pan - comparison.pan) < 0.001
-        && rhythm.sound === comparison.sound;
-    });
-  });
-}
 
 function escapeHtml(value) {
   return String(value)

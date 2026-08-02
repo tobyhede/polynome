@@ -1,8 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { STEP, createLayer, createPreset } from "../model.js";
+import { STEP } from "../model.js";
 import { SharedTransport } from "../shared-transport.js";
+
+let rhythmId = 0;
+const createLayer = (overrides = {}) => {
+  const signature = overrides.signature || { count: 4, unit: 4 };
+  const subdivision = overrides.subdivision || 1;
+  const length = signature.count * subdivision;
+  const supplied = overrides.steps || [];
+  return {
+    id: overrides.id || `rhythm-${++rhythmId}`,
+    signature,
+    subdivision,
+    steps: Array.from({ length }, (_, index) => (
+      supplied[index] || (index === 0 ? STEP.FULL : STEP.HALF)
+    )),
+  };
+};
 
 const sequence = (bpm, rhythms, repetitions = 1) => ({
   bpm,
