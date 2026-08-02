@@ -3,6 +3,7 @@ import { SharedTransport } from "./shared-transport.js";
 const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
+const MAX_CLICK_LATENESS_SECONDS = 0.05;
 
 export const SOUND_PROFILES = Object.freeze({
   high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
@@ -17,6 +18,13 @@ export const CLICK_ENVELOPE = Object.freeze({
   releaseSeconds: 0.002,
 });
 
+/**
+ * Nodes come from the context's own factory methods rather than the global
+ * constructors, so whatever context is handed in supplies the entire graph.
+ * That is what lets an injected test double observe the voicing, and it costs
+ * a real context nothing: the factory methods are the same nodes by another
+ * name.
+ */
 export function scheduleClickVoice(context, output, { sound, level, when }) {
   if (!(level > 0)) return null;
 
@@ -25,11 +33,11 @@ export function scheduleClickVoice(context, output, { sound, level, when }) {
   const peak = peakGain * level;
   const end = when + profile.length;
 
-  const oscillator = new OscillatorNode(context, {
-    type: profile.type,
-    frequency: profile.frequency,
-  });
-  const envelope = new GainNode(context, { gain: silenceGain });
+  const oscillator = context.createOscillator();
+  oscillator.type = profile.type;
+  oscillator.frequency.value = profile.frequency;
+  const envelope = context.createGain();
+  envelope.gain.value = silenceGain;
 
   oscillator.connect(envelope);
   envelope.connect(output);
@@ -44,16 +52,26 @@ export function scheduleClickVoice(context, output, { sound, level, when }) {
 }
 
 export function createLayerOutput(context, destination, layer) {
-  const gain = new GainNode(context, {
-    gain: layer.muted ? 0 : layer.volume,
-  });
-  const panner = new StereoPannerNode(context, { pan: layer.pan });
+  const gain = context.createGain();
+  gain.gain.value = layer.muted ? 0 : layer.volume;
+  const panner = context.createStereoPanner();
+  panner.pan.value = layer.pan;
   gain.connect(panner);
   panner.connect(destination);
   return { gain, panner };
 }
 
+function createBrowserContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error("This browser does not support the Web Audio API.");
+  }
+
+  return new AudioContextClass({ latencyHint: "interactive" });
+}
+
 export class MetronomeEngine extends EventTarget {
+  #createContext;
   #context = null;
   #master = null;
   #layers = new Map();
@@ -61,7 +79,32 @@ export class MetronomeEngine extends EventTarget {
   #playing = false;
   #transport = new SharedTransport();
   #timer = null;
+  #anchored = false;
   #scheduledSources = new Set();
+
+  /**
+   * WebKit fires `statechange` on every transition. Losing `"running"` during
+   * a transport run means a call, an app switch, or a screen lock took the
+   * audio session away, so ask for it back. The transport origin is left
+   * alone: `currentTime` freezes with the interruption, so the existing origin
+   * stays in phase and re-anchoring would only risk replaying past events.
+   * Scheduling stays parked until a tick observes `"running"` again.
+   */
+  #handleStateChange = () => {
+    if (!this.#playing) return;
+    this.#requestResume();
+  };
+
+  /**
+   * `options.createContext` is an optional zero-argument factory returning an
+   * AudioContext-like object. Without it the engine behaves exactly as before.
+   */
+  constructor(options = {}) {
+    super();
+    this.#createContext = typeof options?.createContext === "function"
+      ? options.createContext
+      : createBrowserContext;
+  }
 
   get playing() {
     return this.#playing;
@@ -79,20 +122,14 @@ export class MetronomeEngine extends EventTarget {
     this.#state = state;
     this.#ensureContext();
 
-    if (this.#context.state === "suspended") {
-      await this.#context.resume();
-    }
+    this.#requestResume();
 
     this.stop({ preserveContext: true, emit: false });
     this.#state = state;
     this.#playing = true;
-    this.#transport.start(
-      state,
-      this.#context.currentTime + START_DELAY_SECONDS,
-    );
     this.#syncNodes();
     try {
-      this.#schedule();
+      this.#tick();
     } catch (error) {
       this.stop({ preserveContext: true, emit: false });
       throw error;
@@ -100,7 +137,7 @@ export class MetronomeEngine extends EventTarget {
     this.#timer = window.setInterval(
       () => {
         try {
-          this.#schedule();
+          this.#tick();
         } catch (error) {
           this.stop();
           this.dispatchEvent(
@@ -120,6 +157,7 @@ export class MetronomeEngine extends EventTarget {
     }
 
     this.#playing = false;
+    this.#anchored = false;
 
     for (const source of this.#scheduledSources) {
       try {
@@ -194,25 +232,66 @@ export class MetronomeEngine extends EventTarget {
   }
 
   activeStep(layer) {
-    if (!this.#playing || !this.#context) return null;
+    if (!this.#playing || !this.#context || !this.#anchored) return null;
     return this.#transport.patternPosition(layer.id, this.#context.currentTime);
   }
 
   activePosition() {
-    if (!this.#playing || !this.#context) return null;
+    if (!this.#playing || !this.#context || !this.#anchored) return null;
     return this.#transport.position(this.#context.currentTime);
+  }
+
+  /**
+   * WebKit parks the promise returned by `resume()` and never settles it when
+   * the context is not allowed to start, so awaiting it would deadlock the
+   * start path and leave the scheduler uninstalled. Request it and move on.
+   *
+   * iOS also parks a context in `"interrupted"`, a WebKit state that predates
+   * the specification, so every state other than running and closed is worth
+   * a resume request.
+   */
+  #requestResume() {
+    if (!this.#context) return;
+
+    const state = this.#context.state;
+    if (state === "running" || state === "closed") return;
+
+    try {
+      const pending = this.#context.resume();
+      if (pending && typeof pending.catch === "function") {
+        pending.catch(() => {
+          // A refused resume must not become an unhandled rejection.
+        });
+      }
+    } catch {
+      // Some contexts throw synchronously; the scheduler still runs.
+    }
+  }
+
+  /**
+   * Web Audio is mapped to the iOS `Ambient` audio session, which the hardware
+   * Ring/Silent switch and the lock screen both silence. Asking for the
+   * `playback` type is the only available mitigation, and it also waives the
+   * background-interruption restriction. Safari 16.4+; a no-op everywhere else,
+   * and silently ignored when the Permissions Policy withholds it.
+   */
+  #requestPlaybackAudioSession() {
+    try {
+      const audioSession = globalThis.navigator?.audioSession;
+      if (audioSession) audioSession.type = "playback";
+    } catch {
+      // Best effort only: never let this break starting the metronome.
+    }
   }
 
   #ensureContext() {
     if (this.#context) return;
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) {
-      throw new Error("This browser does not support the Web Audio API.");
-    }
-
-    this.#context = new AudioContextClass({ latencyHint: "interactive" });
-    this.#master = new GainNode(this.#context, { gain: 0.8 });
+    this.#requestPlaybackAudioSession();
+    this.#context = this.#createContext();
+    this.#context.addEventListener("statechange", this.#handleStateChange);
+    this.#master = this.#context.createGain();
+    this.#master.gain.value = 0.8;
     this.#master.connect(this.#context.destination);
   }
 
@@ -257,6 +336,26 @@ export class MetronomeEngine extends EventTarget {
     }
   }
 
+  /**
+   * One scheduler tick. `currentTime` is frozen at zero while a context is
+   * suspended or interrupted and never catches up, so the transport origin is
+   * anchored from the first tick at which the context is genuinely running.
+   */
+  #tick() {
+    if (!this.#playing || !this.#context || !this.#state) return;
+    if (this.#context.state !== "running") return;
+
+    if (!this.#anchored) {
+      this.#transport.start(
+        this.#state,
+        this.#context.currentTime + START_DELAY_SECONDS,
+      );
+      this.#anchored = true;
+    }
+
+    this.#schedule();
+  }
+
   #schedule() {
     if (!this.#playing || !this.#context || !this.#state) return;
 
@@ -282,10 +381,18 @@ export class MetronomeEngine extends EventTarget {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
+    // A sound profile is only a few tens of milliseconds long, so any drift
+    // larger than that would put the stop time before the start time and the
+    // click would produce no sound at all, silently. Pull a marginally late
+    // click forward instead, carrying its stop time with it, and abandon a
+    // hopelessly stale one deliberately rather than by accident.
+    const now = this.#context.currentTime;
+    if (when < now - MAX_CLICK_LATENESS_SECONDS) return;
+
     const oscillator = scheduleClickVoice(this.#context, output, {
       sound: layer.sound,
       level,
-      when,
+      when: Math.max(when, now),
     });
     if (!oscillator) return;
 

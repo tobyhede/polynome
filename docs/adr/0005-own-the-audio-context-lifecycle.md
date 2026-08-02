@@ -1,0 +1,17 @@
+# Own the audio context lifecycle in the engine
+
+Polynome will treat the Web Audio context as an unreliable resource that may refuse to start, stall, or be taken away mid-run, and will make `metronome.js` solely responsible for detecting and recovering from that. iPhone Safari reports no error in any of these cases, so the engine cannot rely on exceptions to notice. The evidence is recorded in `docs/research/ios-safari-web-audio.md`. iOS is the only WebKit platform that requires user activation for Web Audio, so desktop testing never exercises these paths.
+
+## Consequences
+
+- The engine never awaits `resume()`. WebKit parks that promise and settles it neither way when the context is not allowed to start, so awaiting it deadlocks the start path and the look-ahead scheduler is never installed. Resume is requested, any rejection absorbed, and the scheduler installed regardless.
+- Every context state other than `running` and `closed` is resumed, not only `suspended`. iOS uses `interrupted`, a WebKit state that predates its addition to the specification.
+- The transport origin is anchored on the first scheduler tick at which the context is running, not when playback is requested. `currentTime` is frozen while a context is suspended or interrupted and never catches up, so an origin derived from it places every rhythm event in the past, where the lateness filter and the scheduler both discard it silently.
+- An interruption does not re-anchor the transport origin. `currentTime` freezes with the interruption and resumes in phase, so the transport run stays correct; re-anchoring is what would replay past events.
+- A `statechange` listener, registered once per context, re-requests resume whenever a transport run loses `running`. Scheduling stays parked until a tick observes `running` again.
+- A rhythm event whose scheduled time has slipped behind the clock is pulled forward to the current time rather than dropped; one more than 50 ms stale is skipped deliberately. A sound profile is only tens of milliseconds long, so drift beyond it puts the stop time before the start time, which produces no sound at all.
+- `navigator.audioSession.type` is set to `playback` where supported. Web Audio maps to the iOS `Ambient` session, which the hardware Ring/Silent switch and the lock screen both silence; this is the only available mitigation, and it also waives the background-interruption restriction. It cannot be verified without hardware.
+- `MetronomeEngine` accepts an optional context factory so the lifecycle above is testable, and creates nodes through the context's factory methods rather than global constructors. The audio graph and all timing behaviour are unchanged.
+- Engine lifecycle and scheduler tests live in `test/metronome-audio.test.js`, apart from the consequence-routing tests already in `test/metronome.test.js`: only the lifecycle tests need a stubbed `window` and a fake audio graph, and the runner isolates that stub per file. `test/model.test.js` remains for pure domain and timing maths and stays browser-independent.
+- The `playstate` event still fires when playback is requested, so the interface reports playing while a context that never starts stays silent. Communicating "waiting for audio" to the user is unresolved.
+- Recovery from a context that reports `running` while its render thread is dead is not attempted. Several open WebKit bugs describe that state, and no reliable detection exists short of watching `currentTime` for progress.
