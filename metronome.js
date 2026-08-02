@@ -1,4 +1,3 @@
-import { STEP } from "./model.js";
 import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
@@ -127,6 +126,11 @@ export class MetronomeEngine extends EventTarget {
     if (this.#context) this.#syncNodes();
   }
 
+  updateStepLevels(state) {
+    this.#state = state;
+    if (this.#playing) this.#transport.updateStepLevels(state);
+  }
+
   activeStep(layer) {
     if (!this.#playing || !this.#context) return null;
     return this.#transport.patternPosition(layer.id, this.#context.currentTime);
@@ -210,23 +214,22 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.strength, event.audioTime);
+        this.#scheduleClick(layer, event.level, event.audioTime);
       }
     }
   }
 
-  #scheduleClick(layer, strength, when) {
+  #scheduleClick(layer, level, when) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
     const profile = SOUND_PROFILES[layer.sound] || SOUND_PROFILES.high;
-    const accentMultiplier = strength === STEP.ACCENT ? 1.36 : 1;
-    const peak = strength === STEP.ACCENT ? 0.92 : 0.52;
+    const peak = 0.92 * level;
     const end = when + profile.length;
 
     const oscillator = new OscillatorNode(this.#context, {
       type: profile.type,
-      frequency: profile.frequency * accentMultiplier,
+      frequency: profile.frequency,
     });
     const envelope = new GainNode(this.#context, { gain: 0.0001 });
 

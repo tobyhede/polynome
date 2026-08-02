@@ -1,4 +1,4 @@
-import { STEP, cycleSpanSeconds, stepDurationSeconds } from "./model.js";
+import { cycleSpanSeconds, stepDurationSeconds, stepLevel } from "./model.js";
 
 const LATENESS_TOLERANCE_SECONDS = 0.004;
 
@@ -14,7 +14,9 @@ export class SharedTransport {
   start({ bpm, cycles, layers }, origin) {
     this.#origin = origin;
     this.#schedulingPosition = origin;
-    const sourceCycles = cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }];
+    const sourceCycles = (
+      cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }]
+    ).filter((cycle) => cycle.repetitions > 0);
     let offset = 0;
     const timingCycles = sourceCycles.map((cycle) => {
       const rhythms = cycle.rhythms.map((rhythm) => ({
@@ -40,6 +42,24 @@ export class SharedTransport {
       cycles: timingCycles,
       sequenceDuration: offset,
     };
+  }
+
+  updateStepLevels({ cycles, layers }) {
+    if (!this.#timing) return;
+    const sourceRhythms = (cycles || [{ rhythms: layers }])
+      .flatMap((cycle) => cycle.rhythms || []);
+    const stepsByRhythm = new Map(
+      sourceRhythms.map((rhythm) => [rhythm.id, rhythm.steps]),
+    );
+
+    for (const cycle of this.#timing.cycles) {
+      for (const rhythm of cycle.rhythms) {
+        const steps = stepsByRhythm.get(rhythm.id);
+        if (Array.isArray(steps) && steps.length === rhythm.steps.length) {
+          rhythm.steps = [...steps];
+        }
+      }
+    }
   }
 
   plan(currentTime, horizon) {
@@ -96,9 +116,9 @@ export class SharedTransport {
               const audioTime = repetitionOrigin + localStep * duration;
               if (audioTime >= horizon) break;
               const patternPosition = localStep % rhythm.steps.length;
-              const strength = rhythm.steps[patternPosition];
+              const level = stepLevel(rhythm.steps[patternPosition]);
               if (
-                strength === STEP.REST
+                level === 0
                 || audioTime < fromTime
                 || audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
               ) {
@@ -113,7 +133,7 @@ export class SharedTransport {
                   + localStep
                 ),
                 patternPosition,
-                strength,
+                level,
                 audioTime,
               });
             }

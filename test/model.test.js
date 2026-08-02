@@ -12,7 +12,7 @@ import {
   nextStepState,
   normaliseState,
   resizePattern,
-  sequenceSummary,
+  stepLevel,
   stepDurationSeconds,
 } from "../model.js";
 
@@ -22,6 +22,13 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
     `Expected ${actual} to be within ${tolerance} of ${expected}`,
   );
 };
+
+test("step levels expose amplitude-only factors", () => {
+  assert.equal(stepLevel(STEP.OFF), 0);
+  assert.equal(stepLevel(STEP.QUARTER), 0.25);
+  assert.equal(stepLevel(STEP.HALF), 0.5);
+  assert.equal(stepLevel(STEP.FULL), 1);
+});
 
 test("the application loads one cycle containing one 4/4 rhythm", () => {
   const state = createDefaultState();
@@ -45,26 +52,6 @@ test("the preset catalogue starts with meter-first rhythms", () => {
   assert.deepEqual(PRESET_NAMES, ["4/4", "4/4 + 3/4"]);
 });
 
-test("sequence summary distinguishes simultaneous rhythms from sequential cycles", () => {
-  const state = normaliseState({
-    cycles: [
-      {
-        repetitions: 4,
-        rhythms: [
-          { signature: { count: 4, unit: 4 } },
-          { signature: { count: 3, unit: 4 } },
-        ],
-      },
-      {
-        repetitions: 1,
-        rhythms: [{ signature: { count: 4, unit: 4 } }],
-      },
-    ],
-  });
-
-  assert.equal(sequenceSummary(state), "4(4/4 + 3/4), 1(4/4)");
-});
-
 test("cycle duration uses quarter-note BPM as the shared reference", () => {
   closeTo(cycleDurationSeconds(120, { count: 4, unit: 4 }), 2);
   closeTo(cycleDurationSeconds(120, { count: 7, unit: 8 }), 1.75);
@@ -81,18 +68,29 @@ test("a rhythm layer creates one pattern position per meter-relative pulse", () 
   assert.equal(layer.steps.length, 12);
 });
 
-test("a rhythm layer preserves supplied emphasis while filling its meter-relative grid", () => {
+test("a new rhythm starts full and continues at half level", () => {
+  const layer = createLayer({ signature: { count: 4, unit: 4 } });
+
+  assert.deepEqual(layer.steps, [
+    STEP.FULL,
+    STEP.HALF,
+    STEP.HALF,
+    STEP.HALF,
+  ]);
+});
+
+test("a rhythm layer preserves supplied levels while filling its meter-relative grid", () => {
   const layer = createLayer({
     signature: { count: 2, unit: 4 },
     subdivision: 2,
-    steps: [STEP.ACCENT, STEP.REST],
+    steps: [STEP.FULL, STEP.OFF],
   });
 
   assert.deepEqual(layer.steps, [
-    STEP.ACCENT,
-    STEP.REST,
-    STEP.HIT,
-    STEP.HIT,
+    STEP.FULL,
+    STEP.OFF,
+    STEP.HALF,
+    STEP.HALF,
   ]);
 });
 
@@ -102,7 +100,7 @@ test("state normalisation clamps subdivision and keeps the full meter-relative g
       { rhythms: [{
           signature: { count: 32, unit: 4 },
           subdivision: 99,
-          steps: [STEP.ACCENT, STEP.REST],
+          steps: [STEP.FULL, STEP.OFF],
       }] },
     ],
   });
@@ -111,16 +109,16 @@ test("state normalisation clamps subdivision and keeps the full meter-relative g
   assert.equal(layer.subdivision, 5);
   assert.equal(layer.steps.length, 160);
   assert.deepEqual(layer.steps.slice(0, 2), [
-    STEP.ACCENT,
-    STEP.REST,
+    STEP.FULL,
+    STEP.OFF,
   ]);
 });
 
-test("meter and subdivision edits resize the pattern while preserving emphasis", () => {
+test("meter and subdivision edits resize the pattern while preserving levels", () => {
   const original = createLayer({
     signature: { count: 2, unit: 4 },
     subdivision: 2,
-    steps: [STEP.ACCENT, STEP.REST, STEP.HIT, STEP.ACCENT],
+    steps: [STEP.FULL, STEP.OFF, STEP.HALF, STEP.FULL],
   });
   const widerMeter = createLayer({
     ...original,
@@ -132,18 +130,25 @@ test("meter and subdivision edits resize the pattern while preserving emphasis",
   });
 
   assert.deepEqual(widerMeter.steps, [
-    STEP.ACCENT,
-    STEP.REST,
-    STEP.HIT,
-    STEP.ACCENT,
-    STEP.HIT,
-    STEP.HIT,
+    STEP.FULL,
+    STEP.OFF,
+    STEP.HALF,
+    STEP.FULL,
+    STEP.HALF,
+    STEP.HALF,
   ]);
   assert.deepEqual(simplerGrid.steps, [
-    STEP.ACCENT,
-    STEP.REST,
-    STEP.HIT,
+    STEP.FULL,
+    STEP.OFF,
+    STEP.HALF,
   ]);
+});
+
+test("expanding a level pattern fills new positions at half level", () => {
+  assert.deepEqual(
+    resizePattern([STEP.FULL, STEP.OFF], 4),
+    [STEP.FULL, STEP.OFF, STEP.HALF, STEP.HALF],
+  );
 });
 
 test("4/4 and 3/4 downbeats realign after twelve quarter notes", () => {
@@ -198,21 +203,22 @@ test("step duration follows subdivision within each signature unit", () => {
   closeTo(stepDurationSeconds(120, layer), 1 / 6);
 });
 
-test("pattern states cycle accent to hit to rest to accent", () => {
-  assert.equal(nextStepState(STEP.ACCENT), STEP.HIT);
-  assert.equal(nextStepState(STEP.HIT), STEP.REST);
-  assert.equal(nextStepState(STEP.REST), STEP.ACCENT);
+test("step controls cycle through descending amplitude levels and off", () => {
+  assert.equal(nextStepState(STEP.FULL), STEP.HALF);
+  assert.equal(nextStepState(STEP.HALF), STEP.QUARTER);
+  assert.equal(nextStepState(STEP.QUARTER), STEP.OFF);
+  assert.equal(nextStepState(STEP.OFF), STEP.FULL);
 });
 
 test("resizing a pattern preserves existing steps and fills new subdivisions", () => {
-  const original = [STEP.ACCENT, STEP.REST];
+  const original = [STEP.FULL, STEP.OFF];
   assert.deepEqual(resizePattern(original, 4), [
-    STEP.ACCENT,
-    STEP.REST,
-    STEP.HIT,
-    STEP.HIT,
+    STEP.FULL,
+    STEP.OFF,
+    STEP.HALF,
+    STEP.HALF,
   ]);
-  assert.deepEqual(resizePattern(original, 1), [STEP.ACCENT]);
+  assert.deepEqual(resizePattern(original, 1), [STEP.FULL]);
 });
 
 test("state normalisation clamps unsafe values and preserves a non-empty sequence", () => {
@@ -223,7 +229,7 @@ test("state normalisation clamps unsafe values and preserves a non-empty sequenc
   assert.ok(state.cycles[0].rhythms.length >= 1);
 });
 
-test("state normalisation limits repetitions and total rhythms", () => {
+test("state normalisation allows inactive cycles and limits repetitions and rhythms", () => {
   const state = normaliseState({
     cycles: [
       { repetitions: 99, rhythms: Array.from({ length: 8 }, () => ({})) },
@@ -231,9 +237,20 @@ test("state normalisation limits repetitions and total rhythms", () => {
     ],
   });
 
-  assert.deepEqual(state.cycles.map((cycle) => cycle.repetitions), [32, 1]);
+  assert.deepEqual(state.cycles.map((cycle) => cycle.repetitions), [8, 0]);
   assert.equal(
     state.cycles.reduce((total, cycle) => total + cycle.rhythms.length, 0),
     12,
   );
+});
+
+test("state normalisation preserves a final active cycle", () => {
+  const state = normaliseState({
+    cycles: [
+      { repetitions: 0, rhythms: [{}] },
+      { repetitions: 0, rhythms: [{}] },
+    ],
+  });
+
+  assert.deepEqual(state.cycles.map((cycle) => cycle.repetitions), [1, 0]);
 });

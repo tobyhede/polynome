@@ -1,11 +1,24 @@
 export const STEP = Object.freeze({
-  REST: "rest",
-  HIT: "hit",
-  ACCENT: "accent",
+  OFF: "off",
+  QUARTER: "quarter",
+  HALF: "half",
+  FULL: "full",
 });
+
+const STEP_LEVELS = Object.freeze({
+  [STEP.OFF]: 0,
+  [STEP.QUARTER]: 0.25,
+  [STEP.HALF]: 0.5,
+  [STEP.FULL]: 1,
+});
+
+export function stepLevel(step) {
+  return STEP_LEVELS[step] ?? 0;
+}
 
 export const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
 export const SOUNDS = Object.freeze(["high", "low", "wood"]);
+export const MAX_REPETITIONS = 8;
 
 let layerSequence = 0;
 
@@ -23,10 +36,10 @@ export function normaliseNumber(value, fallback, min, max) {
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
-export function createPattern(length, firstStep = STEP.ACCENT) {
+export function createPattern(length, firstStep = STEP.FULL) {
   const safeLength = Math.round(normaliseNumber(length, 4, 1, 160));
   return Array.from({ length: safeLength }, (_, index) =>
-    index === 0 ? firstStep : STEP.HIT,
+    index === 0 ? firstStep : STEP.HALF,
   );
 }
 
@@ -67,7 +80,7 @@ export function createCycle(overrides = {}) {
   return {
     id: overrides.id || makeId("cycle"),
     repetitions: Math.round(
-      normaliseNumber(overrides.repetitions, 1, 1, 32),
+      normaliseNumber(overrides.repetitions, 1, 0, MAX_REPETITIONS),
     ),
     rhythms: rhythms.length ? rhythms : [createLayer()],
   };
@@ -92,16 +105,22 @@ export function normaliseState(input) {
         return [createCycle({ ...candidate, rhythms })];
       })
     : [];
+  const populatedCycles = cycles.length ? cycles : createPreset("4/4").cycles;
+  const activeCycles = populatedCycles.some((cycle) => cycle.repetitions > 0)
+    ? populatedCycles
+    : populatedCycles.map((cycle, index) => (
+        index === 0 ? { ...cycle, repetitions: 1 } : cycle
+      ));
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
     masterVolume: normaliseNumber(source.masterVolume, 0.8, 0, 1),
-    cycles: cycles.length ? cycles : createPreset("4/4").cycles,
+    cycles: activeCycles,
   };
 }
 
 export function normaliseStep(value) {
-  return Object.values(STEP).includes(value) ? value : STEP.HIT;
+  return Object.values(STEP).includes(value) ? value : STEP.HALF;
 }
 
 export function normaliseUnit(value, fallback = 4) {
@@ -111,12 +130,16 @@ export function normaliseUnit(value, fallback = 4) {
 
 export function nextStepState(step) {
   switch (normaliseStep(step)) {
-    case STEP.ACCENT:
-      return STEP.HIT;
-    case STEP.HIT:
-      return STEP.REST;
+    case STEP.FULL:
+      return STEP.HALF;
+    case STEP.HALF:
+      return STEP.QUARTER;
+    case STEP.QUARTER:
+      return STEP.OFF;
+    case STEP.OFF:
+      return STEP.FULL;
     default:
-      return STEP.ACCENT;
+      return STEP.FULL;
   }
 }
 
@@ -128,7 +151,7 @@ export function resizePattern(steps, nextLength) {
 
   return Array.from({ length }, (_, index) => {
     if (source[index]) return source[index];
-    return index === 0 ? STEP.ACCENT : STEP.HIT;
+    return index === 0 ? STEP.FULL : STEP.HALF;
   });
 }
 
@@ -230,17 +253,6 @@ export function createPreset(name) {
         ],
       };
   }
-}
-
-export function sequenceSummary(state) {
-  return state.cycles
-    .map((cycle) => {
-      const rhythms = cycle.rhythms
-        .map((rhythm) => `${rhythm.signature.count}/${rhythm.signature.unit}`)
-        .join(" + ");
-      return `${cycle.repetitions}(${rhythms})`;
-    })
-    .join(", ");
 }
 
 export function panLabel(value) {

@@ -46,7 +46,7 @@ For browser changes, manually verify:
 1. Play and stop from the button and Space key.
 2. Presets `4/4` and `4/4 + 3/4`.
 3. Headphone separation at hard left and hard right.
-4. Accent, hit, and rest cycling.
+4. Full, half, quarter, and off step-level cycling.
 5. Signature and pulse edits while playing.
 6. Mobile layout around 375 px width.
 

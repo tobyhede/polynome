@@ -3,14 +3,20 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const [html, css, model, sharedTransport, metronome, app] = await Promise.all([
+const [html, cssSource, jetBrainsMono, majorMonoDisplay, model, sharedTransport, metronome, app] = await Promise.all([
   readFile(join(root, "index.html"), "utf8"),
   readFile(join(root, "styles.css"), "utf8"),
+  readFile(join(root, "fonts", "jetbrains-mono-latin.woff2")),
+  readFile(join(root, "fonts", "major-mono-display-latin.woff2")),
   readFile(join(root, "model.js"), "utf8"),
   readFile(join(root, "shared-transport.js"), "utf8"),
   readFile(join(root, "metronome.js"), "utf8"),
   readFile(join(root, "app.js"), "utf8"),
 ]);
+
+const css = cssSource
+  .replaceAll("./fonts/jetbrains-mono-latin.woff2", `data:font/woff2;base64,${jetBrainsMono.toString("base64")}`)
+  .replaceAll("./fonts/major-mono-display-latin.woff2", `data:font/woff2;base64,${majorMonoDisplay.toString("base64")}`);
 
 function withoutImports(source) {
   return source.replace(/^import\s+[\s\S]*?;\s*$/gm, "");

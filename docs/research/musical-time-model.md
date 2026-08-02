@@ -1,6 +1,6 @@
 # Musical-time model for Polynome
 
-> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Ratio presets use a `1/4` meter; grouping is not modeled as state or UI; existing accent/hit/rest patterns remain the complete expression of emphasis. Existing local state will be hard-reset without migration or schema-version machinery.
+> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four amplitude-only step levels express emphasis: off, quarter, half, and full. Existing local state is hard-reset without migration or schema-version machinery.
 
 ## Conclusion
 
@@ -29,7 +29,7 @@ No additional grouping metadata is required for the product's meter-relative tim
 - **Pulse / grid position**: one evenly spaced scheduling position exposed by the app. This is a product-domain concept, not necessarily a sounded note.
 - **Note value**: a written duration such as quarter, eighth, or sixteenth. Note values do not by themselves state their metrical role ([Open Music Theory, Notating Rhythm](https://viva.pressbooks.pub/openmusictheory/chapter/notating-rhythm/)).
 - **Tuplet**: an explicit proportional division. A triplet places three parts in a span normally occupied by two in simple meter; compound meter already divides beats naturally into three, so three eighth notes within a 6/8 dotted-quarter beat are not a triplet ([Open Music Theory, Borrowed Divisions](https://viva.pressbooks.pub/openmusictheory/chapter/other-rhythmic-essentials/)).
-- **Pattern step**: one editable accent/hit/rest value. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
+- **Pattern step**: one editable amplitude-level value. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
 
 ## What time signatures actually say
 
@@ -170,5 +170,5 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 - The subdivision dropdown supports `K = 1..5` pulses per signature unit.
 - The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter.
 - Ratio presets remain out of scope until the product has an explicit shared-cycle pulse model.
-- Emphasis remains entirely in accent/hit/rest pattern states; no grouping state or control is introduced.
+- Emphasis remains entirely in amplitude-only step levels; no grouping state or control is introduced.
 - Existing persisted state is discarded rather than migrated because its subdivision meaning is ambiguous.
