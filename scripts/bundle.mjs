@@ -19,21 +19,37 @@ const css = cssSource
   .replaceAll("./fonts/jetbrains-mono-latin.woff2", `data:font/woff2;base64,${jetBrainsMono.toString("base64")}`)
   .replaceAll("./fonts/major-mono-display-latin.woff2", `data:font/woff2;base64,${majorMonoDisplay.toString("base64")}`);
 
-function withoutImports(source) {
-  return source.replace(/^import\s+[\s\S]*?;\s*$/gm, "");
+function withBundledImports(source) {
+  return source.replace(
+    /^import\s+\{([\s\S]*?)\}\s+from\s+["'](.+?)["'];\s*$/gm,
+    (_statement, bindings, specifier) => (
+      `const {${bindings.replace(/\bas\b/g, ":")}} = modules[${JSON.stringify(specifier)}];`
+    ),
+  );
 }
 
 function withoutExports(source) {
   return source.replace(/\bexport\s+/g, "");
 }
 
+function bundledModule(specifier, source) {
+  const exports = Array.from(source.matchAll(
+    /\bexport\s+(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g,
+  ), (match) => match[1]);
+  const exposed = exports.length ? `\nreturn { ${exports.join(", ")} };` : "";
+  return `modules[${JSON.stringify(specifier)}] = (() => {\n${withoutExports(withBundledImports(source))}${exposed}\n})();`;
+}
+
 const javascript = [
   "'use strict';",
-  withoutExports(withoutImports(model)),
-  withoutExports(withoutImports(configuration)),
-  withoutExports(withoutImports(sharedTransport)),
-  withoutExports(withoutImports(metronome)),
-  withoutExports(withoutImports(app)),
+  "(() => {",
+  "const modules = Object.create(null);",
+  bundledModule("./model.js", model),
+  bundledModule("./configuration.js", configuration),
+  bundledModule("./shared-transport.js", sharedTransport),
+  bundledModule("./metronome.js", metronome),
+  bundledModule("./app.js", app),
+  "})();",
 ].join("\n\n");
 
 const bundled = html
