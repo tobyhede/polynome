@@ -53,9 +53,11 @@ npm run check
 ```
 
 `npm test` covers the pure timing and state model. The Chromium suite covers
-browser focus, accessibility state, persistence, playback controls, and the
-mobile layout. `npm run check` runs both suites and generates the bundle and
-site output.
+browser focus, accessibility state, persistence, playback controls, the mobile
+layout, and deterministic offline rendering of click timing, step levels, and
+stereo panning. `npm run check` runs both suites and generates the bundle and
+site output. Physical output latency and subjective sound quality still require
+manual listening checks.
 
 ## Sequence model
 
