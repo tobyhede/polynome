@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A tiny, zero-dependency polyrhythm and polymeter metronome for the browser.",
+  "description": "A tiny, zero-runtime-dependency polyrhythm and polymeter metronome for the browser.",
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check app.js && node --check configuration.js && node --check metronome.js && node --check model.js && node --check persistence.js && node --check shared-transport.js && node --test && npm run bundle && npm run site",
+    "test:browser": "playwright test",
+    "check": "node --check app.js && node --check configuration.js && node --check metronome.js && node --check model.js && node --check persistence.js && node --check shared-transport.js && node --test && npm run test:browser && npm run bundle && npm run site",
     "bundle": "node scripts/bundle.mjs",
     "site": "node scripts/site.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
   }
 }

@@ -12,7 +12,7 @@ A deliberately small browser metronome with:
 
 ## Open it immediately
 
-Run the bundle command once, then double-click the generated file:
+With Node.js 22 or newer, run the bundle command, then double-click the generated file:
 
 ```bash
 npm run bundle
@@ -23,7 +23,7 @@ The generated `dist/polynome.html` contains the complete application, including 
 
 ## Run the source version
 
-Requires Node.js 20 or newer only for the tiny local static server.
+Requires Node.js 22 or newer only for development tools and the tiny local static server.
 
 ```bash
 npm start
@@ -39,10 +39,23 @@ The application itself is static and can also be hosted directly on GitHub Pages
 
 ## Test it
 
+Install the development tools and managed Chromium once:
+
+```bash
+npm install
+npx playwright install chromium
+```
+
 ```bash
 npm test
+npm run test:browser
 npm run check
 ```
+
+`npm test` covers the pure timing and state model. The Chromium suite covers
+browser focus, accessibility state, persistence, playback controls, and the
+mobile layout. `npm run check` runs both suites and generates the bundle and
+site output.
 
 ## Sequence model
 
@@ -93,6 +106,8 @@ scripts/          Single-file bundler
 fonts/            Self-hosted interface fonts and licenses
 dist/             Browser-ready one-file application
 test/            Node built-in tests
+e2e/             Playwright browser interaction tests
+playwright.config.js  Managed Chromium and local test server
 ```
 
 ## Current limitations
