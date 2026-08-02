@@ -17,6 +17,10 @@ export class SharedTransport {
     const sourceCycles = (
       cycles || [{ id: "cycle", repetitions: 1, rhythms: layers }]
     ).filter((cycle) => cycle.repetitions > 0);
+    if (!sourceCycles.length) {
+      this.#timing = null;
+      return;
+    }
     let offset = 0;
     const timingCycles = sourceCycles.map((cycle) => {
       const rhythms = cycle.rhythms.map((rhythm) => ({

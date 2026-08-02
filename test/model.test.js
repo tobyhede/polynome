@@ -254,3 +254,15 @@ test("state normalisation preserves a final active cycle", () => {
 
   assert.deepEqual(state.cycles.map((cycle) => cycle.repetitions), [1, 0]);
 });
+
+test("a sequence with one cycle always gives that cycle one repetition", () => {
+  const inactive = normaliseState({
+    cycles: [{ repetitions: 0, rhythms: [{}] }],
+  });
+  const repeated = normaliseState({
+    cycles: [{ repetitions: 8, rhythms: [{}] }],
+  });
+
+  assert.equal(inactive.cycles[0].repetitions, 1);
+  assert.equal(repeated.cycles[0].repetitions, 1);
+});

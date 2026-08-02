@@ -106,11 +106,13 @@ export function normaliseState(input) {
       })
     : [];
   const populatedCycles = cycles.length ? cycles : createPreset("4/4").cycles;
-  const activeCycles = populatedCycles.some((cycle) => cycle.repetitions > 0)
-    ? populatedCycles
-    : populatedCycles.map((cycle, index) => (
-        index === 0 ? { ...cycle, repetitions: 1 } : cycle
-      ));
+  const activeCycles = populatedCycles.length === 1
+    ? [{ ...populatedCycles[0], repetitions: 1 }]
+    : populatedCycles.some((cycle) => cycle.repetitions > 0)
+      ? populatedCycles
+      : populatedCycles.map((cycle, index) => (
+          index === 0 ? { ...cycle, repetitions: 1 } : cycle
+        ));
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),

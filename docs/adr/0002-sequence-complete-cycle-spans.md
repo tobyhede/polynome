@@ -8,7 +8,7 @@ The repetition range, cycle activity rule, generated summary, and control presen
 
 - The state hierarchy is `Sequence → Cycle → Rhythm layer`. A sequence and each cycle are non-empty, every rhythm belongs to exactly one cycle, and at most 12 rhythms exist across the sequence.
 - One cycle span is the shortest shared duration in which all contained meters return to their downbeats. Subdivision changes pulse density but never meter or cycle-span duration.
-- A cycle repeats its complete span before the next cycle starts. The ordered active cycle list then loops until stopped.
+- An active cycle repeats its complete cycle span for its configured number of cycle repetitions before the sequence advances to the next active cycle. A cycle with zero repetitions is inactive and is skipped entirely. The ordered active cycles then loop from the first active cycle until stopped.
 - Tempo is global. Every event and cycle boundary derives from one transport origin; cycles do not have independent clocks or tempos.
 - Starting playback begins at the first active cycle and first repetition. Stopping resets that position. Timing-structure edits restart from the sequence beginning, while step-level, sound, and mix edits do not.
 - The generated sequence summary and original always-expanded controls are superseded by ADR-0003.

@@ -486,6 +486,22 @@ test("mute does not change a rhythm layer event timeline", () => {
   ]);
 });
 
+test("a sequence with no active cycles schedules nothing and reports no position", () => {
+  const transport = new SharedTransport();
+
+  transport.start({
+    bpm: 60,
+    cycles: [
+      { id: "first-cycle", repetitions: 0, rhythms: [createLayer({ id: "first" })] },
+      { id: "second-cycle", repetitions: 0, rhythms: [createLayer({ id: "second" })] },
+    ],
+  }, 10);
+
+  assert.deepEqual(transport.plan(10.5, 12), []);
+  assert.equal(transport.position(10.5), null);
+  assert.equal(transport.patternPosition("first", 10.5), null);
+});
+
 test("starting a new transport run resets origin and scheduling position together", () => {
   const layer = createLayer({
     id: "restart",

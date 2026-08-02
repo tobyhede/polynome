@@ -37,6 +37,7 @@ const elements = {
   presetsToggle: document.querySelector("#presets-toggle"),
   presetPanel: document.querySelector("#preset-panel"),
   presetList: document.querySelector("#preset-list"),
+  presetCount: document.querySelector("#preset-count"),
   helpToggle: document.querySelector("#help-toggle"),
   helpPanel: document.querySelector("#help-panel"),
   cycles: document.querySelector("#cycles"),
@@ -117,10 +118,19 @@ function renderTransport() {
   const progress = (state.bpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
+  const glitchIntensity = Math.min(1, Math.max(0, (state.bpm - 250) / 50));
   elements.bpmReadout.style.setProperty("--bpm-left", `calc(${progress * 100}% + ${(0.5 - progress) * 22}px)`);
   elements.bpmReadout.style.setProperty("--bpm-size", `${size}rem`);
   elements.bpmReadout.style.setProperty("--bpm-width", `${size * 16 * 0.86 * 3}px`);
   elements.bpmReadout.style.setProperty("--bpm-label-margin", `${6.5 - pixelSize * 0.255}px`);
+  elements.bpm.classList.toggle("is-glitching", glitchIntensity > 0);
+  if (glitchIntensity > 0) {
+    elements.bpm.style.setProperty("--g", (0.35 + glitchIntensity * 0.65).toFixed(2));
+    elements.bpm.style.setProperty("--glitch-duration", `${(1.5 - glitchIntensity * 1.1).toFixed(2)}s`);
+  } else {
+    elements.bpm.style.removeProperty("--g");
+    elements.bpm.style.removeProperty("--glitch-duration");
+  }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
     tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= state.bpm);
   });
@@ -128,6 +138,9 @@ function renderTransport() {
 }
 
 function renderPresets() {
+  const count = PRESET_NAMES.length;
+  elements.presetCount.textContent = String(count);
+  elements.presetCount.setAttribute("aria-label", `${count} ${count === 1 ? "preset" : "presets"}`);
   elements.presetList.innerHTML = PRESET_NAMES.map((name) => `
     <button
       type="button"
@@ -139,10 +152,47 @@ function renderPresets() {
 }
 
 function renderCycles() {
+  const focusKey = focusSelector(document.activeElement);
   elements.cycles.innerHTML = state.cycles
     .map((cycle, index) => cycleTemplate(cycle, index))
     .join("");
   elements.addCycle.disabled = rhythmCount() >= MAX_RHYTHMS;
+  if (focusKey) elements.cycles.querySelector(focusKey)?.focus();
+}
+
+/**
+ * Rebuilding the cycles markup discards the focused control, which drops focus
+ * to the document body and leaves Space toggling playback instead of the
+ * control the user was operating. Describe the focused control by the data
+ * attributes the templates already emit so it can be found again afterwards.
+ */
+function focusSelector(element) {
+  if (!element || !elements.cycles.contains(element)) return null;
+  const cycleId = element.closest("[data-cycle-id]")?.dataset.cycleId;
+  if (!cycleId) return null;
+  const rhythmId = element.closest("[data-layer-id]")?.dataset.layerId;
+  const scope = rhythmId
+    ? `[data-layer-id="${CSS.escape(rhythmId)}"]`
+    : `[data-cycle-id="${CSS.escape(cycleId)}"]`;
+  const { action, field } = element.dataset;
+  if (field) return `${scope} [data-field="${field}"]`;
+  if (!action) return null;
+
+  switch (action) {
+    case "step":
+      return `${scope} [data-step-index="${element.dataset.stepIndex}"]`;
+    case "set-repetitions":
+      return `${scope} [data-repetitions="${element.dataset.repetitions}"]`;
+    case "set-subdivision":
+      return `${scope} [data-subdivision="${element.dataset.subdivision}"]`;
+    case "sound":
+      return `${scope} [data-sound="${CSS.escape(element.dataset.sound)}"]`;
+    case "toggle-settings":
+      // Two controls in a rhythm card share this action.
+      return `${scope} ${element.classList.contains("edit-button") ? ".edit-button" : ".rhythm-identity"}`;
+    default:
+      return `${scope} [data-action="${action}"]`;
+  }
 }
 
 function cycleTemplate(cycle, cycleIndex) {
@@ -176,7 +226,7 @@ function cycleTemplate(cycle, cycleIndex) {
 
   return `
     <section class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}" data-cycle-id="${cycle.id}" aria-labelledby="cycle-${cycle.id}-heading">
-      <article class="cycle-card">
+      <article class="cycle-card" ${state.cycles.length === 1 ? "hidden" : ""}>
         <div class="card-heading cycle-heading">
           <h2 id="cycle-${cycle.id}-heading">${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span>${cycle.repetitions}</span></h2>
           <button
@@ -288,12 +338,12 @@ function rhythmSettingsTemplate(rhythm) {
         </div>
       </div>
 
-      <fieldset class="sound-control">
-        <legend>Sound</legend>
+      <div class="sound-control" role="group" aria-labelledby="rhythm-${rhythm.id}-sound-label">
+        <span id="rhythm-${rhythm.id}-sound-label">Sound</span>
         <div>${SOUNDS.map((sound) => `
           <button type="button" data-action="sound" data-sound="${sound}" class="sound-button${rhythm.sound === sound ? " is-selected" : ""}" aria-pressed="${rhythm.sound === sound}">${sound}</button>
         `).join("")}</div>
-      </fieldset>
+      </div>
     </div>
 
     <div class="mix-settings">
@@ -454,10 +504,19 @@ function findContext(target) {
   return { cycleElement, rhythmElement, cycle, rhythm };
 }
 
-function toggleRhythmSettings(rhythmId) {
+function toggleRhythmSettings(rhythmId, activatingToggle = null) {
+  const toggleSelector = activatingToggle?.classList.contains("edit-button")
+    ? ".edit-button"
+    : activatingToggle ? ".rhythm-identity" : null;
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
   renderCycles();
+  if (toggleSelector) {
+    const rhythmCard = elements.cycles.querySelector(
+      `[data-layer-id="${CSS.escape(rhythmId)}"]`,
+    );
+    rhythmCard?.querySelector(toggleSelector)?.focus();
+  }
 }
 
 elements.play.addEventListener("click", togglePlayback);
@@ -522,18 +581,26 @@ elements.cycles.addEventListener("click", (event) => {
     case "remove-cycle":
       if (state.cycles.length <= 1 || (cycle.repetitions > 0 && activeCycleCount() === 1)) return;
       setState({ ...state, cycles: state.cycles.filter((candidate) => candidate.id !== cycle.id) }, { restart: true });
+      // The removed control cannot be refocused, so fall back to a stable neighbour.
+      elements.addCycle.focus();
       break;
     case "add-rhythm":
       if (rhythmCount() >= MAX_RHYTHMS) return;
       updateCycle(cycle.id, (current) => ({ ...current, rhythms: [...current.rhythms, createLayer()] }), { restart: true });
       break;
-    case "remove-rhythm":
+    case "remove-rhythm": {
       if (!rhythm || cycle.rhythms.length <= 1) return;
       openRhythms.delete(rhythm.id);
+      if (openSubdivisionMenu === rhythm.id) openSubdivisionMenu = null;
       updateCycle(cycle.id, (current) => ({ ...current, rhythms: current.rhythms.filter((candidate) => candidate.id !== rhythm.id) }), { restart: true });
+      // The removed control cannot be refocused, so fall back to a stable neighbour.
+      elements.cycles
+        .querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"] .add-rhythm`)
+        ?.focus();
       break;
+    }
     case "toggle-settings":
-      if (rhythm) toggleRhythmSettings(rhythm.id);
+      if (rhythm) toggleRhythmSettings(rhythm.id, actionElement);
       break;
     case "toggle-subdivision-menu":
       if (!rhythm) return;
@@ -569,7 +636,8 @@ elements.cycles.addEventListener("click", (event) => {
       break;
     }
     case "sound":
-      if (rhythm) updateRhythm(cycle.id, rhythm.id, (current) => ({ ...current, sound: actionElement.dataset.sound }), { keepPreset: true });
+      // Sound is part of preset identity in sameMusicalState, so it must clear the preset.
+      if (rhythm) updateRhythm(cycle.id, rhythm.id, (current) => ({ ...current, sound: actionElement.dataset.sound }));
       break;
   }
 });
