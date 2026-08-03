@@ -54,6 +54,12 @@ Then run:
 npm run check
 ```
 
+`npm test` is the fast loop. `npm run check` adds the browser tests, the site build, and coverage thresholds, and is what CI runs.
+
+Coverage is enforced at 95% lines, 87% branches, and 94% functions, measured over the source modules only — `test/` and `e2e/` are excluded because coverage of a test file measures nothing. The thresholds sit roughly a point under the current figures, so they catch a regression rather than mandate an increase. Raise them when the real number rises; do not lower them to make a change fit.
+
+`test/syntax.test.js` parses every JavaScript file git tracks. It replaced a hand-written list of `node --check` calls that named seven files and silently omitted `server.mjs`, `playwright.config.js`, and three build scripts. Nothing needs adding when a new source file appears — committing it is what enrols it.
+
 Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
 
 Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
