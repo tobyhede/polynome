@@ -31,7 +31,9 @@ The core promise is:
 - `biome.jsonc`: lint and formatter configuration. `.jsonc` rather than `.json` because strict JSON cannot hold the paragraph explaining the one disabled rule, and a rule turned off without a reason is one nobody can safely turn back on.
 - `jsconfig.json`, `types/`: TypeScript's `checkJs` configuration and the ambient declarations for browser APIs its DOM library omits.
 
-`model.js` holds the shared musical vocabulary (`STEP`, `NOTE_UNITS`, `METER_COUNT_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+`model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNIT_LIMIT`, `SUBDIVISION_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+
+Both Meter components are whole numbers in the same range rather than a list of conventional note values, so `4/3`, `5/6`, and `7/10` are all enterable. A Meter's length is exact rational arithmetic in `cycleSpanSeconds`, not a fixed note lattice, because a non-dyadic denominator has no exact representation on one.
 
 ### Configuration edit failure modes
 
