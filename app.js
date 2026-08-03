@@ -26,6 +26,7 @@ const RETIRED_STORAGE_KEYS = [
 ];
 
 const elements = {
+  heading: document.querySelector("#app-heading"),
   play: document.querySelector("#play-button"),
   playIcon: document.querySelector("#play-icon"),
   bpm: document.querySelector("#bpm-input"),
@@ -173,13 +174,22 @@ function renderTransport() {
   elements.bpmReadout.style.setProperty("--bpm-size", `${size}rem`);
   elements.bpmReadout.style.setProperty("--bpm-width", `${size * 16 * 0.86 * 3}px`);
   elements.bpmReadout.style.setProperty("--bpm-label-margin", `${6.5 - pixelSize * 0.255}px`);
-  elements.bpm.classList.toggle("is-glitching", glitchIntensity > 0);
+  const glitchTargets = [elements.bpm, elements.heading];
+  glitchTargets.forEach((target) => {
+    target.classList.toggle("is-glitching", glitchIntensity > 0);
+  });
   if (glitchIntensity > 0) {
-    elements.bpm.style.setProperty("--g", (0.35 + glitchIntensity * 0.65).toFixed(2));
-    elements.bpm.style.setProperty("--glitch-duration", `${(1.5 - glitchIntensity * 1.1).toFixed(2)}s`);
+    const displacement = (0.35 + glitchIntensity * 0.65).toFixed(2);
+    const duration = `${(1.5 - glitchIntensity * 1.1).toFixed(2)}s`;
+    glitchTargets.forEach((target) => {
+      target.style.setProperty("--g", displacement);
+      target.style.setProperty("--glitch-duration", duration);
+    });
   } else {
-    elements.bpm.style.removeProperty("--g");
-    elements.bpm.style.removeProperty("--glitch-duration");
+    glitchTargets.forEach((target) => {
+      target.style.removeProperty("--g");
+      target.style.removeProperty("--glitch-duration");
+    });
   }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
     tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= state.bpm);

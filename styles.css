@@ -512,7 +512,8 @@ h1 {
   overflow: visible;
 }
 
-.bpm-readout input.is-glitching {
+.bpm-readout input.is-glitching,
+h1.is-glitching {
   animation: bpm-glitch var(--glitch-duration) steps(2, jump-none) infinite;
   will-change: transform;
 }

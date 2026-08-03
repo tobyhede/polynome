@@ -46,6 +46,20 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
+  const bpm = page.getByLabel("Tempo in beats per minute");
+  const heading = page.getByRole("heading", { name: "Polynome" });
+
+  await bpm.fill("251");
+  await expect(heading).toHaveClass(/is-glitching/);
+  await expect(page.getByLabel("BPM")).toHaveClass(/is-glitching/);
+  await expect(heading).toHaveCSS("animation-name", "bpm-glitch");
+
+  await bpm.fill("250");
+  await expect(heading).not.toHaveClass(/is-glitching/);
+  await expect(page.getByLabel("BPM")).not.toHaveClass(/is-glitching/);
+});
+
 for (const [name, accessibleName] of [
   ["identity", "4/4 Edit 4/4 rhythm"],
   ["edit button", "Edit 4/4"],
