@@ -26,7 +26,8 @@
   --accent: #7ea3f0;
   --danger: #e07a5f;
   --display-font: "Major Mono Display", monospace;
-  --body-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --body-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+
   font-family: var(--body-font);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -198,7 +199,7 @@ h1 {
   width: 15px;
   height: 15px;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
@@ -600,7 +601,7 @@ h1 {
   display: block;
   width: auto;
   overflow: visible;
-  fill: currentColor;
+  fill: currentcolor;
 }
 
 .rhythm-actions {
@@ -638,6 +639,7 @@ h1 {
 
 .step {
   --ghost: color-mix(in oklab, var(--line-strong), transparent 28%);
+
   width: 58px;
   height: 58px;
   padding: 0;
