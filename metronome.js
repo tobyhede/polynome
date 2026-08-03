@@ -126,6 +126,7 @@ export class MetronomeEngine extends EventTarget {
   #scheduledSources = new Set();
   #unstartedTicks = 0;
   #reportedStuckContext = false;
+  #holdsAudioSession = false;
 
   /**
    * WebKit fires `statechange` on every transition. Losing `"running"` during
@@ -165,11 +166,16 @@ export class MetronomeEngine extends EventTarget {
 
   async start(state) {
     this.#state = state;
+    // Before the context exists, so the very first one is created under the
+    // session this run means to hold rather than the one it is replacing.
+    this.#claimAudioSession();
     this.#ensureContext();
 
     this.#requestResume();
 
-    this.stop({ preserveContext: true, emit: false });
+    // Clearing the previous run is not the end of playback, so the session it
+    // was holding carries straight over into this one.
+    this.stop({ preserveContext: true, emit: false, releaseAudioSession: false });
     this.#state = state;
     this.#playing = true;
     this.#syncNodes();
@@ -195,7 +201,12 @@ export class MetronomeEngine extends EventTarget {
     this.dispatchEvent(new Event("playstate"));
   }
 
-  stop({ preserveContext = true, emit = true } = {}) {
+  /**
+   * `releaseAudioSession` is false only where `start()` clears the run it is
+   * about to replace: the metronome is not falling silent there, so the session
+   * must not be handed back and taken again for the sake of one statement.
+   */
+  stop({ preserveContext = true, emit = true, releaseAudioSession = true } = {}) {
     if (this.#timer !== null) {
       window.clearInterval(this.#timer);
       this.#timer = null;
@@ -228,6 +239,8 @@ export class MetronomeEngine extends EventTarget {
       }
       this.#layers.clear();
     }
+
+    if (releaseAudioSession) this.#releaseAudioSession();
 
     if (emit) this.dispatchEvent(new Event("playstate"));
   }
@@ -316,25 +329,56 @@ export class MetronomeEngine extends EventTarget {
   }
 
   /**
-   * Web Audio is mapped to the iOS `Ambient` audio session, which the hardware
-   * Ring/Silent switch and the lock screen both silence. Asking for the
-   * `playback` type is the only available mitigation, and it also waives the
-   * background-interruption restriction. Safari 16.4+; a no-op everywhere else,
-   * and silently ignored when the Permissions Policy withholds it.
+   * Takes the `playback` audio session for the duration of a run.
+   *
+   * Web Audio is mapped to the iOS `Ambient` session, which the hardware
+   * Ring/Silent switch and the lock screen both silence, and `playback` is the
+   * available mitigation: it lifts both, and waives the background-interruption
+   * restriction as well. It is also nonmixable, and Apple is explicit that
+   * activating a nonmixable session interrupts any other audio session that is
+   * also nonmixable — for a metronome that most likely means the backing track
+   * its user is playing along to. That is a real cost, so the claim is scoped
+   * to the interval where the metronome has something to claim it for, and
+   * `#releaseAudioSession` gives it straight back.
+   *
+   * The claim is idempotent so that restarting a run mid-flight does not put
+   * the session down and pick it up again.
    */
-  #requestPlaybackAudioSession() {
+  #claimAudioSession() {
+    if (this.#holdsAudioSession) return;
+    this.#holdsAudioSession = true;
+    this.#setAudioSessionType("playback");
+  }
+
+  /**
+   * Hands the session back. `auto` maps to no category override at all, which
+   * returns the choice to WebKit's own heuristic — `Ambient` again for Web
+   * Audio. Only a session this engine claimed is released: nothing else on the
+   * page asked it to manage theirs.
+   */
+  #releaseAudioSession() {
+    if (!this.#holdsAudioSession) return;
+    this.#holdsAudioSession = false;
+    this.#setAudioSessionType("auto");
+  }
+
+  /**
+   * Safari 16.4+; absent everywhere else, and refused outright when a
+   * Permissions Policy withholds it. Best effort in every direction: whatever
+   * the session does, starting and stopping the metronome must still work.
+   */
+  #setAudioSessionType(type) {
     try {
       const audioSession = globalThis.navigator?.audioSession;
-      if (audioSession) audioSession.type = "playback";
+      if (audioSession) audioSession.type = type;
     } catch {
-      // Best effort only: never let this break starting the metronome.
+      // Best effort only: never let this break starting or stopping.
     }
   }
 
   #ensureContext() {
     if (this.#context) return;
 
-    this.#requestPlaybackAudioSession();
     this.#context = this.#createContext();
     this.#context.addEventListener("statechange", this.#handleStateChange);
     this.#master = this.#context.createGain();

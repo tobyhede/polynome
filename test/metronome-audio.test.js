@@ -317,6 +317,32 @@ const harness = (contextOptions = {}) => {
   return { context, engine };
 };
 
+/**
+ * A `navigator.audioSession` that remembers every type it was given, in order.
+ * The session is a single global the whole page shares, so what matters is not
+ * only where it ends up but that the engine never leaves it somewhere it has no
+ * claim to be.
+ */
+const recordingAudioSession = () => {
+  const types = [];
+  return {
+    types,
+    audioSession: {
+      get type() {
+        return types.at(-1) ?? "auto";
+      },
+      set type(next) {
+        types.push(next);
+      },
+    },
+  };
+};
+
+/** Installs a fake `navigator` for one test and takes it away again after. */
+const withNavigator = (t, value) => {
+  t.after(installGlobal("navigator", value));
+};
+
 /** Everything the engine reported through `audioerror`, in order. */
 const audioErrorsOf = (engine) => {
   const errors = [];
@@ -593,6 +619,116 @@ test("a later run reports its own silence", async () => {
   assert.equal(errors.length, 2);
 
   engine.stop();
+});
+
+/**
+ * The `playback` audio session type is not free: it is nonmixable, so claiming
+ * it interrupts whatever else is playing, and a backing track is a metronome's
+ * most likely companion. The engine may hold it while it is sounding and must
+ * hand it back when it stops. All of it is best effort — the type is Safari
+ * 16.4+, and a Permissions Policy may refuse it outright — so none of it may
+ * ever be load-bearing for starting or stopping.
+ */
+
+test("starting playback claims the playback audio session", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  const { engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+
+  assert.deepEqual(types, ["playback"]);
+
+  engine.stop();
+});
+
+test("stopping playback hands the audio session back", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  const { engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+  engine.stop();
+
+  assert.equal(audioSession.type, "auto");
+  assert.deepEqual(types, ["playback", "auto"]);
+});
+
+test("the audio session is claimed before the context is created", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  timers.callbacks.clear();
+  const context = new FakeAudioContext({ state: "running" });
+  let typeWhenCreated = null;
+  const engine = new MetronomeEngine({
+    createContext: () => {
+      typeWhenCreated = audioSession.type;
+      return context;
+    },
+  });
+
+  await engine.start(pulsePerSecond());
+
+  // A context created under `Ambient` keeps that session for its whole life.
+  assert.equal(typeWhenCreated, "playback");
+  assert.deepEqual(types, ["playback"]);
+
+  engine.stop();
+});
+
+test("a start, stop and start cycle leaves the session where the run is", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  const { engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+  engine.stop();
+  await engine.start(pulsePerSecond());
+
+  assert.deepEqual(types, ["playback", "auto", "playback"]);
+
+  engine.stop();
+
+  assert.equal(audioSession.type, "auto");
+});
+
+test("a browser without an audio session starts and stops as usual", async (t) => {
+  withNavigator(t, {});
+  const { context, engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+
+  assert.equal(engine.playing, true);
+  assert.equal(context.audibleClicks().length > 0, true);
+
+  engine.stop();
+
+  assert.equal(engine.playing, false);
+  assert.equal(schedulerRunning(), false);
+});
+
+test("an audio session that refuses the type starts and stops as usual", async (t) => {
+  withNavigator(t, {
+    audioSession: {
+      get type() {
+        return "auto";
+      },
+      set type(next) {
+        throw new Error(`Permissions Policy refused ${next}`);
+      },
+    },
+  });
+  const { context, engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+
+  assert.equal(engine.playing, true);
+  assert.equal(context.audibleClicks().length > 0, true);
+
+  engine.stop();
+
+  assert.equal(engine.playing, false);
+  assert.equal(schedulerRunning(), false);
 });
 
 /**
