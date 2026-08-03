@@ -201,6 +201,11 @@ async function buildSite(root, requestedVersion) {
  * Build one browser distribution from the native-module source tree. Esbuild
  * owns dependency discovery and JavaScript/CSS/asset rewriting for both
  * targets; callers only choose the artifact they need.
+ *
+ * @param {object} [options]
+ * @param {"single-file" | "site"} [options.target]
+ * @param {string} [options.version]
+ * @param {string | URL} [options.projectRoot]
  */
 export async function buildDistribution({ target, version, projectRoot } = {}) {
   const root = rootPath(projectRoot);

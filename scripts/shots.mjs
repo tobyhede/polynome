@@ -160,6 +160,7 @@ async function startServer(port) {
   // `settle`, not `resolve`: this module imports `resolve` from node:path, and
   // shadowing it here would hand any later path work in this scope the wrong
   // binding without a word of complaint.
+  /** @type {() => Promise<void>} */
   const stop = () =>
     new Promise((settle) => {
       if (signal.exited) return settle();

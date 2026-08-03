@@ -25,27 +25,52 @@ const RETIRED_STORAGE_KEYS = [
   "polyrhythm-metronome:v1",
 ];
 
+/**
+ * `querySelector` is typed as returning the base `Element`, which carries none
+ * of `focus`, `value`, `style`, or `dataset`. Narrowing happens once, here,
+ * rather than at each of the several dozen places these are read: this object
+ * is already the single list of what the interface resolves from the shell,
+ * and `test/accessibility.test.js` asserts every id below exists in
+ * `index.html`, so the tag each name is asserted against is checked too.
+ */
 const elements = {
-  heading: document.querySelector("#app-heading"),
-  play: document.querySelector("#play-button"),
-  playIcon: document.querySelector("#play-icon"),
-  bpm: document.querySelector("#bpm-input"),
-  bpmSlider: document.querySelector("#bpm-slider"),
-  bpmReadout: document.querySelector("#bpm-readout"),
-  bpmTicks: document.querySelector("#bpm-ticks"),
-  presetsToggle: document.querySelector("#presets-toggle"),
-  presetPanel: document.querySelector("#preset-panel"),
-  presetList: document.querySelector("#preset-list"),
-  presetCount: document.querySelector("#preset-count"),
-  presetCountNoun: document.querySelector("#preset-count-noun"),
-  presetSave: document.querySelector("#preset-save"),
-  presetName: document.querySelector("#preset-name"),
-  helpToggle: document.querySelector("#help-toggle"),
-  helpPanel: document.querySelector("#help-panel"),
-  cycles: document.querySelector("#cycles"),
-  addCycle: document.querySelector("#add-cycle"),
-  status: document.querySelector("#status"),
+  heading: /** @type {HTMLHeadingElement} */ (document.querySelector("#app-heading")),
+  play: /** @type {HTMLButtonElement} */ (document.querySelector("#play-button")),
+  playIcon: /** @type {HTMLSpanElement} */ (document.querySelector("#play-icon")),
+  bpm: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-input")),
+  bpmSlider: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-slider")),
+  bpmReadout: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-readout")),
+  bpmTicks: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-ticks")),
+  presetsToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-toggle")),
+  presetPanel: /** @type {HTMLElement} */ (document.querySelector("#preset-panel")),
+  presetList: /** @type {HTMLDivElement} */ (document.querySelector("#preset-list")),
+  presetCount: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count")),
+  presetCountNoun: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count-noun")),
+  presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
+  presetName: /** @type {HTMLInputElement} */ (document.querySelector("#preset-name")),
+  helpToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#help-toggle")),
+  helpPanel: /** @type {HTMLElement} */ (document.querySelector("#help-panel")),
+  cycles: /** @type {HTMLElement} */ (document.querySelector("#cycles")),
+  addCycle: /** @type {HTMLButtonElement} */ (document.querySelector("#add-cycle")),
+  status: /** @type {HTMLParagraphElement} */ (document.querySelector("#status")),
 };
+
+/**
+ * Move focus to the first match, if there is one. `querySelector` is typed as
+ * returning the base `Element`, which carries no `focus`, and every selector
+ * passed here names a control this module has just rendered — so the narrowing
+ * is true by construction and belongs in one place rather than at each call.
+ *
+ * Silence when nothing matches is the existing behaviour, not a new one: every
+ * call site already used `?.`, because these run after a re-render that may
+ * have removed the control being returned to.
+ *
+ * @param {ParentNode | null | undefined} root
+ * @param {string} selector
+ */
+function focusWithin(root, selector) {
+  /** @type {HTMLElement | null | undefined} */ (root?.querySelector(selector))?.focus();
+}
 
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
@@ -235,7 +260,9 @@ function renderPresets() {
   // identifier rather than by name, which a duplicate save can change, and cover
   // both buttons, because an armed delete keeps focus on the delete one.
   const focused = elements.presetList.contains(document.activeElement)
-    ? document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
+    ? /** @type {HTMLElement | null} */ (
+        document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
+      )
     : null;
   const focusedSelector = focused?.dataset.deletePresetId
     ? `[data-delete-preset-id="${CSS.escape(focused.dataset.deletePresetId)}"]`
@@ -278,7 +305,9 @@ function renderPresets() {
   if (focusedSelector) {
     // The Preset that had focus can be the one that just stopped existing, which
     // is exactly when losing focus to the document costs the most.
-    const restored = elements.presetList.querySelector(focusedSelector);
+    const restored = /** @type {HTMLElement | null} */ (
+      elements.presetList.querySelector(focusedSelector)
+    );
     if (restored) restored.focus();
     else elements.presetName.focus();
   }
@@ -310,7 +339,9 @@ function renderPresetSelection() {
       .filter((preset) => preset.selected)
       .map((preset) => preset.id),
   );
-  for (const button of elements.presetList.querySelectorAll("[data-preset-id]")) {
+  for (const button of /** @type {NodeListOf<HTMLElement>} */ (
+    elements.presetList.querySelectorAll("[data-preset-id]")
+  )) {
     const isSelected = selected.has(button.dataset.presetId);
     button.classList.toggle("is-selected", isSelected);
     button.setAttribute("aria-pressed", String(isSelected));
@@ -356,7 +387,7 @@ function renderCycles() {
   elements.cycles.innerHTML = state.sequence.cycles
     .map((cycle, index) => cycleTemplate(cycle, index))
     .join("");
-  if (focusKey) elements.cycles.querySelector(focusKey)?.focus();
+  if (focusKey) focusWithin(elements.cycles, focusKey);
   layoutSteps();
 }
 
@@ -396,7 +427,9 @@ function layoutSteps() {
   // Batching also makes the answer independent of the order rhythms are visited
   // in, since none of them is measured against another's freshly applied rows.
   const plans = [];
-  for (const steps of elements.cycles.querySelectorAll(".steps")) {
+  for (const steps of /** @type {NodeListOf<HTMLElement>} */ (
+    elements.cycles.querySelectorAll(".steps")
+  )) {
     const beat = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
@@ -850,7 +883,7 @@ function toggleRhythmSettings(rhythmId, activatingToggle = null) {
   renderCycles();
   if (toggleSelector) {
     const rhythmCard = elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"]`);
-    rhythmCard?.querySelector(toggleSelector)?.focus();
+    focusWithin(rhythmCard, toggleSelector);
   }
 }
 
@@ -865,9 +898,7 @@ function dismissSubdivisionMenu() {
   openSubdivisionMenu = null;
   renderCycles();
   requestAnimationFrame(() => {
-    elements.cycles
-      .querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)
-      ?.focus();
+    focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`);
   });
 }
 
@@ -885,10 +916,12 @@ elements.helpToggle.addEventListener("click", () => {
   if (helpOpen) presetsOpen = false;
   renderPanels();
 });
-elements.bpm.addEventListener("change", (event) => changeTempo(event.target.value));
+elements.bpm.addEventListener("change", (event) =>
+  changeTempo(/** @type {HTMLInputElement} */ (event.target).value),
+);
 elements.bpmSlider.addEventListener("input", (event) => {
   applyEdit(
-    { type: "set-tempo", bpm: event.target.value },
+    { type: "set-tempo", bpm: /** @type {HTMLInputElement} */ (event.target).value },
     { deferConsequence: true, render: false },
   );
   renderTransport();
@@ -907,7 +940,10 @@ elements.bpmSlider.addEventListener("change", () => {
   }
 });
 elements.presetList.addEventListener("click", (event) => {
-  const deleteButton = event.target.closest("[data-delete-preset-id]");
+  const target = /** @type {HTMLElement} */ (event.target);
+  const deleteButton = /** @type {HTMLElement | null} */ (
+    target.closest("[data-delete-preset-id]")
+  );
   if (deleteButton) {
     const presetId = deleteButton.dataset.deletePresetId;
     const preset = savedPresets.find(({ id }) => id === presetId);
@@ -915,9 +951,7 @@ elements.presetList.addEventListener("click", (event) => {
     if (pendingDeletePresetId !== presetId) {
       pendingDeletePresetId = presetId;
       renderPresets();
-      elements.presetList
-        .querySelector(`[data-delete-preset-id="${CSS.escape(presetId)}"]`)
-        ?.focus();
+      focusWithin(elements.presetList, `[data-delete-preset-id="${CSS.escape(presetId)}"]`);
       elements.status.textContent = `Delete ${preset.name} preset? Select again to confirm`;
       return;
     }
@@ -943,7 +977,7 @@ elements.presetList.addEventListener("click", (event) => {
     return;
   }
 
-  const button = event.target.closest("[data-preset-id]");
+  const button = /** @type {HTMLElement | null} */ (target.closest("[data-preset-id]"));
   if (!button) return;
   const preset = describePresets(state, savedPresets).find(
     ({ id }) => id === button.dataset.presetId,
@@ -976,7 +1010,7 @@ elements.presetSave.addEventListener("submit", (event) => {
   const persisted = writeSavedPresets(savedPresets);
   elements.presetName.value = "";
   renderPresets();
-  elements.presetList.querySelector(`[data-preset-id="${CSS.escape(result.preset.id)}"]`)?.focus();
+  focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
     : "Preset could not be saved in this browser";
@@ -986,7 +1020,9 @@ elements.addCycle.addEventListener("click", () => {
 });
 
 elements.cycles.addEventListener("click", (event) => {
-  const actionElement = event.target.closest("[data-action]");
+  const actionElement = /** @type {HTMLElement | null} */ (
+    /** @type {HTMLElement} */ (event.target).closest("[data-action]")
+  );
   if (!actionElement) return;
   const context = findContext(actionElement);
   if (!context) return;
@@ -1027,9 +1063,7 @@ elements.cycles.addEventListener("click", (event) => {
       openRhythms.delete(rhythm.id);
       if (openSubdivisionMenu === rhythm.id) openSubdivisionMenu = null;
       // The removed control cannot be refocused, so fall back to a stable neighbour.
-      elements.cycles
-        .querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"] .add-rhythm`)
-        ?.focus();
+      focusWithin(elements.cycles, `[data-cycle-id="${CSS.escape(cycle.id)}"] .add-rhythm`);
       break;
     }
     case "toggle-settings":
@@ -1041,11 +1075,10 @@ elements.cycles.addEventListener("click", (event) => {
       renderCycles();
       if (openSubdivisionMenu === rhythm.id) {
         requestAnimationFrame(() => {
-          elements.cycles
-            .querySelector(
-              `[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`,
-            )
-            ?.focus();
+          focusWithin(
+            elements.cycles,
+            `[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`,
+          );
         });
       }
       break;
@@ -1059,9 +1092,7 @@ elements.cycles.addEventListener("click", (event) => {
         subdivision: Number(actionElement.dataset.subdivision),
       });
       requestAnimationFrame(() => {
-        elements.cycles
-          .querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`)
-          ?.focus();
+        focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`);
       });
       break;
     case "mute":
@@ -1097,25 +1128,31 @@ elements.cycles.addEventListener("click", (event) => {
 });
 
 elements.cycles.addEventListener("dblclick", (event) => {
-  if (event.target.matches('[data-field="pan"]')) {
+  const target = /** @type {HTMLElement} */ (event.target);
+  if (target.matches('[data-field="pan"]')) {
     event.preventDefault();
-    event.target.value = "0";
-    event.target.dispatchEvent(new Event("input", { bubbles: true }));
+    const pan = /** @type {HTMLInputElement} */ (target);
+    pan.value = "0";
+    pan.dispatchEvent(new Event("input", { bubbles: true }));
     return;
   }
-  if (event.target.closest("button, input, select, label")) return;
-  const context = findContext(event.target);
+  if (target.closest("button, input, select, label")) return;
+  const context = findContext(target);
   if (context?.rhythm) toggleRhythmSettings(context.rhythm.id);
 });
 
 elements.cycles.addEventListener("keydown", (event) => {
-  const option = event.target.closest(".subdivision-option");
+  const option = /** @type {HTMLElement | null} */ (
+    /** @type {HTMLElement} */ (event.target).closest(".subdivision-option")
+  );
   if (!option) {
     if (event.key === "Escape" && openSubdivisionMenu) dismissSubdivisionMenu();
     return;
   }
 
-  const options = [...option.closest(".subdivision-menu").querySelectorAll(".subdivision-option")];
+  const options = /** @type {HTMLElement[]} */ ([
+    ...option.closest(".subdivision-menu").querySelectorAll(".subdivision-option"),
+  ]);
   const index = options.indexOf(option);
   let nextIndex = null;
   if (event.key === "ArrowDown" || event.key === "ArrowRight")
@@ -1139,14 +1176,15 @@ elements.cycles.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!openSubdivisionMenu || event.target.closest(".notation-picker")) return;
+  if (!openSubdivisionMenu || /** @type {HTMLElement} */ (event.target).closest(".notation-picker"))
+    return;
   openSubdivisionMenu = null;
   renderCycles();
 });
 
 // The arming click reaches here too, so a delete button is what keeps it armed.
 document.addEventListener("click", (event) => {
-  if (event.target.closest("[data-delete-preset-id]")) return;
+  if (/** @type {HTMLElement} */ (event.target).closest("[data-delete-preset-id]")) return;
   dismissPendingDelete();
 });
 document.addEventListener("keydown", (event) => {
@@ -1154,9 +1192,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 elements.cycles.addEventListener("input", (event) => {
-  const field = event.target.dataset.field;
+  const target = /** @type {HTMLInputElement} */ (event.target);
+  const field = target.dataset.field;
   if (!field || !["volume", "pan"].includes(field)) return;
-  const context = findContext(event.target);
+  const context = findContext(target);
   if (!context?.rhythm) return;
   const { rhythmElement, rhythm } = context;
   if (field === "volume") {
@@ -1165,7 +1204,7 @@ elements.cycles.addEventListener("input", (event) => {
         type: "set-rhythm-volume",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        volume: event.target.value,
+        volume: target.value,
       },
       { render: false },
     );
@@ -1180,7 +1219,7 @@ elements.cycles.addEventListener("input", (event) => {
         type: "set-stereo-position",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        pan: event.target.value,
+        pan: target.value,
       },
       { render: false },
     );
@@ -1193,9 +1232,10 @@ elements.cycles.addEventListener("input", (event) => {
 });
 
 elements.cycles.addEventListener("change", (event) => {
-  const field = event.target.dataset.field;
+  const target = /** @type {HTMLInputElement | HTMLSelectElement} */ (event.target);
+  const field = target.dataset.field;
   if (!field || ["volume", "pan"].includes(field)) return;
-  const context = findContext(event.target);
+  const context = findContext(target);
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
   if (field === "signature-count") {
@@ -1203,14 +1243,14 @@ elements.cycles.addEventListener("change", (event) => {
       type: "set-meter-count",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
-      count: event.target.value,
+      count: target.value,
     });
   } else if (field === "signature-unit") {
     applyEdit({
       type: "set-meter-unit",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
-      unit: event.target.value,
+      unit: target.value,
     });
   }
 });
@@ -1222,7 +1262,9 @@ engine.addEventListener("playstate", () => {
   updatePlayButton();
   if (engine.playing) startAnimation();
 });
-engine.addEventListener("audioerror", (event) => showError(event.detail));
+engine.addEventListener("audioerror", (event) =>
+  showError(/** @type {CustomEvent} */ (event).detail),
+);
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat) return;
   const tag = document.activeElement?.tagName;
