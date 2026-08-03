@@ -12,9 +12,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   timeout: 15_000,
   expect: { timeout: 5_000 },
-  reporter: process.env.CI
-    ? [["line"], ["html", { open: "never" }]]
-    : "list",
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     screenshot: "only-on-failure",

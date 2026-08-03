@@ -94,7 +94,10 @@ async function buildSingleFile(root) {
 
   const javascript = javascriptResult.outputFiles[0]?.text;
   const css = cssResult.outputFiles[0]?.text;
-  if (!javascript || !css) throw new Error("Cannot build single-file distribution: esbuild emitted an incomplete artifact");
+  if (!javascript || !css)
+    throw new Error(
+      "Cannot build single-file distribution: esbuild emitted an incomplete artifact",
+    );
 
   let artifact = replaceRequired(
     html,
@@ -164,9 +167,9 @@ async function buildSite(root, requestedVersion) {
     join(output, `app-${version}.js`),
     join(output, `styles-${version}.css`),
   ];
-  if (!expectedOutputs.every((expected) => (
-    result.outputFiles.some((file) => file.path === expected)
-  ))) {
+  if (
+    !expectedOutputs.every((expected) => result.outputFiles.some((file) => file.path === expected))
+  ) {
     throw new Error("Cannot build site distribution: esbuild emitted an incomplete artifact");
   }
 

@@ -47,9 +47,7 @@ function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) 
   const document = new Proxy(browserStub(), {
     get(target, property, receiver) {
       if (property === "querySelector") {
-        return (selector) => (
-          selector === "#bpm-input" ? bpmInput : browserStub()
-        );
+        return (selector) => (selector === "#bpm-input" ? bpmInput : browserStub());
       }
       return Reflect.get(target, property, receiver);
     },
@@ -134,14 +132,25 @@ test("single-file distribution discovers transitive modules and preserves their 
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body { color: white; }"),
-    // This string is not a template that lost its backticks. It is the source
-    // of a fixture module written to disk and then bundled, so the placeholder
-    // has to survive as text for the build under test to resolve it.
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source, not a template
-    writeFile(join(fixture, "app.js"), 'import { left } from "./left.js"; import { right } from "./right.js"; globalThis.fixtureResult = `${left}:${right}`;'),
-    writeFile(join(fixture, "left.js"), 'import { suffix } from "./nested.js"; const label = "left"; export const left = label + suffix;'),
+    // The string below is not a template that lost its backticks. It is the
+    // source of a fixture module written to disk and then bundled, so the
+    // placeholder has to survive as text for the build under test to resolve
+    // it. The suppression sits on the argument rather than the call, because
+    // the formatter decides which line the string lands on.
+    writeFile(
+      join(fixture, "app.js"),
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source, not a template
+      'import { left } from "./left.js"; import { right } from "./right.js"; globalThis.fixtureResult = `${left}:${right}`;',
+    ),
+    writeFile(
+      join(fixture, "left.js"),
+      'import { suffix } from "./nested.js"; const label = "left"; export const left = label + suffix;',
+    ),
     writeFile(join(fixture, "right.js"), 'const label = "right"; export const right = label;'),
     writeFile(join(fixture, "nested.js"), 'export const suffix = "-nested";'),
   ]);
@@ -159,7 +168,10 @@ test("single-file distribution preserves String.replace tokens in bundled source
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-token-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), 'body::before { content: "$&"; }'),
     writeFile(join(fixture, "app.js"), 'globalThis.fixtureToken = "$&";'),
   ]);
@@ -184,9 +196,12 @@ test("single-file distribution refuses JavaScript esbuild warns about", async (t
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-warning-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), 'globalThis.fixture = { rate: 1, rate: 2 };'),
+    writeFile(join(fixture, "app.js"), "globalThis.fixture = { rate: 1, rate: 2 };"),
   ]);
 
   await assert.rejects(
@@ -199,7 +214,10 @@ test("single-file distribution refuses CSS esbuild warns about", async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-css-warning-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body { colr: red; }"),
     writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
   ]);
@@ -239,7 +257,10 @@ test("build diagnostics identify an unresolved transitive module", async (t) => 
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-error-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.js"), 'import "./missing.js";'),
   ]);

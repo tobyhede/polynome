@@ -245,7 +245,9 @@ function renderPresets() {
   // Identifiers reach the markup unescaped, which is safe only because every one
   // of them is either derived from the frozen built-in names or has passed
   // `safeIdentifier`'s pattern on the way out of storage.
-  elements.presetList.innerHTML = presets.map((preset) => `
+  elements.presetList.innerHTML = presets
+    .map(
+      (preset) => `
     <div class="preset-card${preset.builtIn ? " is-built-in" : ""}">
       <button
         type="button"
@@ -256,7 +258,10 @@ function renderPresets() {
         <strong>${escapeHtml(preset.name)}</strong>
         ${presetNotationTemplate(preset.configuration)}
       </button>
-      ${preset.builtIn ? "" : `
+      ${
+        preset.builtIn
+          ? ""
+          : `
         <button
           type="button"
           class="preset-delete${preset.id === pendingDeletePresetId ? " is-armed" : ""}"
@@ -264,9 +269,12 @@ function renderPresets() {
           aria-label="${preset.id === pendingDeletePresetId ? "Confirm deleting" : "Delete"} ${escapeHtml(preset.name)} preset"
           title="${preset.id === pendingDeletePresetId ? "Select again to delete" : "Delete preset"}"
         >×</button>
-      `}
+      `
+      }
     </div>
-  `).join("");
+  `,
+    )
+    .join("");
   if (focusedSelector) {
     // The Preset that had focus can be the one that just stopped existing, which
     // is exactly when losing focus to the document costs the most.
@@ -297,9 +305,11 @@ function dismissPendingDelete() {
  */
 function renderPresetSelection() {
   if (!presetsOpen) return;
-  const selected = new Set(describePresets(state, savedPresets)
-    .filter((preset) => preset.selected)
-    .map((preset) => preset.id));
+  const selected = new Set(
+    describePresets(state, savedPresets)
+      .filter((preset) => preset.selected)
+      .map((preset) => preset.id),
+  );
   for (const button of elements.presetList.querySelectorAll("[data-preset-id]")) {
     const isSelected = selected.has(button.dataset.presetId);
     button.classList.toggle("is-selected", isSelected);
@@ -308,23 +318,36 @@ function renderPresetSelection() {
 }
 
 function presetNotationTemplate(configuration) {
-  const accessible = configuration.sequence.cycles.map((cycle) => {
-    const rhythms = cycle.rhythms.map((rhythm) => (
-      `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`
-    )).join(" plus ");
-    return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
-  }).join(", then ");
-  const visual = configuration.sequence.cycles.map((cycle) => `
+  const accessible = configuration.sequence.cycles
+    .map((cycle) => {
+      const rhythms = cycle.rhythms
+        .map(
+          (rhythm) =>
+            `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`,
+        )
+        .join(" plus ");
+      return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
+    })
+    .join(", then ");
+  const visual = configuration.sequence.cycles
+    .map(
+      (cycle) => `
     <span class="preset-cycle">
       ${cycle.repetitions === 1 ? "" : `<span class="preset-repetitions">${cycle.repetitions}×</span>`}
-      ${cycle.rhythms.map((rhythm) => `
+      ${cycle.rhythms
+        .map(
+          (rhythm) => `
         <span class="preset-rhythm">
           <span>${rhythmLabel(rhythm)}</span>
           ${noteIcon(rhythm.subdivision, 15)}
         </span>
-      `).join('<span aria-hidden="true"> + </span>')}
+      `,
+        )
+        .join('<span aria-hidden="true"> + </span>')}
     </span>
-  `).join('<span class="preset-sequence-arrow" aria-hidden="true"> → </span>');
+  `,
+    )
+    .join('<span class="preset-sequence-arrow" aria-hidden="true"> → </span>');
   return `<span class="preset-notation" aria-hidden="true">${visual}</span><span class="sr-only">${escapeHtml(accessible)}</span>`;
 }
 
@@ -376,9 +399,8 @@ function layoutSteps() {
   for (const steps of elements.cycles.querySelectorAll(".steps")) {
     const beat = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
-    const available = steps.clientWidth
-      - parseFloat(style.paddingLeft)
-      - parseFloat(style.paddingRight);
+    const available =
+      steps.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     if (!beat || !(available > 0)) continue;
 
     // A beat is a flex row of fixed-size steps, so its width does not depend on
@@ -387,10 +409,12 @@ function layoutSteps() {
     const beatGap = parseFloat(style.columnGap) || 0;
     const beats = Number(steps.dataset.beats);
     const subdivision = Number(steps.dataset.subdivision);
-    const perRow = descendingDivisors(beats).find((candidate) => (
-      candidate * subdivision <= STEPS_PER_ROW_LIMIT
-      && candidate * beatWidth + (candidate - 1) * beatGap <= available
-    )) ?? 1;
+    const perRow =
+      descendingDivisors(beats).find(
+        (candidate) =>
+          candidate * subdivision <= STEPS_PER_ROW_LIMIT &&
+          candidate * beatWidth + (candidate - 1) * beatGap <= available,
+      ) ?? 1;
 
     plans.push({ steps, perRow, scrolling: beatWidth > available });
   }
@@ -485,9 +509,10 @@ function renderFooter() {
  */
 function unavailableLabel(text, policy) {
   if (policy.available) return null;
-  const reason = policy.reason === "sequence-rhythm-limit"
-    ? "the sequence has reached its rhythm limit"
-    : "it is not currently available";
+  const reason =
+    policy.reason === "sequence-rhythm-limit"
+      ? "the sequence has reached its rhythm limit"
+      : "it is not currently available";
   return `${text}, unavailable — ${reason}`;
 }
 
@@ -496,16 +521,17 @@ function cycleTemplate(cycle, cycleIndex) {
   const cycleTitle = state.sequence.cycles.length > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const removeDisabled = !cycleAvailability.remove.available;
   const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
-  const dots = REPETITIONS.slice(1).map((value, index) => {
-    const selected = value <= cycle.repetitions;
-    const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
-    const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
-    const actionLabel = unavailable
-      ? `${cycleTitle} must remain active at 1 repetition`
-      : nextRepetitions === 0
-        ? `Disable ${cycleTitle}`
-        : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
-    return `
+  const dots = REPETITIONS.slice(1)
+    .map((value, index) => {
+      const selected = value <= cycle.repetitions;
+      const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
+      const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
+      const actionLabel = unavailable
+        ? `${cycleTitle} must remain active at 1 repetition`
+        : nextRepetitions === 0
+          ? `Disable ${cycleTitle}`
+          : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
+      return `
       <button
         type="button"
         class="repeat-dot${selected ? " is-set" : ""}"
@@ -517,7 +543,8 @@ function cycleTemplate(cycle, cycleIndex) {
         ${unavailable ? "disabled" : ""}
       ></button>
     `;
-  }).join("");
+    })
+    .join("");
 
   return `
     <section class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}" data-cycle-id="${cycle.id}" aria-labelledby="cycle-${cycle.id}-heading">
@@ -589,9 +616,10 @@ function rhythmTemplate(rhythm, cycle) {
 
 function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
-  const unitOptions = NOTE_UNITS.map((unit) => (
-    `<option value="${unit}"${unit === rhythm.signature.unit ? " selected" : ""}>${unit}</option>`
-  )).join("");
+  const unitOptions = NOTE_UNITS.map(
+    (unit) =>
+      `<option value="${unit}"${unit === rhythm.signature.unit ? " selected" : ""}>${unit}</option>`,
+  ).join("");
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
   return `
@@ -621,7 +649,8 @@ function rhythmSettingsTemplate(rhythm) {
             <span aria-hidden="true">▼</span>
           </button>
           <div id="${subdivisionMenuId}" class="subdivision-menu" role="listbox" aria-label="${label} subdivision" ${subdivisionOpen ? "" : "hidden"}>
-            ${SUBDIVISIONS.map((subdivision) => `
+            ${SUBDIVISIONS.map(
+              (subdivision) => `
               <button
                 type="button"
                 role="option"
@@ -632,16 +661,19 @@ function rhythmSettingsTemplate(rhythm) {
                 aria-label="${subdivisionLabel(subdivision, rhythm.signature.unit)}"
                 title="${subdivisionLabel(subdivision, rhythm.signature.unit)}"
               >${noteIcon(subdivision, 26)}</button>
-            `).join("")}
+            `,
+            ).join("")}
           </div>
         </div>
       </div>
 
       <div class="sound-control" role="group" aria-labelledby="rhythm-${rhythm.id}-sound-label">
         <span id="rhythm-${rhythm.id}-sound-label">Sound</span>
-        <div>${SOUNDS.map((sound) => `
+        <div>${SOUNDS.map(
+          (sound) => `
           <button type="button" data-action="sound" data-sound="${sound}" class="sound-button${rhythm.sound === sound ? " is-selected" : ""}" aria-pressed="${rhythm.sound === sound}">${sound}</button>
-        `).join("")}</div>
+        `,
+        ).join("")}</div>
       </div>
     </div>
 
@@ -688,7 +720,8 @@ function stepTemplate(step, index) {
 
 function noteIcon(subdivision, height) {
   const shown = subdivision <= 6 ? subdivision : 4;
-  const beams = subdivision <= 1 ? 0 : subdivision <= 3 ? 1 : subdivision <= 6 ? 2 : subdivision <= 12 ? 3 : 4;
+  const beams =
+    subdivision <= 1 ? 0 : subdivision <= 3 ? 1 : subdivision <= 6 ? 2 : subdivision <= 12 ? 3 : 4;
   const gap = shown > 4 ? 10 : 12;
   const headY = 31;
   const stemTop = 10;
@@ -699,9 +732,11 @@ function noteIcon(subdivision, height) {
   }).join("");
   const beamLeft = x0 + 3.7;
   const beamRight = x0 + (shown - 1) * gap + 5.4;
-  const beamShapes = Array.from({ length: beams }, (_, index) => (
-    `<rect x="${beamLeft}" y="${stemTop + index * 5}" width="${beamRight - beamLeft}" height="3.2" rx="1"></rect>`
-  )).join("");
+  const beamShapes = Array.from(
+    { length: beams },
+    (_, index) =>
+      `<rect x="${beamLeft}" y="${stemTop + index * 5}" width="${beamRight - beamLeft}" height="3.2" rx="1"></rect>`,
+  ).join("");
   const tuplet = ![1, 2, 4, 8, 16, 32].includes(subdivision);
   const tupletLeft = x0 - 2;
   const tupletRight = x0 + (shown - 1) * gap + 8;
@@ -710,7 +745,10 @@ function noteIcon(subdivision, height) {
     ? `<rect x="${tupletLeft}" y="2.6" width="${arm}" height="1.5" rx="0.7"></rect><rect x="${tupletRight - arm}" y="2.6" width="${arm}" height="1.5" rx="0.7"></rect><text x="${(tupletLeft + tupletRight) / 2}" y="7" text-anchor="middle" font-size="9.5" font-weight="700" font-family="JetBrains Mono, monospace">${subdivision}</text>`
     : "";
   const left = Math.min(x0 - 5.6, tuplet ? x0 - 2.6 : Infinity);
-  const right = Math.max(x0 + (shown - 1) * gap + 5.7, tuplet ? x0 + (shown - 1) * gap + 8.4 : -Infinity);
+  const right = Math.max(
+    x0 + (shown - 1) * gap + 5.7,
+    tuplet ? x0 + (shown - 1) * gap + 8.4 : -Infinity,
+  );
   const top = tuplet ? 0 : 8.5;
   const boxWidth = right - left;
   const boxHeight = 35.5 - top;
@@ -790,7 +828,9 @@ function changeTempo(nextBpm) {
 function findContext(target) {
   const cycleElement = target.closest("[data-cycle-id]");
   if (!cycleElement) return null;
-  const cycle = state.sequence.cycles.find((candidate) => candidate.id === cycleElement.dataset.cycleId);
+  const cycle = state.sequence.cycles.find(
+    (candidate) => candidate.id === cycleElement.dataset.cycleId,
+  );
   if (!cycle) return null;
   const rhythmElement = target.closest("[data-layer-id]");
   const rhythm = rhythmElement
@@ -802,14 +842,14 @@ function findContext(target) {
 function toggleRhythmSettings(rhythmId, activatingToggle = null) {
   const toggleSelector = activatingToggle?.classList.contains("edit-button")
     ? ".edit-button"
-    : activatingToggle ? ".rhythm-identity" : null;
+    : activatingToggle
+      ? ".rhythm-identity"
+      : null;
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
   renderCycles();
   if (toggleSelector) {
-    const rhythmCard = elements.cycles.querySelector(
-      `[data-layer-id="${CSS.escape(rhythmId)}"]`,
-    );
+    const rhythmCard = elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"]`);
     rhythmCard?.querySelector(toggleSelector)?.focus();
   }
 }
@@ -825,7 +865,9 @@ function dismissSubdivisionMenu() {
   openSubdivisionMenu = null;
   renderCycles();
   requestAnimationFrame(() => {
-    elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)?.focus();
+    elements.cycles
+      .querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)
+      ?.focus();
   });
 }
 
@@ -903,14 +945,16 @@ elements.presetList.addEventListener("click", (event) => {
 
   const button = event.target.closest("[data-preset-id]");
   if (!button) return;
-  const preset = describePresets(state, savedPresets).find(({ id }) => (
-    id === button.dataset.presetId
-  ));
+  const preset = describePresets(state, savedPresets).find(
+    ({ id }) => id === button.dataset.presetId,
+  );
   if (!preset) return;
   openRhythms.clear();
-  applyEdit(preset.builtIn
-    ? { type: "apply-preset", name: preset.name }
-    : { type: "apply-preset", configuration: preset.configuration });
+  applyEdit(
+    preset.builtIn
+      ? { type: "apply-preset", name: preset.name }
+      : { type: "apply-preset", configuration: preset.configuration },
+  );
 });
 elements.presetName.addEventListener("input", () => {
   elements.presetName.setCustomValidity("");
@@ -920,9 +964,11 @@ elements.presetSave.addEventListener("submit", (event) => {
   elements.presetName.setCustomValidity("");
   const result = savePreset(storedSavedPresets(), elements.presetName.value, state);
   if (result.reason) {
-    elements.presetName.setCustomValidity(result.reason === "preset-name-reserved"
-      ? "Choose a name different from a built-in preset."
-      : "Enter a preset name between 1 and 80 characters.");
+    elements.presetName.setCustomValidity(
+      result.reason === "preset-name-reserved"
+        ? "Choose a name different from a built-in preset."
+        : "Enter a preset name between 1 and 80 characters.",
+    );
     elements.presetName.reportValidity();
     return;
   }
@@ -930,9 +976,7 @@ elements.presetSave.addEventListener("submit", (event) => {
   const persisted = writeSavedPresets(savedPresets);
   elements.presetName.value = "";
   renderPresets();
-  elements.presetList
-    .querySelector(`[data-preset-id="${CSS.escape(result.preset.id)}"]`)
-    ?.focus();
+  elements.presetList.querySelector(`[data-preset-id="${CSS.escape(result.preset.id)}"]`)?.focus();
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
     : "Preset could not be saved in this browser";
@@ -963,10 +1007,7 @@ elements.cycles.addEventListener("click", (event) => {
       break;
     }
     case "add-rhythm": {
-      const result = applyEdit(
-        { type: "add-rhythm", cycleId: cycle.id },
-        { render: false },
-      );
+      const result = applyEdit({ type: "add-rhythm", cycleId: cycle.id }, { render: false });
       if (result.reason !== null) break;
       const addedRhythm = result.configuration.sequence.cycles
         .find((candidate) => candidate.id === cycle.id)
@@ -1000,7 +1041,11 @@ elements.cycles.addEventListener("click", (event) => {
       renderCycles();
       if (openSubdivisionMenu === rhythm.id) {
         requestAnimationFrame(() => {
-          elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`)?.focus();
+          elements.cycles
+            .querySelector(
+              `[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`,
+            )
+            ?.focus();
         });
       }
       break;
@@ -1014,16 +1059,19 @@ elements.cycles.addEventListener("click", (event) => {
         subdivision: Number(actionElement.dataset.subdivision),
       });
       requestAnimationFrame(() => {
-        elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`)?.focus();
+        elements.cycles
+          .querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`)
+          ?.focus();
       });
       break;
     case "mute":
-      if (rhythm) applyEdit({
-        type: "set-muted",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        muted: !rhythm.muted,
-      });
+      if (rhythm)
+        applyEdit({
+          type: "set-muted",
+          cycleId: cycle.id,
+          rhythmId: rhythm.id,
+          muted: !rhythm.muted,
+        });
       break;
     case "step": {
       if (!rhythm) return;
@@ -1037,12 +1085,13 @@ elements.cycles.addEventListener("click", (event) => {
       break;
     }
     case "sound":
-      if (rhythm) applyEdit({
-        type: "set-sound",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        sound: actionElement.dataset.sound,
-      });
+      if (rhythm)
+        applyEdit({
+          type: "set-sound",
+          cycleId: cycle.id,
+          rhythmId: rhythm.id,
+          sound: actionElement.dataset.sound,
+        });
       break;
   }
 });
@@ -1069,8 +1118,10 @@ elements.cycles.addEventListener("keydown", (event) => {
   const options = [...option.closest(".subdivision-menu").querySelectorAll(".subdivision-option")];
   const index = options.indexOf(option);
   let nextIndex = null;
-  if (event.key === "ArrowDown" || event.key === "ArrowRight") nextIndex = (index + 1) % options.length;
-  if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = (index - 1 + options.length) % options.length;
+  if (event.key === "ArrowDown" || event.key === "ArrowRight")
+    nextIndex = (index + 1) % options.length;
+  if (event.key === "ArrowUp" || event.key === "ArrowLeft")
+    nextIndex = (index - 1 + options.length) % options.length;
   if (event.key === "Home") nextIndex = 0;
   if (event.key === "End") nextIndex = options.length - 1;
   // Escape has no default action on these controls in either Chrome or
@@ -1109,26 +1160,33 @@ elements.cycles.addEventListener("input", (event) => {
   if (!context?.rhythm) return;
   const { rhythmElement, rhythm } = context;
   if (field === "volume") {
-    const result = applyEdit({
-      type: "set-rhythm-volume",
-      cycleId: context.cycle.id,
-      rhythmId: rhythm.id,
-      volume: event.target.value,
-    }, { render: false });
+    const result = applyEdit(
+      {
+        type: "set-rhythm-volume",
+        cycleId: context.cycle.id,
+        rhythmId: rhythm.id,
+        volume: event.target.value,
+      },
+      { render: false },
+    );
     const volume = result.configuration.sequence.cycles
-      .find(({ id }) => id === context.cycle.id).rhythms
-      .find(({ id }) => id === rhythm.id).volume;
-    rhythmElement.querySelector('[data-output="volume"]').textContent = `${Math.round(volume * 100)}%`;
+      .find(({ id }) => id === context.cycle.id)
+      .rhythms.find(({ id }) => id === rhythm.id).volume;
+    rhythmElement.querySelector('[data-output="volume"]').textContent =
+      `${Math.round(volume * 100)}%`;
   } else {
-    const result = applyEdit({
-      type: "set-stereo-position",
-      cycleId: context.cycle.id,
-      rhythmId: rhythm.id,
-      pan: event.target.value,
-    }, { render: false });
+    const result = applyEdit(
+      {
+        type: "set-stereo-position",
+        cycleId: context.cycle.id,
+        rhythmId: rhythm.id,
+        pan: event.target.value,
+      },
+      { render: false },
+    );
     const pan = result.configuration.sequence.cycles
-      .find(({ id }) => id === context.cycle.id).rhythms
-      .find(({ id }) => id === rhythm.id).pan;
+      .find(({ id }) => id === context.cycle.id)
+      .rhythms.find(({ id }) => id === rhythm.id).pan;
     rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(pan);
   }
   renderPresetSelection();

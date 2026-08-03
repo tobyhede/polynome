@@ -6,7 +6,8 @@
   "description": "A tiny, zero-runtime-dependency polyrhythm and polymeter metronome for the browser.",
   "scripts": {
     "start": "node server.mjs",
-    "lint": "biome lint .",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='e2e/**' --test-coverage-lines=95 --test-coverage-branches=87 --test-coverage-functions=94",
     "test:browser": "npm run bundle && playwright test",

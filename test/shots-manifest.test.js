@@ -73,7 +73,12 @@ test("kept and fresh shots interleave into the order the matrix declares", () =>
   const profiles = ["iphone-se", "pixel-7"];
 
   const ordered = inMatrixOrder(
-    [shot("dense", "pixel-7"), shot("idle", "pixel-7"), shot("dense", "iphone-se"), shot("idle", "iphone-se")],
+    [
+      shot("dense", "pixel-7"),
+      shot("idle", "pixel-7"),
+      shot("dense", "iphone-se"),
+      shot("idle", "iphone-se"),
+    ],
     states,
     profiles,
   );

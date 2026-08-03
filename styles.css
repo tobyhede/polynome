@@ -465,7 +465,9 @@ h1 {
   color: #0c0c0d;
   cursor: pointer;
   font-size: clamp(1rem, 4.4cqw, 1.9rem);
-  transition: background-color 140ms ease, transform 120ms ease;
+  transition:
+    background-color 140ms ease,
+    transform 120ms ease;
 }
 
 .play-button.is-playing {
@@ -634,7 +636,10 @@ h1.is-glitching {
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--card);
-  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
 }
 
 .cycle-card.is-current,
@@ -694,21 +699,36 @@ h1.is-glitching {
   padding: 0;
   border: 1.5px solid var(--line-strong);
   border-radius: 50%;
-  background: radial-gradient(circle closest-side at 50% 50%, transparent 0% 60.6%, transparent 60.6% 62%, transparent 62% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    transparent 0% 60.6%,
+    transparent 60.6% 62%,
+    transparent 62% 100%
+  );
   background-color: var(--soft);
   cursor: pointer;
-  transition: border-color 90ms ease, box-shadow 90ms ease, background 120ms ease;
+  transition:
+    border-color 90ms ease,
+    box-shadow 90ms ease,
+    background 120ms ease;
 }
 
 .repeat-dot.is-set {
   border-color: color-mix(in oklab, var(--accent), transparent 62%);
-  background: radial-gradient(circle closest-side at 50% 50%, color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 42%), #ffffff 26%) 0% 59.4%, var(--card) 59.4% 62%, transparent 62% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 42%), #ffffff 26%) 0% 59.4%,
+    var(--card) 59.4% 62%,
+    transparent 62% 100%
+  );
   background-color: transparent;
 }
 
 .repeat-dot.is-current {
   border-color: var(--ink);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 53%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent),
+    0 0 14px color-mix(in srgb, var(--accent) 53%, transparent);
 }
 
 /* The sole active cycle's first dot is locked, but it remains the current repetition. */
@@ -844,30 +864,71 @@ h1.is-glitching {
   border-radius: 50%;
   background-color: transparent;
   cursor: pointer;
-  transition: border-color 90ms ease, box-shadow 90ms ease, background 120ms ease;
+  transition:
+    border-color 90ms ease,
+    box-shadow 90ms ease,
+    background 120ms ease;
 }
 
 .step-full {
-  background: radial-gradient(circle closest-side at 50% 50%, color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 0%), #ffffff 26%) 0% 35.4%, var(--card) 35.4% 38%, color-mix(in oklab, var(--accent), var(--card) 0%) 38% 57.4%, var(--card) 57.4% 60%, color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 0%), #000000 14%) 60% 79.4%, var(--card) 79.4% 82%, transparent 82% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 0%), #ffffff 26%) 0% 35.4%,
+    var(--card) 35.4% 38%,
+    color-mix(in oklab, var(--accent), var(--card) 0%) 38% 57.4%,
+    var(--card) 57.4% 60%,
+    color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 0%), #000000 14%) 60% 79.4%,
+    var(--card) 79.4% 82%,
+    transparent 82% 100%
+  );
 }
 
 .step-half {
-  background: radial-gradient(circle closest-side at 50% 50%, color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 24%), #ffffff 26%) 0% 35.4%, var(--card) 35.4% 38%, color-mix(in oklab, var(--accent), var(--card) 24%) 38% 57.4%, var(--card) 57.4% 60%, transparent 60% 80.6%, var(--ghost) 80.6% 82%, transparent 82% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 24%), #ffffff 26%) 0% 35.4%,
+    var(--card) 35.4% 38%,
+    color-mix(in oklab, var(--accent), var(--card) 24%) 38% 57.4%,
+    var(--card) 57.4% 60%,
+    transparent 60% 80.6%,
+    var(--ghost) 80.6% 82%,
+    transparent 82% 100%
+  );
 }
 
 .step-quarter {
-  background: radial-gradient(circle closest-side at 50% 50%, color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 46%), #ffffff 26%) 0% 35.4%, var(--card) 35.4% 38%, transparent 38% 58.6%, var(--ghost) 58.6% 60%, transparent 60% 80.6%, var(--ghost) 80.6% 82%, transparent 82% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 46%), #ffffff 26%) 0% 35.4%,
+    var(--card) 35.4% 38%,
+    transparent 38% 58.6%,
+    var(--ghost) 58.6% 60%,
+    transparent 60% 80.6%,
+    var(--ghost) 80.6% 82%,
+    transparent 82% 100%
+  );
 }
 
 .step-off {
   border-color: var(--line-strong);
-  background: radial-gradient(circle closest-side at 50% 50%, transparent 0% 36.6%, var(--ghost) 36.6% 38%, transparent 38% 58.6%, var(--ghost) 58.6% 60%, transparent 60% 80.6%, var(--ghost) 80.6% 82%, transparent 82% 100%);
+  background: radial-gradient(
+    circle closest-side at 50% 50%,
+    transparent 0% 36.6%,
+    var(--ghost) 36.6% 38%,
+    transparent 38% 58.6%,
+    var(--ghost) 58.6% 60%,
+    transparent 60% 80.6%,
+    var(--ghost) 80.6% 82%,
+    transparent 82% 100%
+  );
   background-color: var(--soft);
 }
 
 .step.is-current {
   border-color: var(--ink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
+    0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .rhythm-settings {
@@ -1100,19 +1161,30 @@ h1.is-glitching {
 }
 
 @keyframes pop-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @keyframes bpm-glitch {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(0, 0);
-    text-shadow: calc(var(--g) * -2px) 0 rgba(255, 42, 90, 0.85), calc(var(--g) * 2px) 0 rgba(0, 229, 255, 0.85);
+    text-shadow:
+      calc(var(--g) * -2px) 0 rgba(255, 42, 90, 0.85),
+      calc(var(--g) * 2px) 0 rgba(0, 229, 255, 0.85);
   }
 
   12% {
     transform: translate(calc(var(--g) * -2px), calc(var(--g) * 1px));
-    text-shadow: calc(var(--g) * 4px) 0 rgba(255, 42, 90, 0.9), calc(var(--g) * -3px) 0 rgba(0, 229, 255, 0.9);
+    text-shadow:
+      calc(var(--g) * 4px) 0 rgba(255, 42, 90, 0.9),
+      calc(var(--g) * -3px) 0 rgba(0, 229, 255, 0.9);
   }
 
   24% {
@@ -1120,27 +1192,41 @@ h1.is-glitching {
     clip-path: inset(18% 0 42% 0);
   }
 
-  31% { clip-path: inset(0 0 0 0); }
+  31% {
+    clip-path: inset(0 0 0 0);
+  }
 
   48% {
     transform: translate(calc(var(--g) * 3px), 0);
     clip-path: inset(56% 0 12% 0);
   }
 
-  54% { clip-path: inset(0 0 0 0); }
-  67% { transform: translate(0, calc(var(--g) * 2px)); }
+  54% {
+    clip-path: inset(0 0 0 0);
+  }
+  67% {
+    transform: translate(0, calc(var(--g) * 2px));
+  }
 
   83% {
     transform: translate(calc(var(--g) * -3px), 0);
     clip-path: inset(34% 0 28% 0);
   }
 
-  88% { clip-path: inset(0 0 0 0); }
+  88% {
+    clip-path: inset(0 0 0 0);
+  }
 }
 
 @keyframes drawer-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @media (max-width: 800px) {

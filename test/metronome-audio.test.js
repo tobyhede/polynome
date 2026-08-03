@@ -234,9 +234,9 @@ class FakeAudioContext extends EventTarget {
   audibleClicks() {
     return this.clicks.filter(
       (click) =>
-        click.contextState === "running"
-        && click.effectiveStop !== null
-        && click.effectiveStop > click.effectiveStart,
+        click.contextState === "running" &&
+        click.effectiveStop !== null &&
+        click.effectiveStop > click.effectiveStart,
     );
   }
 }
@@ -360,11 +360,12 @@ const audioErrorsOf = (engine) => {
  * it is started with in the browser. Identifiers are left to that function: it
  * only trusts the shape it issues itself, and nothing below names a rhythm.
  */
-const configurationOf = (bpm, rhythms) => createConfiguration({
-  bpm,
-  masterVolume: 0.8,
-  sequence: { cycles: [{ repetitions: 1, rhythms }] },
-});
+const configurationOf = (bpm, rhythms) =>
+  createConfiguration({
+    bpm,
+    masterVolume: 0.8,
+    sequence: { cycles: [{ repetitions: 1, rhythms }] },
+  });
 
 /** One rhythm event per second at 60 bpm. */
 const pulsePerSecond = () =>
@@ -378,8 +379,7 @@ const fiftyMillisecondGrid = () =>
 const roundSeconds = (value) => Math.round(value * 1e6) / 1e6;
 
 /** The instants the engine committed each audible click to start at. */
-const clickStarts = (context) =>
-  context.audibleClicks().map((click) => roundSeconds(click.when));
+const clickStarts = (context) => context.audibleClicks().map((click) => roundSeconds(click.when));
 
 /** The spacing a listener actually hears between consecutive clicks. */
 const gapsBetween = (starts) =>
@@ -452,10 +452,12 @@ test("a stored master volume does not reach the output stage", async () => {
     bpm: 60,
     masterVolume: 0.11,
     sequence: {
-      cycles: [{
-        repetitions: 1,
-        rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: ["full"] }],
-      }],
+      cycles: [
+        {
+          repetitions: 1,
+          rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: ["full"] }],
+        },
+      ],
     },
   });
 
@@ -468,27 +470,25 @@ test("a stored master volume does not reach the output stage", async () => {
   engine.stop();
 });
 
-test(
-  "a resume that never settles still installs the look-ahead scheduler",
-  { timeout: 2000 },
-  async () => {
-    const { context, engine } = harness({ state: "suspended", resume: "hang" });
+test("a resume that never settles still installs the look-ahead scheduler", {
+  timeout: 2000,
+}, async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
 
-    await engine.start(pulsePerSecond());
+  await engine.start(pulsePerSecond());
 
-    assert.equal(engine.playing, true);
-    assert.equal(schedulerRunning(), true);
-    assert.deepEqual(context.audibleClicks(), []);
+  assert.equal(engine.playing, true);
+  assert.equal(schedulerRunning(), true);
+  assert.deepEqual(context.audibleClicks(), []);
 
-    context.currentTime = 0.95;
-    context.setState("running");
-    tick();
+  context.currentTime = 0.95;
+  context.setState("running");
+  tick();
 
-    assert.equal(context.audibleClicks().length > 0, true);
+  assert.equal(context.audibleClicks().length > 0, true);
 
-    engine.stop();
-  },
-);
+  engine.stop();
+});
 
 test("a rejected resume neither stops the scheduler nor escapes unhandled", async () => {
   const { context, engine } = harness({ state: "suspended", resume: "reject" });
@@ -917,10 +917,7 @@ test("an on-time transport run puts every click exactly on the grid", async () =
   }
 
   const starts = clickStarts(context);
-  assert.deepEqual(
-    starts,
-    [0.06, 0.11, 0.16, 0.21, 0.26, 0.31, 0.36, 0.41, 0.46],
-  );
+  assert.deepEqual(starts, [0.06, 0.11, 0.16, 0.21, 0.26, 0.31, 0.36, 0.41, 0.46]);
   assert.deepEqual(gapsBetween(starts), Array(8).fill(0.05));
 
   engine.stop();
@@ -1069,9 +1066,6 @@ test("without a factory the engine still reports an unsupported Web Audio API", 
   timers.callbacks.clear();
   const engine = new MetronomeEngine();
 
-  await assert.rejects(
-    () => engine.start(pulsePerSecond()),
-    /does not support the Web Audio API/,
-  );
+  await assert.rejects(() => engine.start(pulsePerSecond()), /does not support the Web Audio API/);
   assert.equal(schedulerRunning(), false);
 });

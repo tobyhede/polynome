@@ -61,7 +61,10 @@ test("site distribution versions transitive chunks without manual rewrites", asy
   const fixture = await mkdtemp(join(tmpdir(), "polynome-site-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.js"), 'globalThis.loadFeature = () => import("./feature.js");'),
     writeFile(join(fixture, "feature.js"), 'export const feature = "discovered";'),
@@ -156,12 +159,15 @@ test("site distribution versions every reference in the document", async (t) => 
   const fixture = await mkdtemp(join(tmpdir(), "polynome-site-reference-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), [
-      '<link rel="modulepreload" href="./app.js" />',
-      '<link rel="preload" href="./styles.css" as="style" />',
-      '<link rel="stylesheet" href="./styles.css" />',
-      '<script type="module" src="./app.js"></script>',
-    ].join("")),
+    writeFile(
+      join(fixture, "index.html"),
+      [
+        '<link rel="modulepreload" href="./app.js" />',
+        '<link rel="preload" href="./styles.css" as="style" />',
+        '<link rel="stylesheet" href="./styles.css" />',
+        '<script type="module" src="./app.js"></script>',
+      ].join(""),
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
   ]);
@@ -194,9 +200,12 @@ test("site distribution refuses JavaScript esbuild warns about", async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), "polynome-site-warning-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), 'globalThis.fixture = { rate: 1, rate: 2 };'),
+    writeFile(join(fixture, "app.js"), "globalThis.fixture = { rate: 1, rate: 2 };"),
   ]);
 
   await assert.rejects(

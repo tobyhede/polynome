@@ -8,12 +8,7 @@
  * environment and because a browser may refuse it outright — every method can
  * throw, and none of them may take the page down with it.
  */
-export function readStoredValue({
-  storage,
-  key,
-  supersededKeys = [],
-  retiredKeys = [],
-}) {
+export function readStoredValue({ storage, key, supersededKeys = [], retiredKeys = [] }) {
   try {
     for (const retired of retiredKeys) storage.removeItem(retired);
 
