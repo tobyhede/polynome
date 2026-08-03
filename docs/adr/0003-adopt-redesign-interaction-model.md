@@ -2,7 +2,7 @@
 
 Polynome will adopt the visual and interaction model of an external single-file React design prototype reviewed during the redesign. That prototype is not versioned in this repository and is not authoritative: the consequences recorded below are the reference. The production shared transport, Web Audio scheduler, zero-dependency architecture, accessibility, and responsive behavior are retained. This supersedes ADR-0002 only where that decision specified repetition limits, display-only dots, an always-expanded rhythm interface, or a generated sequence summary.
 
-Master volume as an editable mix value is superseded by ADR-0005. Every other step-level, mix, and transport consequence below remains in force.
+Master volume as an editable mix value is superseded by ADR-0007. Every other step-level, mix, and transport consequence below remains in force.
 
 ## Consequences
 
@@ -12,8 +12,8 @@ Master volume as an editable mix value is superseded by ADR-0005. Every other st
 - Tempo, meter, subdivision, cycle-repetition, and structural edits (adding or removing a cycle or a rhythm layer, and applying a preset) begin a new transport run from a new transport origin, at the first active cycle and its first cycle repetition. Dragging the tempo slider keeps the current run at its previous tempo; the new run begins when the slider is released.
 - Eight interactive dots set each cycle's repetition count from 0–8. A zero-repetition cycle is inactive and skipped, but the final active cycle cannot be disabled or removed. When the sequence contains exactly one cycle, that cycle always has exactly one repetition; zero and multiple repetitions apply only when the sequence contains multiple cycles.
 - Rhythm settings live in an accessible collapsible drawer. The sequence summary and numeric repetition input are removed; cycle dots communicate both the configured count and active repetition.
-- The initial built-in preset catalogue remains `4/4` and `4/4 + 3/4`. The earlier decision to keep preset saving out of scope is superseded: listeners may save named, browser-local presets containing the complete Configuration. A preset name is its primary identity, with generated meter-and-subdivision notation as secondary description; sound and mix remain stored but absent from that notation. Applying any preset replaces the complete Configuration, and the built-ins remain immutable. Where those saved presets are kept, and what that costs across tabs and hosts, is decided in ADR 0005.
-- Master volume as a user-editable value is superseded by ADR-0005; the mix behaviour above still governs mute, rhythm level, and balance.
+- The initial built-in preset catalogue remains `4/4` and `4/4 + 3/4`. The earlier decision to keep preset saving out of scope is superseded: listeners may save named, browser-local presets containing the complete Configuration. A preset name is its primary identity, with generated meter-and-subdivision notation as secondary description; sound and mix remain stored but absent from that notation. Applying any preset replaces the complete Configuration, and the built-ins remain immutable. Where those saved presets are kept, and what that costs across tabs and hosts, is decided in ADR-0006.
+- Master volume as a user-editable value is superseded by ADR-0007; the mix behaviour above still governs mute, rhythm level, and balance.
 - The prototype is a design reference, not production code. Its React runtime, animation-driven audio, external Google Font requests, and non-responsive shortcuts are not adopted.
 - JetBrains Mono and Major Mono Display are self-hosted with system fallbacks and embedded in the generated single-file bundle.
 - Persistence takes a clean break because step values and cycle repetition rules change.
