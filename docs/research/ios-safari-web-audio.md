@@ -295,7 +295,7 @@ Control chain: `PlatformMediaSession::beginInterruption()` → `AudioContext::su
 | Another app on a *mixable* session (e.g. Clock timer) | stays `"running"`, silent | n/a — no interruption is delivered |
 | App backgrounded / app switch | `"interrupted"` | On foreground, only if the session was `Playing` |
 | Screen lock | `"interrupted"` (Web Audio has no `SuspendedUnderLockPlaybackRestricted`, so it takes the plain background path — [MediaSessionManagerIOS.mm](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/audio/ios/MediaSessionManagerIOS.mm)) | as above |
-| Switching Safari tabs | ⚠️ **unsourced** — see below |
+| Switching Safari tabs | ⚠️ **unsourced** — see below | unestablished — the state itself is unsourced |
 
 Background interruption can be waived: `AudioContext::shouldOverrideBackgroundPlaybackRestriction()` returns true for `EnteringBackground` when `navigator.audioSession.type` is `playback` or `play-and-record` ([AudioContext.cpp `hasPlayBackAudioSession`](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webaudio/AudioContext.cpp), [bug 261554](https://bugs.webkit.org/show_bug.cgi?id=261554)).
 
@@ -363,7 +363,7 @@ WebKit trail: [bug 213268](https://bugs.webkit.org/show_bug.cgi?id=213268) "Add 
 
 Current WebKit asserts the prefixed name is gone, via the imported WPT ([historical-expected.txt](https://github.com/WebKit/WebKit/blob/main/LayoutTests/imported/w3c/web-platform-tests/webaudio/historical-expected.txt)):
 
-```
+```text
 PASS webkitAudioContext interface should not exist
 ```
 
