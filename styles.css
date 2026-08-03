@@ -799,7 +799,6 @@ h1.is-glitching {
      beat push the card past the shell and hand layoutSteps() a width the screen
      does not have. */
   min-width: 0;
-
   display: grid;
   grid-template-columns: repeat(var(--beats-per-row, 1), max-content);
   /* Beats are set apart more than the steps inside them, so a wrapped row still

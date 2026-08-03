@@ -88,6 +88,29 @@ for (const [name, accessibleName] of [
   });
 }
 
+/**
+ * The help panel offers the card double-click as one of three ways into a
+ * rhythm's settings, and it was the only one nothing pinned. It is also the
+ * one with a live exclusion beside it: the handler ignores double-clicks that
+ * land on a control, so the identity button opens on the first click and the
+ * second closes it again. Both halves are asserted, because the help text is
+ * only right while both hold.
+ */
+test("a double-click opens rhythm settings from the card but not its name", async ({ page }) => {
+  const identity = page.locator(".rhythm-identity").first();
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+
+  await page.locator(".rhythm-card").first().dblclick({ position: { x: 5, y: 5 } });
+  await expect(identity).toHaveAttribute("aria-expanded", "true");
+
+  await page.locator(".rhythm-card").first().dblclick({ position: { x: 5, y: 5 } });
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+
+  // Two clicks on the toggle itself are two toggles, not one double-click.
+  await identity.dblclick();
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+});
+
 test("a newly added rhythm opens its settings", async ({ page }) => {
   const addRhythm = page.getByRole("button", { name: "+ Rhythm" });
 
@@ -487,7 +510,7 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   // a row, and 768 is a width where packing by available space would not.
   for (const width of [375, 540, 700, 768, 800, 1024]) {
     await page.setViewportSize({ width, height: 900 });
-    const rows = await beatsPerRow(page);
+    const rows = await settledBeatsPerRow(page, width);
 
     expect(rows.length, `${width}px produced no rows`).toBeGreaterThan(0);
     expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
@@ -495,14 +518,30 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
 });
 
 /**
+ * Waits for a resize to land on equal rows, then hands that grouping back.
+ *
+ * Every caller asserts the same precondition — the rows are equal — and a
+ * resize reaches it through intermediate frames, so this is what separates a
+ * layout still on its way from one that is genuinely wrong. Polling re-measures
+ * the geometry each attempt; a fixed frame count only guesses how long settling
+ * takes. The pattern is the invariant itself: a `+`-joined grouping whose every
+ * row repeats the first row's count.
+ */
+async function settledBeatsPerRow(page, width) {
+  await expect
+    .poll(async () => (await beatsPerRow(page)).join("+"), {
+      message: `${width}px never settled into equal rows`,
+    })
+    .toMatch(/^(\d+)(\+\1)*$/);
+  return beatsPerRow(page);
+}
+
+/**
  * Reads the beat grouping off the rendered layout: how many beats share each
  * row, top to bottom. The grouping is only ever expressed as geometry, so
  * asserting on `--beats-per-row` would test the input rather than the result.
  */
 async function beatsPerRow(page) {
-  await page.evaluate(() => new Promise((settle) => {
-    requestAnimationFrame(() => requestAnimationFrame(settle));
-  }));
   return page.evaluate(() => {
     const perRow = new Map();
     for (const beat of document.querySelectorAll(".rhythm-card .beat")) {
@@ -536,7 +575,7 @@ test("a prime meter never splits into unequal rows", async ({ page }) => {
 
   for (const width of [375, 540, 700, 768, 800, 1024]) {
     await page.setViewportSize({ width, height: 900 });
-    const rows = await beatsPerRow(page);
+    const rows = await settledBeatsPerRow(page, width);
 
     expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
     expect([7, 1], `${width}px grouped ${rows[0]} beats to a row`).toContain(rows[0]);
@@ -564,7 +603,7 @@ for (const { beats, subdivision, steps } of [
 
     for (const width of [1600, 1024, 540]) {
       await page.setViewportSize({ width, height: 900 });
-      const rows = await beatsPerRow(page);
+      const rows = await settledBeatsPerRow(page, width);
 
       expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
       expect(
