@@ -1,5 +1,23 @@
 import { cycleSpanSeconds, stepDurationSeconds, stepLevel } from "./model.js";
 
+/**
+ * The planning side of the two lateness policies this metronome runs.
+ *
+ * `plan()` refuses to emit any event more than this far behind the clock it is
+ * given, so a caller never receives an event it could not still commit on time.
+ * At 4 ms that is roughly a couple of hundred frames at 48 kHz: below audible
+ * displacement, and deliberately far stricter than the engine's own guard.
+ *
+ * The engine's `MAX_CLICK_LATENESS_SECONDS` in `metronome.js` is the committing
+ * side, and it is an order of magnitude looser. The two are not in competition
+ * and the difference is not an oversight: this one is measured when an event is
+ * planned, that one when it is committed, and the render clock moves between
+ * those two moments. Everything `plan()` emits starts out within 4 ms; only the
+ * clock advancing mid-tick can push a click past the engine's threshold, which
+ * is the only reason that threshold is reachable at all. Tightening this
+ * tolerance therefore does not make the engine's guard redundant, and loosening
+ * it would hand the engine events it has already decided are not worth sounding.
+ */
 const LATENESS_TOLERANCE_SECONDS = 0.004;
 
 export class SharedTransport {
