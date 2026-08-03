@@ -96,7 +96,9 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
 
 test("sound customization clears preset selection and persists", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
-  const preset = page.getByRole("button", { name: "4/4", exact: true });
+  // A preset button carries its name and a notation preview, so its accessible
+  // name is the whole summary; the identifier is what stays stable.
+  const preset = page.locator('[data-preset-id="built-in-4-4"]');
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
 
@@ -110,7 +112,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
-  await expect(page.getByRole("button", { name: "4/4", exact: true })).toHaveAttribute(
+  await expect(page.locator('[data-preset-id="built-in-4-4"]')).toHaveAttribute(
     "aria-pressed",
     "false",
   );

@@ -71,3 +71,7 @@ _Avoid_: Accent, hit, rest, strength
 **Rhythm event**:
 A scheduled non-off occurrence identified by rhythm layer, absolute step, pattern position, step level, and audio time. Sound and mix are not properties of the rhythm event.
 _Avoid_: Tick, callback
+
+**Preset**:
+A named reusable snapshot of the complete editable metronome state: tempo, master level, and the full Sequence including every rhythm layer's pattern, sound, level, stereo position, and mute state. Applying a preset recalls that state exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
+_Avoid_: Pattern, project, session

@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import {
   changeConfiguration,
   createConfiguration,
+  createSavedPresets,
   describeConfiguration,
+  describePresets,
+  removeSavedPreset,
+  savePreset,
 } from "../configuration.js";
 
 /**
@@ -20,6 +24,18 @@ function reorderKeys(value) {
       .reverse()
       .map(([key, nested]) => [key, reorderKeys(nested)]),
   );
+}
+
+function withoutIds(configuration) {
+  return {
+    ...configuration,
+    sequence: {
+      cycles: configuration.sequence.cycles.map(({ id: _cycleId, ...cycle }) => ({
+        ...cycle,
+        rhythms: cycle.rhythms.map(({ id: _rhythmId, ...rhythm }) => rhythm),
+      })),
+    },
+  };
 }
 
 test("the default Configuration contains one active 4/4 Rhythm layer", () => {
@@ -82,6 +98,143 @@ test("applying a Preset replaces the complete Configuration", () => {
   );
   assert.equal(result.consequence, "restart-transport-run");
   assert.equal(describeConfiguration(result.configuration).selectedPreset, "4/4 + 3/4");
+});
+
+test("saving and loading a named Preset preserves the complete Configuration", () => {
+  const configuration = createConfiguration({
+    bpm: 173,
+    masterVolume: 0.43,
+    sequence: {
+      cycles: [
+        {
+          repetitions: 2,
+          rhythms: [{
+            signature: { count: 5, unit: 8 },
+            subdivision: 3,
+            steps: ["full", "off", "quarter", "half", "full"],
+            sound: "wood",
+            volume: 0.31,
+            pan: -0.62,
+            muted: true,
+          }],
+        },
+        {
+          repetitions: 1,
+          rhythms: [{
+            signature: { count: 7, unit: 4 },
+            subdivision: 2,
+            sound: "low",
+            volume: 0.91,
+            pan: 0.77,
+          }],
+        },
+      ],
+    },
+  });
+
+  const saved = savePreset([], "  Clave practice  ", configuration);
+  assert.equal(saved.reason, null);
+  assert.equal(saved.preset.name, "Clave practice");
+  assert.deepEqual(saved.preset.configuration, configuration);
+
+  const loaded = createSavedPresets(JSON.parse(JSON.stringify(saved.presets)));
+  assert.deepEqual(loaded, saved.presets);
+});
+
+test("saving an existing Preset name replaces its snapshot case-insensitively", () => {
+  const first = savePreset([], "Warmup", createConfiguration({ bpm: 80 }));
+  const replacement = savePreset(
+    first.presets,
+    "WARMUP",
+    createConfiguration({ bpm: 140 }),
+  );
+
+  assert.equal(replacement.reason, null);
+  assert.equal(replacement.presets.length, 1);
+  assert.equal(replacement.preset.id, first.preset.id);
+  assert.equal(replacement.preset.name, "WARMUP");
+  assert.equal(replacement.preset.configuration.bpm, 140);
+});
+
+test("saved Preset names cannot be empty, oversized, or collide with built-ins", () => {
+  const configuration = createConfiguration();
+  for (const [name, reason] of [
+    ["   ", "invalid-preset-name"],
+    ["x".repeat(81), "invalid-preset-name"],
+    ["4/4", "preset-name-reserved"],
+    ["  4/4 + 3/4  ", "preset-name-reserved"],
+  ]) {
+    const result = savePreset([], name, configuration);
+    assert.deepEqual(result.presets, []);
+    assert.equal(result.reason, reason);
+  }
+});
+
+test("malformed saved Presets are discarded or repaired on load", () => {
+  const loaded = createSavedPresets([
+    null,
+    { name: "" },
+    { name: "4/4", configuration: { bpm: 140 } },
+    {
+      id: '"><script>bad()</script>',
+      name: "Stored",
+      configuration: { bpm: 9999, sequence: { cycles: [] } },
+    },
+  ]);
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].name, "Stored");
+  assert.match(loaded[0].id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
+  assert.equal(loaded[0].configuration.bpm, 300);
+  assert.equal(loaded[0].configuration.sequence.cycles.length, 1);
+});
+
+test("describing Presets identifies exact snapshots without comparing identifiers", () => {
+  const original = createConfiguration({ bpm: 137 });
+  const saved = savePreset([], "Odd IDs", original);
+  const reidentified = createConfiguration(withoutIds(original));
+  const descriptions = describePresets(reidentified, saved.presets);
+
+  assert.equal(descriptions.length, 3);
+  assert.equal(descriptions.find(({ name }) => name === "Odd IDs").selected, true);
+  assert.equal(descriptions.find(({ name }) => name === "4/4").selected, false);
+});
+
+test("applying a saved Preset restores its snapshot with fresh identifiers", () => {
+  const snapshot = createConfiguration({
+    bpm: 137,
+    sequence: { cycles: [{ rhythms: [{ sound: "wood", pan: -1 }] }] },
+  });
+  const current = createConfiguration({ bpm: 88 });
+  const result = changeConfiguration(current, {
+    type: "apply-preset",
+    configuration: snapshot,
+  });
+
+  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.reason, null);
+  assert.deepEqual(withoutIds(result.configuration), withoutIds(snapshot));
+  assert.notEqual(
+    result.configuration.sequence.cycles[0].id,
+    snapshot.sequence.cycles[0].id,
+  );
+  assert.notEqual(
+    result.configuration.sequence.cycles[0].rhythms[0].id,
+    snapshot.sequence.cycles[0].rhythms[0].id,
+  );
+});
+
+test("deleting a saved Preset leaves the current Configuration alone", () => {
+  const configuration = createConfiguration({ bpm: 101 });
+  const saved = savePreset([], "Delete me", configuration);
+  const result = removeSavedPreset(saved.presets, saved.preset.id);
+
+  assert.deepEqual(result, { presets: [], reason: null });
+  assert.equal(configuration.bpm, 101);
+  assert.deepEqual(
+    removeSavedPreset(result.presets, saved.preset.id),
+    { presets: [], reason: "preset-not-found" },
+  );
 });
 
 test("adding a Cycle appends one active 4/4 Rhythm layer", () => {
@@ -613,6 +766,9 @@ test("known edits with structurally malformed payloads expose programmer errors"
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const malformedEdits = [
+    { type: "apply-preset" },
+    { type: "apply-preset", name: "4/4", configuration },
+    { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-master-volume", masterVolume: {} },
     { type: "set-cycle-repetitions", cycleId: cycle.id },

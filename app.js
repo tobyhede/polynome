@@ -2,12 +2,17 @@ import { MetronomeEngine } from "./metronome.js";
 import {
   changeConfiguration,
   createConfiguration,
+  createSavedPresets,
   describeConfiguration,
+  describePresets,
+  removeSavedPreset,
+  savePreset,
 } from "./configuration.js";
 import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
+const PRESET_STORAGE_KEY = "polynome-presets";
 const PERSIST_DELAY_MS = 400;
 // Holds the current shape under the name used while the redesign was in
 // progress; adopted once, then cleared.
@@ -34,6 +39,8 @@ const elements = {
   presetList: document.querySelector("#preset-list"),
   presetCount: document.querySelector("#preset-count"),
   presetCountNoun: document.querySelector("#preset-count-noun"),
+  presetSave: document.querySelector("#preset-save"),
+  presetName: document.querySelector("#preset-name"),
   helpToggle: document.querySelector("#help-toggle"),
   helpPanel: document.querySelector("#help-panel"),
   cycles: document.querySelector("#cycles"),
@@ -44,10 +51,10 @@ const elements = {
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
 let state = loadState();
+let savedPresets = loadSavedPresets();
 let description = describeConfiguration(state);
 const {
   meterUnits: NOTE_UNITS,
-  presetNames: PRESET_NAMES,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
@@ -74,6 +81,24 @@ function loadState() {
 
 function writeState(configuration) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
+}
+
+function loadSavedPresets() {
+  try {
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    return createSavedPresets(raw ? JSON.parse(raw) : undefined);
+  } catch {
+    return createSavedPresets();
+  }
+}
+
+function writeSavedPresets() {
+  try {
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(savedPresets));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const persistence = createPersistence({
@@ -139,30 +164,64 @@ function renderTransport() {
 }
 
 function renderPresets() {
-  const count = PRESET_NAMES.length;
+  const presets = describePresets(state, savedPresets);
+  const count = presets.length;
   elements.presetCount.textContent = String(count);
   // The heading shows the bare number; the noun is carried as visually hidden
   // text because `aria-label` on a generic span never reaches the accessibility
   // tree.
   elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
-  // Applying a preset re-renders this list, so the button the user just
-  // activated is destroyed under their focus; see focusSelector for what
-  // losing it costs a keyboard user. The name is the whole identity here, so
-  // it needs none of focusSelector's structural description.
+  // Applying a preset re-renders this list, so preserve focus by its stable
+  // Preset identifier. Names can change when a duplicate save replaces one.
   const focusedPreset = elements.presetList.contains(document.activeElement)
-    ? document.activeElement.closest("[data-preset]")?.dataset.preset
+    ? document.activeElement.closest("[data-preset-id]")?.dataset.presetId
     : null;
-  elements.presetList.innerHTML = PRESET_NAMES.map((name) => `
-    <button
-      type="button"
-      class="preset-button${description.selectedPreset === name ? " is-selected" : ""}"
-      data-preset="${escapeHtml(name)}"
-      aria-pressed="${description.selectedPreset === name}"
-    >${escapeHtml(name)}</button>
+  elements.presetList.innerHTML = presets.map((preset) => `
+    <div class="preset-card${preset.builtIn ? " is-built-in" : ""}">
+      <button
+        type="button"
+        class="preset-button${preset.selected ? " is-selected" : ""}"
+        data-preset-id="${preset.id}"
+        aria-pressed="${preset.selected}"
+      >
+        <strong>${escapeHtml(preset.name)}</strong>
+        ${presetNotationTemplate(preset.configuration)}
+      </button>
+      ${preset.builtIn ? "" : `
+        <button
+          type="button"
+          class="preset-delete"
+          data-delete-preset-id="${preset.id}"
+          aria-label="Delete ${escapeHtml(preset.name)} preset"
+          title="Delete preset"
+        >×</button>
+      `}
+    </div>
   `).join("");
   if (focusedPreset) {
-    elements.presetList.querySelector(`[data-preset="${CSS.escape(focusedPreset)}"]`)?.focus();
+    elements.presetList.querySelector(`[data-preset-id="${CSS.escape(focusedPreset)}"]`)?.focus();
   }
+}
+
+function presetNotationTemplate(configuration) {
+  const accessible = configuration.sequence.cycles.map((cycle) => {
+    const rhythms = cycle.rhythms.map((rhythm) => (
+      `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`
+    )).join(" plus ");
+    return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
+  }).join(", then ");
+  const visual = configuration.sequence.cycles.map((cycle) => `
+    <span class="preset-cycle">
+      ${cycle.repetitions === 1 ? "" : `<span class="preset-repetitions">${cycle.repetitions}×</span>`}
+      ${cycle.rhythms.map((rhythm) => `
+        <span class="preset-rhythm">
+          <span>${rhythmLabel(rhythm)}</span>
+          ${noteIcon(rhythm.subdivision, 15)}
+        </span>
+      `).join('<span aria-hidden="true"> + </span>')}
+    </span>
+  `).join('<span class="preset-sequence-arrow" aria-hidden="true"> → </span>');
+  return `<span class="preset-notation" aria-hidden="true">${visual}</span><span class="sr-only">${escapeHtml(accessible)}</span>`;
 }
 
 function renderCycles() {
@@ -594,9 +653,59 @@ elements.masterVolume.addEventListener("input", (event) => {
   renderPresets();
 });
 elements.presetList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-preset]");
+  const deleteButton = event.target.closest("[data-delete-preset-id]");
+  if (deleteButton) {
+    const preset = savedPresets.find(({ id }) => (
+      id === deleteButton.dataset.deletePresetId
+    ));
+    if (!preset || !window.confirm(`Delete the “${preset.name}” preset?`)) return;
+    const result = removeSavedPreset(savedPresets, preset.id);
+    if (result.reason) return;
+    savedPresets = result.presets;
+    const persisted = writeSavedPresets();
+    renderPresets();
+    elements.presetName.focus();
+    elements.status.textContent = persisted
+      ? `${preset.name} preset deleted`
+      : "Preset deletion could not be saved in this browser";
+    return;
+  }
+
+  const button = event.target.closest("[data-preset-id]");
   if (!button) return;
-  applyEdit({ type: "apply-preset", name: button.dataset.preset });
+  const preset = describePresets(state, savedPresets).find(({ id }) => (
+    id === button.dataset.presetId
+  ));
+  if (!preset) return;
+  openRhythms.clear();
+  applyEdit(preset.builtIn
+    ? { type: "apply-preset", name: preset.name }
+    : { type: "apply-preset", configuration: preset.configuration });
+});
+elements.presetName.addEventListener("input", () => {
+  elements.presetName.setCustomValidity("");
+});
+elements.presetSave.addEventListener("submit", (event) => {
+  event.preventDefault();
+  elements.presetName.setCustomValidity("");
+  const result = savePreset(savedPresets, elements.presetName.value, state);
+  if (result.reason) {
+    elements.presetName.setCustomValidity(result.reason === "preset-name-reserved"
+      ? "Choose a name different from a built-in preset."
+      : "Enter a preset name between 1 and 80 characters.");
+    elements.presetName.reportValidity();
+    return;
+  }
+  savedPresets = result.presets;
+  const persisted = writeSavedPresets();
+  elements.presetName.value = "";
+  renderPresets();
+  elements.presetList
+    .querySelector(`[data-preset-id="${CSS.escape(result.preset.id)}"]`)
+    ?.focus();
+  elements.status.textContent = persisted
+    ? `${result.preset.name} preset saved`
+    : "Preset could not be saved in this browser";
 });
 elements.addCycle.addEventListener("click", () => {
   applyEdit({ type: "add-cycle" });
