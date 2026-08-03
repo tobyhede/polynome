@@ -487,7 +487,7 @@ button.addEventListener("pointerup", (e) => {
 | Gesture log shows `type: "touchstart"` or `pointerdown` with `pointerType: "touch"` | Not an activation-triggering event | §1 |
 | `resume` resolves; `state: "running"`; `currentTime` advances; still no sound | Ring/Silent switch, screen lock, or Control Center volume. Undetectable — set `navigator.audioSession.type = "playback"` and retest | §2 |
 | `state: "interrupted"` in the `statechange` log | Call, other app, background, or lock. Check whether the next transition is `running` (auto-resumed) or `suspended` (you must resume) | §4 |
-| `state: "running"` but `frozen: true` | Known open WebKit bug family (283419 / 263627 / 291892), and the one case that fires no `statechange`. Workaround, reported in 283419 and 263627 only: `await ctx.suspend(); await ctx.resume();` | §4 |
+| `state: "running"` but `frozen: true` | Known open WebKit bug family (283419 / 263627 / 291892), and the one case that fires no `statechange`. Reported in 283419 and 263627 only, and unverified here: `await ctx.suspend()`, then `resumeOrReport(ctx)` — never a bare `await ctx.resume()`, which is the deadlock two rows above. Expect `PENDING`, and treat a context left suspended by its own recovery attempt as the likely outcome | §4 |
 | `ctxAdvance` tracks `wallAdvance` but your transport origin predates the first `running` transition | Events computed in the past; `stop` before `start` plays nothing | §3 |
 | `sampleRate` differs from the value logged at construction | Route change (Bluetooth/headphones); rebuild the context | §6 |
 | `audioSession: "unsupported"` | iOS < 16.4, or the API was removed by Permissions Policy / site quirk | §2 |
