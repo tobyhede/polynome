@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "test:browser": "playwright test",
-    "check": "node --check app.js && node --check configuration.js && node --check metronome.js && node --check model.js && node --check persistence.js && node --check shared-transport.js && node --test && npm run test:browser && npm run bundle && npm run site",
+    "test:browser": "npm run bundle && playwright test",
+    "check": "node --check app.js && node --check configuration.js && node --check metronome.js && node --check model.js && node --check persistence.js && node --check shared-transport.js && node --test && npm run test:browser && npm run site",
     "bundle": "node scripts/bundle.mjs",
     "site": "node scripts/site.mjs"
   },
