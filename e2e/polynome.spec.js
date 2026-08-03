@@ -71,6 +71,21 @@ for (const [name, accessibleName] of [
   });
 }
 
+test("a newly added rhythm opens its settings", async ({ page }) => {
+  const addRhythm = page.getByRole("button", { name: "+ Rhythm" });
+
+  await addRhythm.click();
+
+  const rhythms = page.locator(".rhythm-card");
+  await expect(rhythms).toHaveCount(2);
+  await expect(rhythms.nth(1).locator(".rhythm-identity")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await expect(rhythms.nth(1).locator(".rhythm-settings")).toBeVisible();
+  await expect(addRhythm).toBeFocused();
+});
+
 test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step levels" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });

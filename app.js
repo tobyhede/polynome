@@ -831,9 +831,19 @@ elements.cycles.addEventListener("click", (event) => {
       elements.addCycle.focus();
       break;
     }
-    case "add-rhythm":
-      applyEdit({ type: "add-rhythm", cycleId: cycle.id });
+    case "add-rhythm": {
+      const result = applyEdit(
+        { type: "add-rhythm", cycleId: cycle.id },
+        { render: false },
+      );
+      if (result.reason !== null) break;
+      const addedRhythm = result.configuration.sequence.cycles
+        .find((candidate) => candidate.id === cycle.id)
+        ?.rhythms.at(-1);
+      if (addedRhythm) openRhythms.add(addedRhythm.id);
+      render();
       break;
+    }
     case "remove-rhythm": {
       if (!rhythm) return;
       const result = applyEdit({
