@@ -60,6 +60,12 @@ function steps(workflow) {
   return collected.map((step) => step.join("\n"));
 }
 
+async function workflowFiles() {
+  const files = (await readdir(workflows)).filter((name) => /\.ya?ml$/.test(name));
+  assert.ok(files.length > 0, "no workflow files found to check");
+  return files;
+}
+
 /**
  * `actions/checkout` writes the workflow token into `.git/config` as an auth
  * header unless told not to. Neither job here pushes anything — the deploy job
@@ -70,11 +76,8 @@ function steps(workflow) {
  * visible, so assert the option here.
  */
 test("every workflow checkout step refuses to persist credentials", async () => {
-  const files = (await readdir(workflows)).filter((name) => /\.ya?ml$/.test(name));
-  assert.ok(files.length > 0, "no workflow files found to check");
-
   let checkouts = 0;
-  for (const file of files) {
+  for (const file of await workflowFiles()) {
     const workflow = await readFile(join(workflows, file), "utf8");
     for (const step of steps(workflow)) {
       if (!/uses:\s*actions\/checkout[@\s]/.test(step)) continue;
@@ -88,4 +91,30 @@ test("every workflow checkout step refuses to persist credentials", async () => 
   }
 
   assert.ok(checkouts > 0, "no checkout steps found, so nothing was actually checked");
+});
+
+/**
+ * A release tag is a branch name that moves: whoever can push the tag decides
+ * what every future run of this workflow executes, and the deploy job holds
+ * `id-token: write`. A commit SHA cannot be moved, so pin to one and leave the
+ * release it names in a comment, which is the only part a reader can check.
+ * Local actions are paths, not published references, and carry no such risk.
+ */
+test("every workflow action is pinned to an immutable commit", async () => {
+  let references = 0;
+  for (const file of await workflowFiles()) {
+    const workflow = await readFile(join(workflows, file), "utf8");
+    for (const line of workflow.split("\n")) {
+      const reference = line.match(/^\s*(?:-\s+)?uses:\s*(\S+)/)?.[1];
+      if (reference === undefined || reference.startsWith("./")) continue;
+      references += 1;
+      assert.match(
+        reference,
+        /@[0-9a-f]{40}$/,
+        `${file} uses a mutable reference: ${reference}`,
+      );
+    }
+  }
+
+  assert.ok(references > 0, "no action references found, so nothing was actually checked");
 });
