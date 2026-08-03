@@ -72,19 +72,21 @@ export function normaliseMeterUnit(value, fallback = 4) {
 }
 
 /**
- * Both take and return `BigInt` only so a Cycle span's least common multiple
- * remains exact until its final conversion to seconds.
+ * A Cycle span is the least common multiple of its Meter counts. Those counts
+ * are whole numbers the count range clamps, so every value and intermediate
+ * product here is an exact integer and only the conversion to seconds is a
+ * floating-point division. `test/model.test.js` holds the widest span the range
+ * permits and the margin it leaves.
  */
 function greatestCommonDivisor(left, right) {
-  let a = left < 0n ? -left : left;
-  let b = right < 0n ? -right : right;
+  let a = Math.abs(left);
+  let b = Math.abs(right);
   while (b) [a, b] = [b, a % b];
-  return a || 1n;
+  return a || 1;
 }
 
 function leastCommonMultiple(left, right) {
-  const product = left * right;
-  return (product < 0n ? -product : product) / greatestCommonDivisor(left, right);
+  return Math.abs(left * right) / greatestCommonDivisor(left, right);
 }
 
 export function cycleSpanSeconds(bpm, cycle) {
@@ -93,20 +95,19 @@ export function cycleSpanSeconds(bpm, cycle) {
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
   const spanInBeats = rhythms
-    .map((rhythm) => {
-      const count = Math.round(
+    .map((rhythm) =>
+      Math.round(
         normaliseNumber(
           rhythm.signature?.count,
           4,
           METER_COUNT_LIMIT.minimum,
           METER_COUNT_LIMIT.maximum,
         ),
-      );
-      return BigInt(count);
-    })
+      ),
+    )
     .reduce(leastCommonMultiple);
   const beatSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
-  return Number(spanInBeats) * beatSeconds;
+  return spanInBeats * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
@@ -139,15 +140,12 @@ const SUBDIVISION_HINTS = lookup({
  * by values the caller supplies, so each side falls back to a readable phrase
  * rather than letting an unmapped value surface as "undefined".
  *
- * Only dyadic denominators have conventional note-value names. Any other
- * denominator in range is still a Meter a musician can enter, so it is named
- * by its written fraction — `1/denominator` — which keeps a /3 unit
- * distinguishable from a /5 one without implying that the denominator changes
- * the primary beat duration. "signature" remains for a unit that is not a
- * whole number at all.
+ * Every denominator the interface offers has a conventional note-value name, so
+ * the fallback is a guard against a caller's mistake rather than a Meter a
+ * musician can reach.
  */
 export function subdivisionLabel(subdivision, unit) {
-  const unitName = UNIT_NAMES[unit] || (Number.isInteger(unit) ? `1/${unit}` : "signature");
+  const unitName = UNIT_NAMES[unit] || "signature";
   const hint = SUBDIVISION_HINTS[subdivision] || `${subdivision}-tuplet`;
   return `${subdivision} per ${unitName} unit · ${hint}`;
 }

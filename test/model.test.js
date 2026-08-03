@@ -76,10 +76,15 @@ test("Subdivision labels fall back for values outside the named vocabulary", () 
   assert.equal(subdivisionLabel(1, 2.5), "1 per signature unit · straight");
 });
 
-test("Subdivision labels retain a readable fallback outside the offered units", () => {
-  assert.equal(subdivisionLabel(2, 3), "2 per 1/3 unit · duple");
-  assert.equal(subdivisionLabel(1, 5), "1 per 1/5 unit · straight");
-  assert.notEqual(subdivisionLabel(2, 3), subdivisionLabel(2, 5));
+/**
+ * Repair settles a stored denominator into `METER_UNITS` before any label is
+ * built, so a unit outside that vocabulary reaches here only through a caller's
+ * mistake. It degrades to the generic signature unit rather than inventing a
+ * written fraction for a Meter the interface cannot produce.
+ */
+test("Subdivision labels degrade for units the interface cannot produce", () => {
+  assert.equal(subdivisionLabel(2, 3), "2 per signature unit · duple");
+  assert.equal(subdivisionLabel(1, 5), "1 per signature unit · straight");
 });
 
 test("every Subdivision over every offered Meter denominator is named", () => {
@@ -138,6 +143,26 @@ test("a lone Meter spans its numerator in primary beats", () => {
   const cycle = { rhythms: [{ signature: { count: 4, unit: 8 }, subdivision: 1 }] };
 
   closeTo(cycleSpanSeconds(120, cycle), 2);
+});
+
+/**
+ * The widest span the Meter count range permits, and so where this
+ * calculation's exactness has to hold: sixteen layers counting 1 through 16
+ * return to a shared downbeat after `lcm(1…16) = 720720` primary beats. The
+ * largest intermediate product the reduction forms is `360360 × 16`, nine
+ * orders of magnitude inside `Number.MAX_SAFE_INTEGER`, so the whole beat
+ * count is exact in ordinary integer arithmetic and only the final conversion
+ * to seconds is a floating-point division.
+ */
+test("the widest Cycle span the Meter count range permits stays exact", () => {
+  const cycle = {
+    rhythms: Array.from({ length: METER_COUNT_LIMIT.maximum }, (_, index) => ({
+      signature: { count: index + 1, unit: 4 },
+      subdivision: 1,
+    })),
+  };
+
+  assert.equal(cycleSpanSeconds(60, cycle), 720720);
 });
 
 test("changing only a Meter denominator does not change its Cycle span", () => {
