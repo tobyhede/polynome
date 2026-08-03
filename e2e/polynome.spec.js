@@ -260,6 +260,9 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
   await page.keyboard.press("Escape");
   await expect(confirm).toHaveCount(0);
   await expect(remove).toBeVisible();
+  // Dismissing rebuilds the card, so the key that cancelled must not also send
+  // a keyboard user back to the top of the document.
+  await expect(remove).toBeFocused();
 
   await remove.click();
   await expect(confirm).toBeVisible();

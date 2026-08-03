@@ -62,11 +62,7 @@ function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) 
     cancelAnimationFrame: () => {},
     EventTarget,
     CustomEvent,
-  };
-  const context = vm.createContext(globals);
-  Object.defineProperty(context, "localStorage", {
-    enumerable: true,
-    get() {
+    resolveStorage() {
       if (denyStorage) throw new DOMException("Access denied", "SecurityError");
       return {
         getItem: (key) => (storage.has(key) ? storage.get(key) : null),
@@ -74,7 +70,21 @@ function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) 
         removeItem: (key) => storage.delete(key),
       };
     },
-  });
+  };
+  const context = vm.createContext(globals);
+  /**
+   * The accessor has to be installed on the context's own global rather than on
+   * the contextified object. An accessor reached through vm's global proxy has
+   * its exception swallowed and the name reported as undeclared, so a denied
+   * store would raise `ReferenceError` here and `SecurityError` in a browser —
+   * the same guard would pass the test while simulating the wrong failure.
+   */
+  new vm.Script(`
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get: () => resolveStorage(),
+    });
+  `).runInContext(context);
   return context;
 }
 
@@ -114,7 +124,9 @@ test("single-file distribution starts with defaults when storage access is denie
 
   assert.ok(script, "Expected an inline classic script");
   assert.doesNotThrow(() => new vm.Script(script).runInContext(context));
-  assert.equal(renderedBpms.at(-1), "96");
+  // Written out rather than read back from `configuration.js`: an expected value
+  // the code under test computes agrees with itself no matter what it renders.
+  assert.equal(renderedBpms.at(-1), "96", "Expected the default 96 BPM to reach the interface");
 });
 
 test("single-file distribution discovers transitive modules and preserves their scopes", async (t) => {
