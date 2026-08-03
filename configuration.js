@@ -1,13 +1,28 @@
 import {
   METER_COUNT_LIMIT,
   NOTE_UNITS as METER_UNITS,
+  normaliseNumber,
   STEP,
+  SUBDIVISION_LIMIT,
 } from "./model.js";
+
+/**
+ * A limit and the choices offered for it are one domain, so the list is built
+ * from the limit rather than restated beside it, where the two could drift into
+ * offering a choice that repair then clamps away.
+ */
+function choiceRange({ minimum, maximum }) {
+  return Object.freeze(Array.from(
+    { length: maximum - minimum + 1 },
+    (_, index) => minimum + index,
+  ));
+}
 
 const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
-const SUBDIVISIONS = Object.freeze([1, 2, 3, 4, 5]);
-const REPETITIONS = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
+const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
+const REPETITIONS = choiceRange(REPETITION_LIMIT);
 const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
 const MAX_RHYTHMS = 12;
 const GENERATED_IDENTIFIER = /^(cycle|layer)-[0-9a-z]+-[0-9a-z]+$/;
@@ -30,13 +45,6 @@ function safeIdentifier(candidate, prefix) {
     : makeIdentifier(prefix);
 }
 
-function clampNumber(value, fallback, minimum, maximum) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed)
-    ? Math.min(maximum, Math.max(minimum, parsed))
-    : fallback;
-}
-
 function normaliseStep(step) {
   return STEP_LEVEL_CHOICES.includes(step) ? step : STEP.HALF;
 }
@@ -50,7 +58,7 @@ function resizeSteps(steps, length) {
 
 function createRhythm(overrides = {}) {
   const signature = {
-    count: Math.round(clampNumber(
+    count: Math.round(normaliseNumber(
       overrides.signature?.count,
       4,
       METER_COUNT_LIMIT.minimum,
@@ -60,16 +68,19 @@ function createRhythm(overrides = {}) {
       ? Number(overrides.signature.unit)
       : 4,
   };
-  const subdivision = Math.round(
-    clampNumber(overrides.subdivision, 1, 1, 5),
-  );
+  const subdivision = Math.round(normaliseNumber(
+    overrides.subdivision,
+    1,
+    SUBDIVISION_LIMIT.minimum,
+    SUBDIVISION_LIMIT.maximum,
+  ));
   return {
     id: safeIdentifier(overrides.id, "layer"),
     signature,
     subdivision,
     steps: resizeSteps(overrides.steps, signature.count * subdivision),
-    volume: clampNumber(overrides.volume, 0.72, 0, 1),
-    pan: clampNumber(overrides.pan, 0, -1, 1),
+    volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
+    pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : "high",
     muted: Boolean(overrides.muted),
   };
@@ -83,7 +94,12 @@ function createCycle(overrides = {}) {
     : [];
   return {
     id: safeIdentifier(overrides.id, "cycle"),
-    repetitions: Math.round(clampNumber(overrides.repetitions, 1, 0, 8)),
+    repetitions: Math.round(normaliseNumber(
+      overrides.repetitions,
+      1,
+      REPETITION_LIMIT.minimum,
+      REPETITION_LIMIT.maximum,
+    )),
     rhythms: rhythms.length ? rhythms : [createRhythm()],
   };
 }
@@ -146,8 +162,8 @@ export function createConfiguration(input) {
         ));
 
   return {
-    bpm: Math.round(clampNumber(source.bpm, 96, 30, 300)),
-    masterVolume: clampNumber(source.masterVolume, 0.8, 0, 1),
+    bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
+    masterVolume: normaliseNumber(source.masterVolume, 0.8, 0, 1),
     sequence: { cycles: validCycles },
   };
 }
@@ -534,7 +550,13 @@ const COMMANDS = Object.freeze({
   "set-cycle-repetitions": {
     validPayload: (edit) => targetsCycle(edit)
       && hasFormNumber(edit, "repetitions"),
-    validValue: (edit) => numberInRange(edit, "repetitions", 0, 8, true),
+    validValue: (edit) => numberInRange(
+      edit,
+      "repetitions",
+      REPETITION_LIMIT.minimum,
+      REPETITION_LIMIT.maximum,
+      true,
+    ),
     leavesUnchanged: (current, edit) => (
       findCycle(current, edit.cycleId)?.repetitions
         === formNumber(edit.repetitions)

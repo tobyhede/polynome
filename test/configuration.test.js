@@ -220,19 +220,24 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   assert.equal(simpler.consequence, "restart-transport-run");
 });
 
-test("advancing a Step level preserves the transport run", () => {
+test("advancing a Step level cycles the levels and preserves the transport run", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
-  const result = changeConfiguration(configuration, {
-    type: "advance-step-level",
-    cycleId: cycle.id,
-    rhythmId: rhythm.id,
-    position: 0,
-  });
+  let current = configuration;
 
-  assert.equal(result.configuration.sequence.cycles[0].rhythms[0].steps[0], "half");
-  assert.equal(result.consequence, "update-step-levels");
+  for (const expected of ["half", "quarter", "off", "full"]) {
+    const result = changeConfiguration(current, {
+      type: "advance-step-level",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      position: 0,
+    });
+
+    assert.equal(result.configuration.sequence.cycles[0].rhythms[0].steps[0], expected);
+    assert.equal(result.consequence, "update-step-levels");
+    current = result.configuration;
+  }
 });
 
 test("Step-level positions outside the meter-relative grid are rejected", () => {

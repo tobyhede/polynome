@@ -13,7 +13,7 @@ The audio time at which the current shared transport begins.
 _Avoid_: Start tick, timer start
 
 **Transport run**:
-One continuous traversal of the sequence, beginning at a transport origin and retaining the same timing structure until stopped or restarted. Step-level and mix edits may change without changing its position.
+One continuous traversal of the sequence, beginning at a transport origin and retaining the same timing structure until stopped or restarted. Step-level and mix edits may change what it plays without changing its position.
 _Avoid_: Session
 
 **Sequence**:

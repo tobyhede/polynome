@@ -5,7 +5,16 @@ export const STEP = Object.freeze({
   FULL: "full",
 });
 
-const STEP_LEVELS = Object.freeze({
+/**
+ * Every lookup below is keyed by a value a caller supplies, so a null prototype
+ * keeps an inherited name such as `constructor` or `toString` from answering as
+ * though it were a mapping this module wrote.
+ */
+function lookup(entries) {
+  return Object.freeze(Object.assign(Object.create(null), entries));
+}
+
+const STEP_LEVELS = lookup({
   [STEP.OFF]: 0,
   [STEP.QUARTER]: 0.25,
   [STEP.HALF]: 0.5,
@@ -23,6 +32,8 @@ export const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
 
 export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
 
+export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
+
 export function stepLevel(step) {
   return STEP_LEVELS[step] ?? 0;
 }
@@ -31,8 +42,17 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function normaliseNumber(value, fallback, min, max) {
-  const parsed = Number(value);
+/**
+ * The shared numeric guard for values arriving from storage and from form
+ * controls. Only a number or a numeric string is a value; everything else is a
+ * missing one, because `Number` reads `null`, `""`, and `[]` as zero and a
+ * layer that simply had nothing saved for it would come back silent rather
+ * than at its default.
+ */
+export function normaliseNumber(value, fallback, min, max) {
+  const numeric = typeof value === "number"
+    || (typeof value === "string" && value.trim() !== "");
+  const parsed = numeric ? Number(value) : Number.NaN;
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
@@ -75,13 +95,16 @@ export function cycleSpanSeconds(bpm, cycle) {
 export function stepDurationSeconds(bpm, rhythm) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
   const unit = normaliseUnit(rhythm?.signature?.unit, 4);
-  const subdivision = Math.round(
-    normaliseNumber(rhythm?.subdivision, 1, 1, 5),
-  );
+  const subdivision = Math.round(normaliseNumber(
+    rhythm?.subdivision,
+    1,
+    SUBDIVISION_LIMIT.minimum,
+    SUBDIVISION_LIMIT.maximum,
+  ));
   return (60 / safeBpm) * (4 / unit) / subdivision;
 }
 
-const UNIT_NAMES = Object.freeze({
+const UNIT_NAMES = lookup({
   1: "whole",
   2: "half",
   4: "quarter",
@@ -90,7 +113,7 @@ const UNIT_NAMES = Object.freeze({
   32: "thirty-second",
 });
 
-const SUBDIVISION_HINTS = Object.freeze({
+const SUBDIVISION_HINTS = lookup({
   1: "straight",
   2: "duple",
   3: "triplet",

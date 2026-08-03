@@ -120,6 +120,28 @@ test("every module is emitted after the modules it imports", () => {
 });
 
 /**
+ * Both refusals stand where the alternative is a bundle that looks built. A
+ * cycle has no order to emit, and a specifier that was never read would be
+ * emitted as an empty module whose importers read `undefined`.
+ */
+test("a cyclic import graph cannot be ordered", () => {
+  const cyclic = new Map([
+    ["./app.js", 'import { loop } from "./loop.js";\nexport const app = loop;\n'],
+    ["./loop.js", 'import { app } from "./app.js";\nexport const loop = app;\n'],
+  ]);
+
+  assert.throws(() => bundleOrder(cyclic, "./app.js"), /cycle/);
+});
+
+test("an import of a module that was never read cannot be ordered", () => {
+  const absent = new Map([
+    ["./app.js", 'import { gone } from "./gone.js";\nexport const app = gone;\n'],
+  ]);
+
+  assert.throws(() => bundleOrder(absent, "./app.js"), /never read/);
+});
+
+/**
  * Keeps the execution test above from becoming a formality. A bundle that emits
  * a module ahead of one it imports is perfectly valid JavaScript, so parsing it
  * reports nothing and only running it finds the fault.

@@ -113,6 +113,31 @@ test("flushing without a pending value writes nothing", () => {
   assert.deepEqual(recorder.written, [{ bpm: 90 }]);
 });
 
+/**
+ * A scheduled `null` or `undefined` is a value the caller asked to store, not
+ * an absence of one, so neither may be mistaken for having nothing pending.
+ */
+test("a scheduled nullish value is written like any other", () => {
+  const timers = createTimers();
+  const recorder = createRecorder();
+  const persistence = createPersistence({
+    write: recorder.write,
+    delay: 400,
+    setTimer: timers.setTimer,
+    clearTimer: timers.clearTimer,
+  });
+
+  persistence.schedule(null);
+  timers.elapse();
+
+  assert.deepEqual(recorder.written, [null]);
+
+  persistence.schedule(undefined);
+  persistence.flush();
+
+  assert.deepEqual(recorder.written, [null, undefined]);
+});
+
 test("a write that throws does not reach the caller", () => {
   const timers = createTimers();
   const failure = () => {

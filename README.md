@@ -83,9 +83,11 @@ This prevents cumulative drift between rhythm layers and cycle transitions.
 index.html       Interface shell
 styles.css       Responsive visual design
 app.js           UI state, persistence, and interaction
+configuration.js Editable configuration, presets, and edit availability
 model.js         Pure sequence, cycle, rhythm, and timing model
 shared-transport.js  Stateful sequence event planning and playhead
 metronome.js     Web Audio graph and look-ahead scheduler
+persistence.js   Deferred storage writes and storage-key migration
 server.mjs       Zero-dependency local static server
 scripts/          Single-file bundler
 fonts/            Self-hosted interface fonts and licenses

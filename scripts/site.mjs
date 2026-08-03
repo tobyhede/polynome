@@ -51,9 +51,15 @@ const versionedNames = new Map([
   ["shared-transport.js", names.sharedTransport],
 ]);
 
+/**
+ * A relative specifier reaches the browser from a `from` import, a side-effect
+ * import, and a dynamic `import()` alike, so all three are rewritten. Matching
+ * only the first would ship an unversioned name the site never emits, and the
+ * failure would appear as a 404 in a browser rather than in the build.
+ */
 function withVersionedImports(source) {
   return source.replace(
-    /(from\s+["'])\.\/(.+?)(["'])/g,
+    /((?:from|import)\s*\(?\s*["'])\.\/(.+?)(["'])/g,
     (statement, prefix, specifier, suffix) => (
       versionedNames.has(specifier)
         ? `${prefix}./${versionedNames.get(specifier)}${suffix}`

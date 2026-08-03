@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -22,8 +22,11 @@ const output = fileURLToPath(new URL("../site", import.meta.url));
  *
  * Running the real build writes real output into the gitignored `site/`, which
  * is deliberate: only the deployed filenames can show what a browser requests.
+ * The directory is cleared first so a file left by an earlier build under a
+ * different version cannot resolve a specifier this build never emitted.
  */
 test("every site import specifier resolves to an emitted file", async () => {
+  await rm(output, { recursive: true, force: true });
   await execFileAsync(process.execPath, [builder]);
   const emitted = await readdir(output);
   const scripts = emitted.filter((name) => name.endsWith(".js"));
@@ -33,7 +36,7 @@ test("every site import specifier resolves to an emitted file", async () => {
   for (const name of scripts) {
     const source = await readFile(join(output, name), "utf8");
     const specifiers = Array.from(
-      source.matchAll(/from\s+["'](\.\/.+?)["']/g),
+      source.matchAll(/(?:from|import)\s*\(?\s*["'](\.\/.+?)["']/g),
       (match) => match[1].slice(2),
     );
     for (const specifier of specifiers) {

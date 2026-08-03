@@ -21,7 +21,9 @@ const IMPORT_STATEMENT = /^import\s+\{([\s\S]*?)\}\s+from\s+["'](.+?)["'];\s*$/g
  * instead, the same position the exported-name pattern reads.
  */
 const EXPORT_KEYWORD = /^export\s+(?=(?:async\s+)?(?:const|let|var|function|class)\b)/gm;
-const EXPORTED_NAME = /^export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+const EXPORT_STATEMENT = /^export\b/gm;
+const EXPORTED_NAME = /^export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/;
+const EXPORTED_VARIABLE = /^export\s+(?:const|let|var)\b/;
 
 function importedSpecifiers(source) {
   return Array.from(source.matchAll(IMPORT_STATEMENT), (match) => match[2]);
@@ -40,8 +42,81 @@ function withoutExports(source) {
   return source.replace(EXPORT_KEYWORD, "");
 }
 
+function firstLine(statement) {
+  return statement.split("\n", 1)[0].trim();
+}
+
+function endOfQuoted(statement, start) {
+  const quote = statement[start];
+  for (let index = start + 1; index < statement.length; index += 1) {
+    if (statement[index] === "\\") index += 1;
+    else if (statement[index] === quote) return index;
+  }
+  return statement.length;
+}
+
+/**
+ * Walks a variable declaration to its end and reports whether a second
+ * declarator follows the first. Strings, templates, and comments are stepped
+ * over and brackets are counted, so only a comma that separates declarators is
+ * seen — `Object.freeze([1, 2])` declares one name, `const a = 1, b = 2`
+ * declares two.
+ */
+function declaresSecondName(statement) {
+  let depth = 0;
+  let index = 0;
+  while (index < statement.length) {
+    const character = statement[index];
+    const pair = statement.slice(index, index + 2);
+    if (pair === "//" || pair === "/*") {
+      const close = pair === "//"
+        ? statement.indexOf("\n", index)
+        : statement.indexOf("*/", index + 2) + 1;
+      if (close < 1) return false;
+      index = close;
+    } else if (character === "\"" || character === "'" || character === "`") {
+      index = endOfQuoted(statement, index);
+    } else if ("([{".includes(character)) depth += 1;
+    else if (")]}".includes(character)) depth -= 1;
+    else if (depth === 0 && character === ",") return true;
+    else if (depth === 0 && character === ";") return false;
+    else if (depth === 0 && character === "\n"
+      && !statement.slice(index + 1).trimStart().startsWith(",")) return false;
+    index += 1;
+  }
+  return false;
+}
+
+/**
+ * The bundle rewrites exactly one export form: a single named declaration.
+ * Every other form is refused here rather than transformed, because the ways
+ * they fail are not equally loud. An export list, a default export, or a
+ * re-export leaves a statement no function body can hold and at least throws
+ * while parsing; a second declarator or a destructured name is simply dropped
+ * from the returned object, and the bundle is valid JavaScript that fails only
+ * once a browser reads the missing name. Counting statements cannot tell the
+ * two apart, so read each one.
+ */
+function exportedNames(specifier, source) {
+  return Array.from(source.matchAll(EXPORT_STATEMENT), (match) => {
+    const statement = source.slice(match.index);
+    const named = EXPORTED_NAME.exec(statement);
+    if (!named) {
+      throw new Error(
+        `${specifier} uses an export the bundle cannot rewrite: ${firstLine(statement)}`,
+      );
+    }
+    if (EXPORTED_VARIABLE.test(statement) && declaresSecondName(statement)) {
+      throw new Error(
+        `${specifier} declares more than one name in one export: ${firstLine(statement)}`,
+      );
+    }
+    return named[1];
+  });
+}
+
 export function bundledModule(specifier, source) {
-  const exports = Array.from(source.matchAll(EXPORTED_NAME), (match) => match[1]);
+  const exports = exportedNames(specifier, source);
   const exposed = exports.length ? `\nreturn { ${exports.join(", ")} };` : "";
   return `modules[${JSON.stringify(specifier)}] = (() => {\n${withoutExports(withBundledImports(source))}${exposed}\n})();`;
 }

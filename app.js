@@ -4,7 +4,7 @@ import {
   createConfiguration,
   describeConfiguration,
 } from "./configuration.js";
-import { panLabel, subdivisionLabel } from "./model.js";
+import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
@@ -341,7 +341,7 @@ function rhythmSettingsTemplate(rhythm) {
       <label class="control-label">
         <span>Signature</span>
         <span class="signature-input">
-          <input type="number" min="1" max="32" inputmode="numeric" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
+          <input type="number" min="${METER_COUNT_LIMIT.minimum}" max="${METER_COUNT_LIMIT.maximum}" inputmode="numeric" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
           <span aria-hidden="true">/</span>
           <select data-field="signature-unit" aria-label="${label} meter denominator">${unitOptions}</select>
         </span>
