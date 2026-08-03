@@ -162,6 +162,8 @@ test("Meter selects expose the complete constrained signature vocabulary", async
   await numerator.selectOption("7");
   await expect(page.getByRole("button", { name: "Edit 7/4", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "7/4 meter numerator" })).toBeFocused();
+  // Both components announce what was committed, not the denominator alone.
+  await expect(page.locator("#status")).toHaveText("Meter 7/4");
 
   const updatedDenominator = page.getByRole("combobox", {
     name: "7/4 meter denominator",
@@ -172,6 +174,28 @@ test("Meter selects expose the complete constrained signature vocabulary", async
   await expect(page.getByRole("button", { name: "Edit 7/8", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "7/8 meter denominator" })).toBeFocused();
   await expect(page.locator("#status")).toHaveText("Meter 7/8");
+});
+
+/**
+ * A numerator committed during playback restarts the Transport, and the restart
+ * reports "Playing" through the same live region the Meter announcement uses.
+ * The committed Meter has to be the message left standing, which holds only
+ * because the restart reaches its event synchronously; a restart that ever
+ * began awaiting first would overwrite the announcement without failing
+ * anything else.
+ */
+test("a Meter committed during playback announces the Meter, not the restart", async ({ page }) => {
+  // Not `getByRole("status")`: an open rhythm's level and balance outputs carry
+  // that role too, so only the transport's own region is addressed by id.
+  const status = page.locator("#status");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(status).toHaveText("Playing");
+
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("5");
+
+  await expect(page.getByRole("button", { name: "Edit 5/4", exact: true })).toBeVisible();
+  await expect(status).toHaveText("Meter 5/4");
 });
 
 test("the widest rhythm grid is reachable through the constrained selects", async ({ page }) => {
@@ -186,32 +210,6 @@ test("the widest rhythm grid is reachable through the constrained selects", asyn
     page.getByRole("group", { name: "16/8 step levels" }).getByRole("button"),
   ).toHaveCount(80);
 });
-
-/**
- * Shared with the delete-glyph test below: text the interface only shows to
- * report a problem is exactly the text that must not be the hardest to read.
- */
-async function contrastRatio(locator) {
-  return locator.evaluate((element) => {
-    const channel = (value) =>
-      value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
-    const luminance = (colour) => {
-      const [red, green, blue] = colour
-        .match(/[\d.]+/g)
-        .slice(0, 3)
-        .map((value) => channel(Number(value) / 255));
-      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-    };
-    const style = getComputedStyle(element);
-    let behind = element;
-    while (behind && getComputedStyle(behind).backgroundColor === "rgba(0, 0, 0, 0)") {
-      behind = behind.parentElement;
-    }
-    const text = luminance(style.color);
-    const card = luminance(getComputedStyle(behind).backgroundColor);
-    return (Math.max(text, card) + 0.05) / (Math.min(text, card) + 0.05);
-  });
-}
 
 test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step levels" });
