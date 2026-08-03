@@ -422,7 +422,7 @@ h1 {
   display: flex;
   justify-content: space-between;
   margin: 0 6px;
-  color: var(--line-strong);
+  color: var(--muted);
   font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
   font-weight: 640;
@@ -710,7 +710,7 @@ h1 {
 }
 
 .control-label output {
-  color: var(--line-strong);
+  color: var(--muted);
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -843,7 +843,7 @@ h1 {
 }
 
 .balance-axis {
-  color: var(--line-strong);
+  color: var(--muted);
   font-weight: 600;
   letter-spacing: 0.02em;
 }

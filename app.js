@@ -4,9 +4,11 @@ import {
   createConfiguration,
   describeConfiguration,
 } from "./configuration.js";
-import { panLabel } from "./model.js";
+import { panLabel, subdivisionLabel } from "./model.js";
+import { createPersistence } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-redesign";
+const PERSIST_DELAY_MS = 400;
 const RETIRED_STORAGE_KEYS = [
   "polynome-sequence",
   "polynome-meter",
@@ -28,6 +30,7 @@ const elements = {
   presetPanel: document.querySelector("#preset-panel"),
   presetList: document.querySelector("#preset-list"),
   presetCount: document.querySelector("#preset-count"),
+  presetCountNoun: document.querySelector("#preset-count-noun"),
   helpToggle: document.querySelector("#help-toggle"),
   helpPanel: document.querySelector("#help-panel"),
   cycles: document.querySelector("#cycles"),
@@ -50,7 +53,7 @@ let presetsOpen = false;
 let helpOpen = false;
 let openSubdivisionMenu = null;
 let animationFrame = null;
-let tempoBeforePreview = null;
+let runBpm = null;
 
 function loadState() {
   try {
@@ -62,19 +65,22 @@ function loadState() {
   }
 }
 
-function persistState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // The metronome remains usable when storage is unavailable.
-  }
+function writeState(configuration) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
 }
+
+const persistence = createPersistence({
+  write: writeState,
+  delay: PERSIST_DELAY_MS,
+  setTimer: (callback, delay) => window.setTimeout(callback, delay),
+  clearTimer: (timer) => window.clearTimeout(timer),
+});
 
 function applyEdit(edit, options = {}) {
   const result = changeConfiguration(state, edit);
   state = result.configuration;
   description = describeConfiguration(state);
-  persistState();
+  persistence.schedule(state);
   if (options.render !== false) render();
 
   if (options.deferConsequence || result.consequence === "none") return result;
@@ -93,6 +99,7 @@ function render() {
   renderTransport();
   renderPresets();
   renderCycles();
+  renderFooter();
 }
 
 function renderPanels() {
@@ -133,7 +140,17 @@ function renderTransport() {
 function renderPresets() {
   const count = PRESET_NAMES.length;
   elements.presetCount.textContent = String(count);
-  elements.presetCount.setAttribute("aria-label", `${count} ${count === 1 ? "preset" : "presets"}`);
+  // The heading shows the bare number; the noun is carried as visually hidden
+  // text because `aria-label` on a generic span never reaches the accessibility
+  // tree.
+  elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
+  // Applying a preset re-renders this list, so the button the user just
+  // activated is destroyed under their focus; see focusSelector for what
+  // losing it costs a keyboard user. The name is the whole identity here, so
+  // it needs none of focusSelector's structural description.
+  const focusedPreset = elements.presetList.contains(document.activeElement)
+    ? document.activeElement.closest("[data-preset]")?.dataset.preset
+    : null;
   elements.presetList.innerHTML = PRESET_NAMES.map((name) => `
     <button
       type="button"
@@ -142,6 +159,9 @@ function renderPresets() {
       aria-pressed="${description.selectedPreset === name}"
     >${escapeHtml(name)}</button>
   `).join("");
+  if (focusedPreset) {
+    elements.presetList.querySelector(`[data-preset="${CSS.escape(focusedPreset)}"]`)?.focus();
+  }
 }
 
 function renderCycles() {
@@ -149,7 +169,6 @@ function renderCycles() {
   elements.cycles.innerHTML = state.sequence.cycles
     .map((cycle, index) => cycleTemplate(cycle, index))
     .join("");
-  elements.addCycle.disabled = !description.availability.addCycle.available;
   if (focusKey) elements.cycles.querySelector(focusKey)?.focus();
 }
 
@@ -188,10 +207,39 @@ function focusSelector(element) {
   }
 }
 
+/**
+ * Only structural edits can change whether a cycle may be added, and those all
+ * re-render in full, so the paths that skip render() to redraw the transport,
+ * presets, or a single mix output cannot leave this stale.
+ */
+function renderFooter() {
+  const policy = description.availability.addCycle;
+  elements.addCycle.disabled = !policy.available;
+  const label = unavailableLabel("+ Cycle", policy);
+  if (label) elements.addCycle.setAttribute("aria-label", label);
+  else elements.addCycle.removeAttribute("aria-label");
+}
+
+/**
+ * A disabled button is not focusable and receives no pointer events, so a title
+ * tooltip never reaches a keyboard or screen-reader user; the accessible name
+ * is what a browse cursor still announces. Returns null while the control is
+ * available so its visible text stays its accessible name, and repeats that
+ * text so speech input keeps working when it does not.
+ */
+function unavailableLabel(text, policy) {
+  if (policy.available) return null;
+  const reason = policy.reason === "sequence-rhythm-limit"
+    ? "the sequence has reached its rhythm limit"
+    : "it is not currently available";
+  return `${text}, unavailable — ${reason}`;
+}
+
 function cycleTemplate(cycle, cycleIndex) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = state.sequence.cycles.length > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const removeDisabled = !cycleAvailability.remove.available;
+  const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
   const dots = REPETITIONS.slice(1).map((value, index) => {
     const selected = value <= cycle.repetitions;
     const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
@@ -238,6 +286,7 @@ function cycleTemplate(cycle, cycleIndex) {
         type="button"
         class="chip-button add-rhythm"
         data-action="add-rhythm"
+        ${addRhythmLabel ? `aria-label="${addRhythmLabel}"` : ""}
         ${!cycleAvailability.addRhythm.available ? "disabled" : ""}
       >+ Rhythm</button>
     </section>
@@ -398,12 +447,6 @@ function pencilIcon() {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
 }
 
-function subdivisionLabel(subdivision, unit) {
-  const names = { 1: "whole", 2: "half", 4: "quarter", 8: "eighth", 16: "sixteenth", 32: "thirty-second" };
-  const hints = { 1: "straight", 2: "duple", 3: "triplet", 4: "even four", 5: "quintuplet" };
-  return `${subdivision} per ${names[unit] || "signature"} unit · ${hints[subdivision]}`;
-}
-
 function rhythmLabel(rhythm) {
   return `${rhythm.signature.count}/${rhythm.signature.unit}`;
 }
@@ -495,6 +538,21 @@ function toggleRhythmSettings(rhythmId, activatingToggle = null) {
   }
 }
 
+/**
+ * Closing the menu destroys the option the user was on, so focus has to be sent
+ * somewhere deliberate; the notation select that opened it is where a menu
+ * dismissal is expected to land. The rebuilt select only exists after the next
+ * frame, so it cannot be found until then.
+ */
+function dismissSubdivisionMenu() {
+  const rhythmId = openSubdivisionMenu;
+  openSubdivisionMenu = null;
+  renderCycles();
+  requestAnimationFrame(() => {
+    elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)?.focus();
+  });
+}
+
 elements.play.addEventListener("click", togglePlayback);
 elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
@@ -508,7 +566,6 @@ elements.helpToggle.addEventListener("click", () => {
 });
 elements.bpm.addEventListener("change", (event) => changeTempo(event.target.value));
 elements.bpmSlider.addEventListener("input", (event) => {
-  if (tempoBeforePreview === null) tempoBeforePreview = state.bpm;
   applyEdit(
     { type: "set-tempo", bpm: event.target.value },
     { deferConsequence: true, render: false },
@@ -516,15 +573,17 @@ elements.bpmSlider.addEventListener("input", (event) => {
   renderTransport();
   renderPresets();
 });
+/**
+ * Dragging the slider defers the transport consequence, so on release the run
+ * is still playing the tempo it started with. Comparing against that tempo
+ * rather than a flag raised when the drag began keeps the decision correct even
+ * when a drag ends without a change event, because the next release compares
+ * against what is actually sounding.
+ */
 elements.bpmSlider.addEventListener("change", () => {
-  if (
-    engine.playing
-    && tempoBeforePreview !== null
-    && state.bpm !== tempoBeforePreview
-  ) {
+  if (engine.playing && state.bpm !== runBpm) {
     engine.restart(state).catch(showError);
   }
-  tempoBeforePreview = null;
 });
 elements.masterVolume.addEventListener("input", (event) => {
   applyEdit(
@@ -556,11 +615,13 @@ elements.cycles.addEventListener("click", (event) => {
       applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
       break;
     }
-    case "remove-cycle":
-      applyEdit({ type: "remove-cycle", cycleId: cycle.id });
+    case "remove-cycle": {
+      const result = applyEdit({ type: "remove-cycle", cycleId: cycle.id });
+      if (result.reason !== null) return;
       // The removed control cannot be refocused, so fall back to a stable neighbour.
       elements.addCycle.focus();
       break;
+    }
     case "add-rhythm":
       applyEdit({ type: "add-rhythm", cycleId: cycle.id });
       break;
@@ -651,14 +712,7 @@ elements.cycles.addEventListener("dblclick", (event) => {
 elements.cycles.addEventListener("keydown", (event) => {
   const option = event.target.closest(".subdivision-option");
   if (!option) {
-    if (event.key === "Escape" && openSubdivisionMenu) {
-      const rhythmId = openSubdivisionMenu;
-      openSubdivisionMenu = null;
-      renderCycles();
-      requestAnimationFrame(() => {
-        elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)?.focus();
-      });
-    }
+    if (event.key === "Escape" && openSubdivisionMenu) dismissSubdivisionMenu();
     return;
   }
 
@@ -671,12 +725,7 @@ elements.cycles.addEventListener("keydown", (event) => {
   if (event.key === "End") nextIndex = options.length - 1;
   if (event.key === "Escape") {
     event.preventDefault();
-    const rhythmId = openSubdivisionMenu;
-    openSubdivisionMenu = null;
-    renderCycles();
-    requestAnimationFrame(() => {
-      elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`)?.focus();
-    });
+    dismissSubdivisionMenu();
     return;
   }
   if (nextIndex !== null) {
@@ -747,6 +796,9 @@ elements.cycles.addEventListener("change", (event) => {
 });
 
 engine.addEventListener("playstate", () => {
+  // Every transport run starts here, so this is the one place that knows the
+  // tempo the audible run is playing at.
+  runBpm = engine.playing ? state.bpm : null;
   updatePlayButton();
   if (engine.playing) startAnimation();
 });
@@ -758,7 +810,15 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   togglePlayback();
 });
-window.addEventListener("pagehide", () => engine.stop());
+window.addEventListener("pagehide", () => {
+  persistence.flush();
+  engine.stop();
+});
+// A backgrounded tab can be frozen or discarded without ever firing pagehide,
+// and hiding is the last moment a mobile browser reliably hands over.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") persistence.flush();
+});
 
 function escapeHtml(value) {
   return String(value)

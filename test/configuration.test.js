@@ -7,6 +7,21 @@ import {
   describeConfiguration,
 } from "../configuration.js";
 
+/**
+ * Key insertion order carries no domain meaning, so a stored Configuration may
+ * arrive with its keys in any order. Reversing every object rebuilds the same
+ * Configuration values in the order this module never produces itself.
+ */
+function reorderKeys(value) {
+  if (Array.isArray(value)) return value.map(reorderKeys);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .reverse()
+      .map(([key, nested]) => [key, reorderKeys(nested)]),
+  );
+}
+
 test("the default Configuration contains one active 4/4 Rhythm layer", () => {
   const configuration = createConfiguration();
 
@@ -96,7 +111,7 @@ test("removing the final Cycle is an unchanged edit with a stable reason", () =>
     cycleId,
   });
 
-  assert.strictEqual(result.configuration, configuration);
+  assert.deepEqual(result.configuration, configuration);
   assert.equal(result.consequence, "none");
   assert.equal(result.reason, "sequence-requires-cycle");
 });
@@ -109,7 +124,7 @@ test("Cycle repetitions preserve one active Cycle and the single-Cycle rule", ()
     cycleId: onlyId,
     repetitions: 0,
   });
-  assert.strictEqual(rejected.configuration, one);
+  assert.deepEqual(rejected.configuration, one);
   assert.equal(rejected.reason, "single-cycle-requires-one-repetition");
 
   const two = changeConfiguration(one, { type: "add-cycle" }).configuration;
@@ -129,7 +144,7 @@ test("Cycle repetitions preserve one active Cycle and the single-Cycle rule", ()
     cycleId: second.id,
     repetitions: 0,
   });
-  assert.strictEqual(finalOff.configuration, firstOff.configuration);
+  assert.deepEqual(finalOff.configuration, firstOff.configuration);
   assert.equal(finalOff.reason, "sequence-requires-active-cycle");
 
   const firstRepeated = changeConfiguration(two, {
@@ -158,7 +173,7 @@ test("Rhythm-layer structural edits preserve a non-empty Cycle", () => {
     cycleId,
     rhythmId: firstRhythmId,
   });
-  assert.strictEqual(rejected.configuration, one);
+  assert.deepEqual(rejected.configuration, one);
   assert.equal(rejected.reason, "cycle-requires-rhythm");
 
   const added = changeConfiguration(one, { type: "add-rhythm", cycleId });
@@ -218,6 +233,26 @@ test("advancing a Step level preserves the transport run", () => {
 
   assert.equal(result.configuration.sequence.cycles[0].rhythms[0].steps[0], "half");
   assert.equal(result.consequence, "update-step-levels");
+});
+
+test("Step-level positions outside the meter-relative grid are rejected", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  const outside = [rhythm.steps.length, rhythm.steps.length + 1, 4096];
+
+  for (const position of outside) {
+    const result = changeConfiguration(configuration, {
+      type: "advance-step-level",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      position,
+    });
+
+    assert.equal(result.consequence, "none");
+    assert.equal(result.reason, "pattern-position-not-found");
+    assert.deepEqual(result.configuration, configuration);
+  }
 });
 
 test("sound and mix edits preserve transport position and all affect Preset identity", () => {
@@ -333,7 +368,7 @@ test("the global Rhythm limit controls both structural additions", () => {
       available: false,
       reason: result.reason,
     });
-    assert.strictEqual(result.configuration, configuration);
+    assert.deepEqual(result.configuration, configuration);
   }
 });
 
@@ -366,11 +401,11 @@ test("Cycle-repetition availability agrees with every offered edit", () => {
       });
 
       if (!offered.available) {
-        assert.strictEqual(result.configuration, configuration);
+        assert.deepEqual(result.configuration, configuration);
         assert.equal(result.consequence, "none");
         assert.equal(result.reason, offered.reason);
       } else if (repetitions === cycle.repetitions) {
-        assert.strictEqual(result.configuration, configuration);
+        assert.deepEqual(result.configuration, configuration);
         assert.equal(result.consequence, "none");
         assert.equal(result.reason, null);
       } else {
@@ -424,6 +459,117 @@ test("loaded Configuration is repaired into the valid nested shape", () => {
     ...cycle.rhythms.map((rhythm) => rhythm.id),
   ]);
   assert.equal(new Set(ids).size, 4);
+});
+
+test("identifiers that were not generated are replaced during repair", () => {
+  const generatedShape = /^(?:cycle|layer)-[0-9a-z]+-[0-9a-z]+$/;
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [{
+        id: '"><img src=x onerror=alert(1)>',
+        rhythms: [{ id: '"><script>x()</script>' }],
+      }],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+
+  assert.notEqual(cycle.id, '"><img src=x onerror=alert(1)>');
+  assert.notEqual(cycle.rhythms[0].id, '"><script>x()</script>');
+  assert.match(cycle.id, generatedShape);
+  assert.match(cycle.rhythms[0].id, generatedShape);
+});
+
+test("an edit replaces identifiers the module did not issue", () => {
+  const configuration = createConfiguration();
+  const [cycle] = configuration.sequence.cycles;
+  const forged = {
+    ...configuration,
+    sequence: {
+      cycles: [{ ...cycle, id: '"><img src=x onerror=alert(1)>' }],
+    },
+  };
+  const result = changeConfiguration(forged, { type: "set-tempo", bpm: "96" });
+
+  assert.strictEqual(result.consequence, "none");
+  assert.notStrictEqual(result.configuration, forged);
+  assert.match(
+    result.configuration.sequence.cycles[0].id,
+    /^cycle-[0-9a-z]+-[0-9a-z]+$/,
+  );
+});
+
+test("generated identifiers survive repeated Configuration repair", () => {
+  const stored = {
+    sequence: {
+      cycles: [{
+        id: "cycle-abc123-7",
+        repetitions: 1,
+        rhythms: [{ id: "layer-abc123-8" }],
+      }],
+    },
+  };
+  const configuration = createConfiguration(stored);
+  const cycle = configuration.sequence.cycles[0];
+
+  assert.equal(cycle.id, "cycle-abc123-7");
+  assert.equal(cycle.rhythms[0].id, "layer-abc123-8");
+
+  const repaired = createConfiguration(configuration);
+  assert.equal(repaired.sequence.cycles[0].id, "cycle-abc123-7");
+  assert.equal(repaired.sequence.cycles[0].rhythms[0].id, "layer-abc123-8");
+});
+
+test("duplicate generated identifiers are still de-duplicated", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        { id: "cycle-abc123-1", rhythms: [{ id: "layer-abc123-1" }] },
+        { id: "cycle-abc123-1", rhythms: [{ id: "layer-abc123-1" }] },
+      ],
+    },
+  });
+  const ids = configuration.sequence.cycles.flatMap((cycle) => [
+    cycle.id,
+    ...cycle.rhythms.map((rhythm) => rhythm.id),
+  ]);
+
+  assert.equal(ids.length, 4);
+  assert.equal(new Set(ids).size, 4);
+});
+
+test("every edit outcome returns a repaired Configuration", () => {
+  const stored = {
+    bpm: 9999,
+    masterVolume: 0.8,
+    sequence: {
+      cycles: [{
+        id: "cycle-stored-1",
+        repetitions: 7,
+        rhythms: [{ id: "layer-stored-1", signature: { count: 99, unit: 4 } }],
+      }],
+    },
+  };
+  const repaired = createConfiguration(stored);
+  assert.equal(repaired.bpm, 300);
+  assert.equal(repaired.sequence.cycles[0].repetitions, 1);
+  assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 32);
+
+  const outcomes = [
+    [
+      { type: "remove-cycle", cycleId: "cycle-stored-1" },
+      "sequence-requires-cycle",
+    ],
+    [{ type: "set-tempo", bpm: 9999 }, "invalid-value"],
+    [{ type: "set-tempo", bpm: 300 }, null],
+  ];
+
+  for (const [edit, reason] of outcomes) {
+    const result = changeConfiguration(stored, edit);
+    assert.equal(result.consequence, "none");
+    assert.equal(result.reason, reason);
+    assert.deepEqual(result.configuration, repaired);
+    assert.notStrictEqual(result.configuration, stored);
+  }
 });
 
 test("malformed and unknown edits expose programmer errors", () => {
@@ -487,7 +633,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
 
   for (const edit of invalidEdits) {
     const result = changeConfiguration(configuration, edit);
-    assert.strictEqual(result.configuration, configuration);
+    assert.deepEqual(result.configuration, configuration);
     assert.equal(result.consequence, "none");
     assert.equal(result.reason, "invalid-value");
   }
@@ -513,8 +659,103 @@ test("valid edits that leave every user-editable value unchanged are no-ops", ()
 
   for (const edit of sameValueEdits) {
     const result = changeConfiguration(configuration, edit);
-    assert.strictEqual(result.configuration, configuration);
+    assert.deepEqual(result.configuration, configuration);
     assert.equal(result.consequence, "none");
     assert.equal(result.reason, null);
+  }
+});
+
+test("a Cycle stored without Rhythm layers is repaired rather than dropped", () => {
+  const configuration = createConfiguration({
+    sequence: { cycles: [{ rhythms: [] }, { rhythms: [{}] }] },
+  });
+
+  assert.deepEqual(
+    configuration.sequence.cycles.map((cycle) => cycle.rhythms.length),
+    [1, 1],
+  );
+
+  const spentBudget = createConfiguration({
+    sequence: {
+      cycles: [
+        { rhythms: Array.from({ length: 12 }, () => ({})) },
+        { rhythms: [] },
+      ],
+    },
+  });
+
+  assert.equal(spentBudget.sequence.cycles.length, 1);
+  assert.equal(
+    spentBudget.sequence.cycles.flatMap((cycle) => cycle.rhythms).length,
+    12,
+  );
+});
+
+test("repairing a repaired Configuration leaves it unchanged", () => {
+  const storedConfigurations = [
+    { sequence: { cycles: [{ rhythms: [] }, { rhythms: [{}] }] } },
+    {
+      sequence: {
+        cycles: [
+          { rhythms: [] },
+          { rhythms: Array.from({ length: 12 }, () => ({})) },
+        ],
+      },
+    },
+  ];
+
+  for (const stored of storedConfigurations) {
+    const repaired = createConfiguration(stored);
+    assert.deepEqual(createConfiguration(repaired), repaired);
+  }
+});
+
+test("Preset identity ignores the key order of a stored Configuration", () => {
+  const configuration = reorderKeys(createConfiguration());
+
+  assert.equal(describeConfiguration(configuration).selectedPreset, "4/4");
+
+  const reapplied = changeConfiguration(configuration, {
+    type: "apply-preset",
+    name: "4/4",
+  });
+  assert.deepEqual(reapplied.configuration, configuration);
+  assert.equal(reapplied.consequence, "none");
+  assert.equal(reapplied.reason, null);
+});
+
+test("a Configuration carrying unknown fields is still replaced by a repaired one", () => {
+  const configuration = createConfiguration();
+  const embellished = {
+    ...configuration,
+    sequence: {
+      cycles: configuration.sequence.cycles.map((cycle) => ({
+        ...cycle,
+        rhythms: cycle.rhythms.map((rhythm) => ({ ...rhythm, swing: 0.3 })),
+      })),
+    },
+  };
+  const result = changeConfiguration(embellished, { type: "set-tempo", bpm: "96" });
+
+  assert.notStrictEqual(result.configuration, embellished);
+  assert.equal(
+    Object.hasOwn(result.configuration.sequence.cycles[0].rhythms[0], "swing"),
+    false,
+  );
+});
+
+test("stored key order does not change an edit outcome", () => {
+  const configuration = reorderKeys(createConfiguration());
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  for (const edit of [
+    { type: "set-tempo", bpm: "96" },
+    { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: "0" },
+    { type: "remove-cycle", cycleId: cycle.id },
+  ]) {
+    const result = changeConfiguration(configuration, edit);
+    assert.deepEqual(result.configuration, configuration);
+    assert.equal(result.consequence, "none");
   }
 });

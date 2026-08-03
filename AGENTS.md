@@ -28,6 +28,17 @@ The core promise is:
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
 
+`model.js` holds the shared musical vocabulary (`STEP`, `NOTE_UNITS`, `METER_COUNT_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+
+### Configuration edit failure modes
+
+`changeConfiguration` separates programmer error from user input, and the two are reported differently on purpose:
+
+- **Programmer error throws.** An unknown edit type, or a known type whose payload is structurally malformed (a missing or wrong-typed field), throws a `TypeError`. These cannot come from the interface without a bug, so they must fail loudly rather than be swallowed.
+- **Domain-invalid input returns.** A well-formed edit carrying a value the domain rejects — out of range, not in the offered choices, or refused by a Sequence policy — returns `{consequence: "none", reason}`. These are ordinary user input and the reason is what the interface reports.
+
+Every outcome, including both no-ops above, returns a repaired Configuration; the caller's own object comes back only when it was already repaired. Identifiers are re-generated unless they match the shape this module issues, because they are read from storage and written into the interface.
+
 ## Dependencies
 
 The project intentionally has zero runtime or development dependencies. Prefer browser and Node standard APIs. Do not introduce a framework or bundler unless a concrete requirement justifies the cost.

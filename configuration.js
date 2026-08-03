@@ -1,15 +1,33 @@
-const STEP_LEVEL_CHOICES = Object.freeze(["off", "quarter", "half", "full"]);
-const METER_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
+import {
+  METER_COUNT_LIMIT,
+  NOTE_UNITS as METER_UNITS,
+  STEP,
+} from "./model.js";
+
+const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
 const SUBDIVISIONS = Object.freeze([1, 2, 3, 4, 5]);
 const REPETITIONS = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8]);
 const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
 const MAX_RHYTHMS = 12;
+const GENERATED_IDENTIFIER = /^(cycle|layer)-[0-9a-z]+-[0-9a-z]+$/;
 let identifierSequence = 0;
 
 function makeIdentifier(prefix) {
   identifierSequence += 1;
   return `${prefix}-${Date.now().toString(36)}-${identifierSequence.toString(36)}`;
+}
+
+/**
+ * Identifiers reach this module from persisted storage and leave it for the
+ * interface, so only the shape `makeIdentifier` generates is trusted. Anything
+ * else is replaced rather than repaired.
+ */
+function safeIdentifier(candidate, prefix) {
+  return typeof candidate === "string"
+    && GENERATED_IDENTIFIER.exec(candidate)?.[1] === prefix
+    ? candidate
+    : makeIdentifier(prefix);
 }
 
 function clampNumber(value, fallback, minimum, maximum) {
@@ -20,19 +38,24 @@ function clampNumber(value, fallback, minimum, maximum) {
 }
 
 function normaliseStep(step) {
-  return STEP_LEVEL_CHOICES.includes(step) ? step : "half";
+  return STEP_LEVEL_CHOICES.includes(step) ? step : STEP.HALF;
 }
 
 function resizeSteps(steps, length) {
   const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
   return Array.from({ length }, (_, index) => (
-    source[index] || (index === 0 ? "full" : "half")
+    source[index] || (index === 0 ? STEP.FULL : STEP.HALF)
   ));
 }
 
 function createRhythm(overrides = {}) {
   const signature = {
-    count: Math.round(clampNumber(overrides.signature?.count, 4, 1, 32)),
+    count: Math.round(clampNumber(
+      overrides.signature?.count,
+      4,
+      METER_COUNT_LIMIT.minimum,
+      METER_COUNT_LIMIT.maximum,
+    )),
     unit: METER_UNITS.includes(Number(overrides.signature?.unit))
       ? Number(overrides.signature.unit)
       : 4,
@@ -41,7 +64,7 @@ function createRhythm(overrides = {}) {
     clampNumber(overrides.subdivision, 1, 1, 5),
   );
   return {
-    id: overrides.id || makeIdentifier("layer"),
+    id: safeIdentifier(overrides.id, "layer"),
     signature,
     subdivision,
     steps: resizeSteps(overrides.steps, signature.count * subdivision),
@@ -59,7 +82,7 @@ function createCycle(overrides = {}) {
       ))
     : [];
   return {
-    id: overrides.id || makeIdentifier("cycle"),
+    id: safeIdentifier(overrides.id, "cycle"),
     repetitions: Math.round(clampNumber(overrides.repetitions, 1, 0, 8)),
     rhythms: rhythms.length ? rhythms : [createRhythm()],
   };
@@ -68,9 +91,7 @@ function createCycle(overrides = {}) {
 function uniqueIdentifiers(cycles) {
   const used = new Set();
   const identifier = (candidate, prefix) => {
-    const value = typeof candidate === "string" && candidate
-      ? candidate
-      : makeIdentifier(prefix);
+    const value = safeIdentifier(candidate, prefix);
     if (!used.has(value)) {
       used.add(value);
       return value;
@@ -89,6 +110,15 @@ function uniqueIdentifiers(cycles) {
   }));
 }
 
+/**
+ * Malformed input only reaches here from storage, so repair keeps as much of the
+ * saved Sequence as the domain allows. A Cycle that arrives without rhythm
+ * layers is given the default layer by `createCycle` rather than discarded:
+ * a Cycle is a non-empty group, and dropping one silently changes the Sequence
+ * the listener saved. The sequence-wide rhythm-layer limit still wins, so a
+ * Cycle arriving after the budget is spent is dropped, having no layer left to
+ * be repaired with.
+ */
 export function createConfiguration(input) {
   const source = input && typeof input === "object" ? input : {};
   let remainingRhythms = MAX_RHYTHMS;
@@ -102,9 +132,9 @@ export function createConfiguration(input) {
     const rhythms = Array.isArray(candidate.rhythms)
       ? candidate.rhythms.slice(0, remainingRhythms)
       : [];
-    if (!rhythms.length) return [];
-    remainingRhythms -= rhythms.length;
-    return [createCycle({ ...candidate, rhythms })];
+    const cycle = createCycle({ ...candidate, rhythms });
+    remainingRhythms -= cycle.rhythms.length;
+    return [cycle];
   });
   const populated = uniqueIdentifiers(cycles.length ? cycles : [createCycle()]);
   const validCycles = populated.length === 1
@@ -141,24 +171,66 @@ function createPresetConfiguration(name) {
   return createConfiguration();
 }
 
-function comparableConfiguration(configuration) {
-  return {
-    bpm: configuration.bpm,
-    masterVolume: configuration.masterVolume,
-    sequence: {
-      cycles: configuration.sequence.cycles.map((cycle) => ({
-        repetitions: cycle.repetitions,
-        rhythms: cycle.rhythms.map(({ id: _id, ...rhythm }) => rhythm),
-      })),
-    },
-  };
+/**
+ * Configurations are compared value by value rather than serialised, because key
+ * insertion order is an accident of how an updater spread its objects and must
+ * never decide whether two Configurations describe the same rhythm. Counting
+ * fields is enough to reject a candidate carrying one this module never issues,
+ * since every field this module does issue is compared below. Only the first
+ * argument has to be a repaired Configuration; the second is whatever a caller
+ * or storage offers. Identifiers are ignored throughout: the only question asked
+ * here is which Preset a Configuration sounds like, and a freshly built Preset
+ * carries new identifiers by construction.
+ */
+function sameFields(repaired, candidate) {
+  return Boolean(candidate)
+    && typeof candidate === "object"
+    && Object.keys(candidate).length === Object.keys(repaired).length;
+}
+
+function sameRhythm(rhythm, candidate) {
+  return sameFields(rhythm, candidate)
+    && sameFields(rhythm.signature, candidate.signature)
+    && rhythm.signature.count === candidate.signature.count
+    && rhythm.signature.unit === candidate.signature.unit
+    && rhythm.subdivision === candidate.subdivision
+    && rhythm.volume === candidate.volume
+    && rhythm.pan === candidate.pan
+    && rhythm.sound === candidate.sound
+    && rhythm.muted === candidate.muted
+    && Array.isArray(candidate.steps)
+    && rhythm.steps.length === candidate.steps.length
+    && rhythm.steps.every((step, position) => step === candidate.steps[position]);
+}
+
+function sameCycle(cycle, candidate) {
+  return sameFields(cycle, candidate)
+    && cycle.repetitions === candidate.repetitions
+    && Array.isArray(candidate.rhythms)
+    && cycle.rhythms.length === candidate.rhythms.length
+    && cycle.rhythms.every((rhythm, index) => sameRhythm(
+      rhythm,
+      candidate.rhythms[index],
+    ));
+}
+
+function sameConfiguration(configuration, candidate) {
+  return sameFields(configuration, candidate)
+    && configuration.bpm === candidate.bpm
+    && configuration.masterVolume === candidate.masterVolume
+    && sameFields(configuration.sequence, candidate.sequence)
+    && Array.isArray(candidate.sequence.cycles)
+    && configuration.sequence.cycles.length === candidate.sequence.cycles.length
+    && configuration.sequence.cycles.every((cycle, index) => sameCycle(
+      cycle,
+      candidate.sequence.cycles[index],
+    ));
 }
 
 function selectedPreset(configuration) {
-  const candidate = JSON.stringify(comparableConfiguration(configuration));
-  return PRESETS.find((name) => (
-    JSON.stringify(comparableConfiguration(createPresetConfiguration(name)))
-      === candidate
+  return PRESETS.find((name) => sameConfiguration(
+    createPresetConfiguration(name),
+    configuration,
   )) || null;
 }
 
@@ -276,11 +348,11 @@ function editRhythm(current, cycleId, rhythmId, updater) {
 
 function nextStepLevel(level) {
   return {
-    full: "half",
-    half: "quarter",
-    quarter: "off",
-    off: "full",
-  }[level] || "full";
+    [STEP.FULL]: STEP.HALF,
+    [STEP.HALF]: STEP.QUARTER,
+    [STEP.QUARTER]: STEP.OFF,
+    [STEP.OFF]: STEP.FULL,
+  }[level] || STEP.FULL;
 }
 
 function formNumber(value) {
@@ -331,7 +403,7 @@ function rejectedByPolicy(configuration, policy) {
   return policy.available ? null : unchanged(configuration, policy.reason);
 }
 
-function changeRhythm(current, original, edit, consequence, updater) {
+function changeRhythm(current, edit, consequence, updater) {
   const result = editRhythm(
     current,
     edit.cycleId,
@@ -339,15 +411,15 @@ function changeRhythm(current, original, edit, consequence, updater) {
     updater,
   );
   return result.reason
-    ? unchanged(original, result.reason)
+    ? unchanged(current, result.reason)
     : changed(result.configuration, consequence);
 }
 
 const COMMANDS = Object.freeze({
   "add-cycle": {
     validPayload: () => true,
-    apply(current, _edit, original) {
-      const rejection = rejectedByPolicy(original, addStructurePolicy(current));
+    apply(current, _edit) {
+      const rejection = rejectedByPolicy(current, addStructurePolicy(current));
       if (rejection) return rejection;
       return changed({
         ...current,
@@ -359,10 +431,10 @@ const COMMANDS = Object.freeze({
   },
   "add-rhythm": {
     validPayload: targetsCycle,
-    apply(current, edit, original) {
+    apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
-      if (!cycle) return unchanged(original, "cycle-not-found");
-      const rejection = rejectedByPolicy(original, addStructurePolicy(current));
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      const rejection = rejectedByPolicy(current, addStructurePolicy(current));
       if (rejection) return rejection;
       return changed({
         ...current,
@@ -383,18 +455,17 @@ const COMMANDS = Object.freeze({
       Number.MAX_SAFE_INTEGER,
       true,
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       const rhythm = findRhythm(current, edit.cycleId, edit.rhythmId);
-      if (!cycle) return unchanged(original, "cycle-not-found");
-      if (!rhythm) return unchanged(original, "rhythm-not-found");
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      if (!rhythm) return unchanged(current, "rhythm-not-found");
       const targetPosition = formNumber(edit.position);
-      if (!rhythm.steps[targetPosition]) {
-        return unchanged(original, "pattern-position-not-found");
+      if (targetPosition >= rhythm.steps.length) {
+        return unchanged(current, "pattern-position-not-found");
       }
       return changeRhythm(
         current,
-        original,
         edit,
         "update-step-levels",
         (candidate) => ({
@@ -409,9 +480,9 @@ const COMMANDS = Object.freeze({
   "apply-preset": {
     validPayload: (edit) => hasString(edit, "name"),
     leavesUnchanged: (current, edit) => selectedPreset(current) === edit.name,
-    apply(_current, edit, original) {
+    apply(current, edit) {
       if (!PRESETS.includes(edit.name)) {
-        return unchanged(original, "preset-not-found");
+        return unchanged(current, "preset-not-found");
       }
       return changed(
         createPresetConfiguration(edit.name),
@@ -421,11 +492,11 @@ const COMMANDS = Object.freeze({
   },
   "remove-cycle": {
     validPayload: targetsCycle,
-    apply(current, edit, original) {
+    apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
-      if (!cycle) return unchanged(original, "cycle-not-found");
+      if (!cycle) return unchanged(current, "cycle-not-found");
       const rejection = rejectedByPolicy(
-        original,
+        current,
         removeCyclePolicy(current, cycle),
       );
       if (rejection) return rejection;
@@ -439,13 +510,13 @@ const COMMANDS = Object.freeze({
   },
   "remove-rhythm": {
     validPayload: targetsRhythm,
-    apply(current, edit, original) {
+    apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
-      if (!cycle) return unchanged(original, "cycle-not-found");
+      if (!cycle) return unchanged(current, "cycle-not-found");
       if (!findRhythm(current, edit.cycleId, edit.rhythmId)) {
-        return unchanged(original, "rhythm-not-found");
+        return unchanged(current, "rhythm-not-found");
       }
-      const rejection = rejectedByPolicy(original, removeRhythmPolicy(cycle));
+      const rejection = rejectedByPolicy(current, removeRhythmPolicy(cycle));
       if (rejection) return rejection;
       return changed({
         ...current,
@@ -468,12 +539,12 @@ const COMMANDS = Object.freeze({
       findCycle(current, edit.cycleId)?.repetitions
         === formNumber(edit.repetitions)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
-      if (!cycle) return unchanged(original, "cycle-not-found");
+      if (!cycle) return unchanged(current, "cycle-not-found");
       const repetitions = formNumber(edit.repetitions);
       const rejection = rejectedByPolicy(
-        original,
+        current,
         cycleRepetitionsPolicy(current, cycle, repetitions),
       );
       if (rejection) return rejection;
@@ -504,15 +575,20 @@ const COMMANDS = Object.freeze({
   },
   "set-meter-count": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "count"),
-    validValue: (edit) => numberInRange(edit, "count", 1, 32, true),
+    validValue: (edit) => numberInRange(
+      edit,
+      "count",
+      METER_COUNT_LIMIT.minimum,
+      METER_COUNT_LIMIT.maximum,
+      true,
+    ),
     leavesUnchanged: (current, edit) => (
       findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.count
         === formNumber(edit.count)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "restart-transport-run",
         (rhythm) => {
@@ -539,10 +615,9 @@ const COMMANDS = Object.freeze({
       findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit
         === formNumber(edit.unit)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "restart-transport-run",
         (rhythm) => ({
@@ -558,10 +633,9 @@ const COMMANDS = Object.freeze({
     leavesUnchanged: (current, edit) => (
       findRhythm(current, edit.cycleId, edit.rhythmId)?.muted === edit.muted
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "update-mix",
         (rhythm) => ({ ...rhythm, muted: edit.muted }),
@@ -575,10 +649,9 @@ const COMMANDS = Object.freeze({
       findRhythm(current, edit.cycleId, edit.rhythmId)?.volume
         === formNumber(edit.volume)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "update-mix",
         (rhythm) => ({ ...rhythm, volume: formNumber(edit.volume) }),
@@ -591,10 +664,9 @@ const COMMANDS = Object.freeze({
     leavesUnchanged: (current, edit) => (
       findRhythm(current, edit.cycleId, edit.rhythmId)?.sound === edit.sound
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "update-mix",
         (rhythm) => ({ ...rhythm, sound: edit.sound }),
@@ -608,10 +680,9 @@ const COMMANDS = Object.freeze({
       findRhythm(current, edit.cycleId, edit.rhythmId)?.pan
         === formNumber(edit.pan)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "update-mix",
         (rhythm) => ({ ...rhythm, pan: formNumber(edit.pan) }),
@@ -626,10 +697,9 @@ const COMMANDS = Object.freeze({
       findRhythm(current, edit.cycleId, edit.rhythmId)?.subdivision
         === formNumber(edit.subdivision)
     ),
-    apply(current, edit, original) {
+    apply(current, edit) {
       return changeRhythm(
         current,
-        original,
         edit,
         "restart-transport-run",
         (rhythm) => {
@@ -667,12 +737,12 @@ export function changeConfiguration(configuration, edit) {
   if (!command.validPayload(edit)) {
     throw new TypeError(`Malformed Configuration edit: ${edit.type}`);
   }
-  if (command.validValue && !command.validValue(edit)) {
-    return unchanged(configuration, "invalid-value");
-  }
   const current = createConfiguration(configuration);
-  if (command.leavesUnchanged?.(current, edit)) {
-    return unchanged(configuration);
+  if (command.validValue && !command.validValue(edit)) {
+    return unchanged(current, "invalid-value");
   }
-  return command.apply(current, edit, configuration);
+  if (command.leavesUnchanged?.(current, edit)) {
+    return unchanged(current);
+  }
+  return command.apply(current, edit);
 }
