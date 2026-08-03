@@ -28,6 +28,8 @@ The core promise is:
 - `app.js`: DOM interaction, transient interface state, and visual playhead. It owns the storage key names and wires `localStorage` to `persistence.js`.
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
+- `biome.jsonc`: lint and formatter configuration. `.jsonc` rather than `.json` because strict JSON cannot hold the paragraph explaining the one disabled rule, and a rule turned off without a reason is one nobody can safely turn back on.
+- `jsconfig.json`, `types/`: TypeScript's `checkJs` configuration and the ambient declarations for browser APIs its DOM library omits.
 
 `model.js` holds the shared musical vocabulary (`STEP`, `NOTE_UNITS`, `METER_COUNT_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
 
@@ -42,7 +44,18 @@ Every outcome, including both no-ops above, returns a freshly repaired Configura
 
 ## Dependencies
 
-The application intentionally has zero runtime dependencies. It has two development dependencies, each earning its place: Playwright, which exists only for browser interaction tests, and esbuild, justified by the two browser distribution targets — it discovers and bundles the native-module graph without hand-written module lists or JavaScript rewriting. Prefer browser and Node standard APIs, and do not introduce a framework, plugin ecosystem, development server, or general task runner without a concrete requirement.
+The application intentionally has zero runtime dependencies. Development dependencies each earn their place:
+
+- **Playwright** — browser interaction tests, and nothing else.
+- **esbuild** — the two browser distribution targets. It discovers and bundles the native-module graph without hand-written module lists or JavaScript rewriting.
+- **Biome** — lint and formatting. Two packages and one binary, with no plugin ecosystem to accrete. Bare ESLint is sixty-nine packages before the first plugin, which is the comparison that decided this.
+- **TypeScript** — `checkJs` only. No file changes language and nothing compiles; `tsc` runs with `noEmit`.
+- **@types/node** — types only. Without it no file importing a `node:` builtin can be checked at all.
+- **@axe-core/playwright** — accessibility assertions against the rendered tree, which is the half `test/accessibility.test.js` cannot reach from Node.
+
+Prefer browser and Node standard APIs, and do not introduce a framework, plugin ecosystem, development server, or general task runner without a concrete requirement.
+
+Worth knowing before reaching for more analysis: when Biome, TypeScript and axe were first run against this codebase they found, between them, zero defects. Every finding was either correct code the rule did not fit or a type the checker did not know. They are here to catch what arrives next, not because something was wrong — so weigh a new tool by the regressions it would catch, and do not expect a haul.
 
 ## Verification
 
@@ -54,15 +67,23 @@ Then run:
 npm run check
 ```
 
-`npm test` is the fast loop. `npm run check` adds the browser tests, the site build, and coverage thresholds, and is what CI runs.
+`npm test` is the fast loop. `npm run check` is what CI runs, and adds, in order: `npm run lint` (Biome), `npm run types` (TypeScript), the coverage thresholds, the browser tests, and the site build. `npm run format` writes the fixes Biome can apply itself.
 
-Coverage is enforced at 95% lines, 87% branches, and 94% functions, measured over the source modules only — `test/` and `e2e/` are excluded because coverage of a test file measures nothing. The thresholds sit roughly a point under the current figures, so they catch a regression rather than mandate an increase. Raise them when the real number rises; do not lower them to make a change fit.
+Two ratchets guard against drift, and both are set where the code already stands rather than where it might ideally be. Raise either when the real figure rises; do not lower one to make a change fit.
+
+Coverage is enforced at 95% lines, 87% branches, and 94% functions, measured over the source modules only — `test/` and `e2e/` are excluded because coverage of a test file measures nothing.
+
+TypeScript runs with `noImplicitAny` and `strictNullChecks` off. That is the ratchet, not the destination: together those two account for roughly 440 further errors, almost all of them demanding an annotation on a parameter whose type is obvious one line away. Turning either on is a project rather than a flag. `types/globals.d.ts` declares the two Safari APIs the DOM library omits, both optional on purpose — typed as always present, the guards around them would read as dead code.
 
 `test/syntax.test.js` parses every JavaScript file git tracks. It replaced a hand-written list of `node --check` calls that named seven files and silently omitted `server.mjs`, `playwright.config.js`, and three build scripts. Nothing needs adding when a new source file appears — committing it is what enrols it.
 
 Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
 
 Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
+
+`e2e/accessibility.spec.js` scans six states with axe. Every scan emulates reduced motion, and a new scan must do the same: catching a panel part way through its 140ms `drawer-in` fade makes axe measure half-transparent text and report a serious contrast violation against markup that is correct the moment it settles. The reduced-motion block in `styles.css` changes only timing properties, so what axe measures is what everyone sees, arriving immediately. Do not substitute a timeout — it is a number that is too short on a loaded runner and wasted everywhere else. A state worth adding a control to is a state worth adding a scan for.
+
+Workflows are linted by actionlint, in CI only, since the binary does not come from npm and a check that silently skips when its tool is missing is worse than one that runs where the tool is guaranteed. To run it locally, install actionlint and run it from the repository root. It covers what `test/workflow.test.js` cannot — the schema GitHub actually enforces — and runs shellcheck over every `run:` block, so a multi-line one needs `set -euo pipefail` and quoted expansions.
 
 Also manually verify the audio-specific behavior Playwright cannot assess:
 

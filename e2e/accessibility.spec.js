@@ -23,9 +23,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function scan(page) {
-  return new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
+  return new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
 }
 
 /**
