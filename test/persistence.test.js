@@ -1,7 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createPersistence } from "../persistence.js";
+import { createPersistence, readStoredValue } from "../persistence.js";
+
+const createStorage = (entries = {}) => {
+  const items = new Map(Object.entries(entries));
+  return {
+    get keys() {
+      return [...items.keys()].sort();
+    },
+    getItem: (key) => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => items.set(key, String(value)),
+    removeItem: (key) => items.delete(key),
+  };
+};
 
 const createTimers = () => {
   const scheduled = new Map();
@@ -118,6 +130,100 @@ test("a write that throws does not reach the caller", () => {
 
   persistence.schedule({ bpm: 61 });
   assert.doesNotThrow(() => persistence.flush());
+});
+
+/**
+ * Renaming the storage key would silently reset every existing user, so the
+ * value stored under the previous name is adopted once and then the old name
+ * is cleared. Retired names carry shapes this version cannot read and are only
+ * ever discarded.
+ */
+test("a stored value is adopted from the previous key name", () => {
+  const storage = createStorage({ "polynome-redesign": '{"bpm":132}' });
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    supersededKeys: ["polynome-redesign"],
+  });
+
+  assert.equal(raw, '{"bpm":132}');
+  assert.equal(storage.getItem("polynome-configuration"), '{"bpm":132}');
+  assert.deepEqual(storage.keys, ["polynome-configuration"]);
+});
+
+test("the current key wins and the superseded one is cleared", () => {
+  const storage = createStorage({
+    "polynome-configuration": '{"bpm":90}',
+    "polynome-redesign": '{"bpm":132}',
+  });
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    supersededKeys: ["polynome-redesign"],
+  });
+
+  assert.equal(raw, '{"bpm":90}');
+  assert.deepEqual(storage.keys, ["polynome-configuration"]);
+});
+
+test("retired keys are discarded rather than adopted", () => {
+  const storage = createStorage({
+    "polynome:v1": '{"bpm":200}',
+    "polynome-meter": "4/4",
+  });
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    retiredKeys: ["polynome:v1", "polynome-meter"],
+  });
+
+  assert.equal(raw, null);
+  assert.deepEqual(storage.keys, []);
+});
+
+test("nothing stored reads as null without writing", () => {
+  const storage = createStorage();
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    supersededKeys: ["polynome-redesign"],
+  });
+
+  assert.equal(raw, null);
+  assert.deepEqual(storage.keys, []);
+});
+
+/**
+ * Safari in private browsing throws from every storage method. Losing stored
+ * settings is acceptable there; failing to start is not.
+ */
+test("a storage that throws reads as null", () => {
+  const unavailable = {
+    getItem() {
+      throw new Error("storage is unavailable");
+    },
+    setItem() {
+      throw new Error("storage is unavailable");
+    },
+    removeItem() {
+      throw new Error("storage is unavailable");
+    },
+  };
+
+  let raw;
+  assert.doesNotThrow(() => {
+    raw = readStoredValue({
+      storage: unavailable,
+      key: "polynome-configuration",
+      supersededKeys: ["polynome-redesign"],
+      retiredKeys: ["polynome:v1"],
+    });
+  });
+  assert.equal(raw, null);
 });
 
 test("each editing burst gets its own deferred write", () => {

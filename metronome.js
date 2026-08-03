@@ -121,6 +121,25 @@ export class MetronomeEngine extends EventTarget {
     await this.start(state);
   }
 
+  /**
+   * Routes a Configuration edit's consequence to the narrowest method that
+   * satisfies it, so that only a structural change interrupts the run. Returns
+   * the restart promise on the one asynchronous path and null otherwise,
+   * leaving the caller to report a failed restart.
+   */
+  applyConsequence(consequence, state) {
+    if (consequence === "none") return null;
+    if (consequence === "restart-transport-run" && this.playing) {
+      return this.restart(state);
+    }
+    if (consequence === "update-step-levels") {
+      this.updateStepLevels(state);
+      return null;
+    }
+    this.updateMix(state);
+    return null;
+  }
+
   updateMix(state) {
     this.#state = state;
     if (this.#context) this.#syncNodes();

@@ -572,6 +572,24 @@ test("every edit outcome returns a repaired Configuration", () => {
   }
 });
 
+/**
+ * `changeConfiguration` repairs before it dispatches, so even an edit that
+ * changes nothing hands back a new value. Asserting only `deepEqual` would
+ * pass under a design that returned the caller's object when it was already
+ * valid, which is what the module used to do; pin the reference too.
+ */
+test("a no-op edit on an already-valid Configuration still returns a fresh object", () => {
+  const configuration = createConfiguration();
+  const result = changeConfiguration(configuration, {
+    type: "set-tempo",
+    bpm: String(configuration.bpm),
+  });
+
+  assert.equal(result.consequence, "none");
+  assert.deepEqual(result.configuration, configuration);
+  assert.notStrictEqual(result.configuration, configuration);
+});
+
 test("malformed and unknown edits expose programmer errors", () => {
   const configuration = createConfiguration();
 

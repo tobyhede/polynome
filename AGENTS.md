@@ -23,8 +23,9 @@ The core promise is:
 
 - `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
 - `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
-- `metronome.js`: Web Audio nodes, transport, and look-ahead scheduler.
-- `app.js`: DOM interaction, persistence I/O, transient interface state, transport-consequence execution, and visual playhead.
+- `metronome.js`: Web Audio nodes, transport, look-ahead scheduler, and the routing from an edit's transport consequence to the narrowest engine method that satisfies it.
+- `persistence.js`: deferred writes and storage-key migration, both free of any host environment so they can be driven by tests.
+- `app.js`: DOM interaction, transient interface state, and visual playhead. It owns the storage key names and wires `localStorage` to `persistence.js`.
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
 
@@ -37,7 +38,7 @@ The core promise is:
 - **Programmer error throws.** An unknown edit type, or a known type whose payload is structurally malformed (a missing or wrong-typed field), throws a `TypeError`. These cannot come from the interface without a bug, so they must fail loudly rather than be swallowed.
 - **Domain-invalid input returns.** A well-formed edit carrying a value the domain rejects — out of range, not in the offered choices, or refused by a Sequence policy — returns `{consequence: "none", reason}`. These are ordinary user input and the reason is what the interface reports.
 
-Every outcome, including both no-ops above, returns a repaired Configuration; the caller's own object comes back only when it was already repaired. Identifiers are re-generated unless they match the shape this module issues, because they are read from storage and written into the interface.
+Every outcome, including both no-ops above, returns a freshly repaired Configuration. The caller's own object never comes back, so a no-op still yields a new value that is equal but not identical — repair runs before dispatch, and nothing downstream depends on identity. Identifiers are re-generated unless they match the shape this module issues, because they are read from storage and written into the interface.
 
 ## Dependencies
 

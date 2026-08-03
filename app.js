@@ -5,10 +5,13 @@ import {
   describeConfiguration,
 } from "./configuration.js";
 import { panLabel, subdivisionLabel } from "./model.js";
-import { createPersistence } from "./persistence.js";
+import { createPersistence, readStoredValue } from "./persistence.js";
 
-const STORAGE_KEY = "polynome-redesign";
+const STORAGE_KEY = "polynome-configuration";
 const PERSIST_DELAY_MS = 400;
+// Holds the current shape under the name used while the redesign was in
+// progress; adopted once, then cleared.
+const SUPERSEDED_STORAGE_KEYS = ["polynome-redesign"];
 const RETIRED_STORAGE_KEYS = [
   "polynome-sequence",
   "polynome-meter",
@@ -56,9 +59,13 @@ let animationFrame = null;
 let runBpm = null;
 
 function loadState() {
+  const raw = readStoredValue({
+    storage: localStorage,
+    key: STORAGE_KEY,
+    supersededKeys: SUPERSEDED_STORAGE_KEYS,
+    retiredKeys: RETIRED_STORAGE_KEYS,
+  });
   try {
-    for (const key of RETIRED_STORAGE_KEYS) localStorage.removeItem(key);
-    const raw = localStorage.getItem(STORAGE_KEY);
     return createConfiguration(raw ? JSON.parse(raw) : undefined);
   } catch {
     return createConfiguration();
@@ -83,14 +90,8 @@ function applyEdit(edit, options = {}) {
   persistence.schedule(state);
   if (options.render !== false) render();
 
-  if (options.deferConsequence || result.consequence === "none") return result;
-  if (result.consequence === "restart-transport-run" && engine.playing) {
-    engine.restart(state).catch(showError);
-  } else if (result.consequence === "update-step-levels") {
-    engine.updateStepLevels(state);
-  } else {
-    engine.updateMix(state);
-  }
+  if (options.deferConsequence) return result;
+  engine.applyConsequence(result.consequence, state)?.catch(showError);
   return result;
 }
 
