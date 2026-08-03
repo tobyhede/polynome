@@ -430,8 +430,10 @@ export class MetronomeEngine extends EventTarget {
   #syncNodes() {
     if (!this.#context || !this.#master || !this.#state) return;
 
-    // Stopping leaves the master at zero, so restore it whenever the graph is
-    // resynced against a preserved context.
+    // MASTER_GAIN is fixed, so on a running graph this ramps the value to
+    // itself and changes nothing. It is here for the one case that is not a
+    // no-op: stop() zeroes this node to silence the graph, and a preserved
+    // context hands the same node back on the next run still at zero.
     this.#master.gain.setTargetAtTime(
       MASTER_GAIN,
       this.#context.currentTime,

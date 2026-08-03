@@ -33,7 +33,6 @@ const elements = {
   bpmSlider: document.querySelector("#bpm-slider"),
   bpmReadout: document.querySelector("#bpm-readout"),
   bpmTicks: document.querySelector("#bpm-ticks"),
-  bpmMarks: document.querySelector("#bpm-marks"),
   presetsToggle: document.querySelector("#presets-toggle"),
   presetPanel: document.querySelector("#preset-panel"),
   presetList: document.querySelector("#preset-list"),
@@ -168,10 +167,24 @@ function renderTransport() {
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
   const glitchIntensity = Math.min(1, Math.max(0, (state.bpm - 250) / 50));
-  elements.bpmReadout.style.setProperty("--bpm-left", `calc(${progress * 100}% + ${(0.5 - progress) * 22}px)`);
-  elements.bpmReadout.style.setProperty("--bpm-size", `${size}rem`);
-  elements.bpmReadout.style.setProperty("--bpm-width", `${size * 16 * 0.86 * 3}px`);
-  elements.bpmReadout.style.setProperty("--bpm-label-margin", `${6.5 - pixelSize * 0.255}px`);
+  const width = pixelSize * 0.86 * 3;
+  const labelMargin = 6.5 - pixelSize * 0.255;
+  // Every length the readout uses is offered twice: the design value, and the
+  // same value as a share of the transport card. The card is the size container,
+  // and 1cqw is 5px at the 500px column this was drawn against, so taking the
+  // value nearer zero holds the designed size up to that width and scales with
+  // the card below it. A negative length needs `max()` to shrink toward zero
+  // rather than away from it, which is why the comparator follows the sign.
+  const cq = (px) => `${(px / 5).toFixed(2)}cqw`;
+  const fit = (px) => `${px < 0 ? "max" : "min"}(${px}px, ${cq(px)})`;
+  const readout = elements.bpmReadout.style;
+  readout.setProperty("--bpm-left", `calc(${progress * 100}% + ${(0.5 - progress) * 22}px)`);
+  readout.setProperty("--bpm-size", `min(${size}rem, ${cq(pixelSize)})`);
+  readout.setProperty("--bpm-width", fit(width));
+  // Half the width, which is how far from either end of the track the CSS has
+  // to hold the number to keep it fully inside the card.
+  readout.setProperty("--bpm-half", fit(width / 2));
+  readout.setProperty("--bpm-label-margin", fit(labelMargin));
   const glitchTargets = [elements.bpm, elements.heading];
   glitchTargets.forEach((target) => {
     target.classList.toggle("is-glitching", glitchIntensity > 0);
@@ -320,7 +333,7 @@ function renderCycles() {
 }
 
 /**
- * One bar of sixteenths on one row is the step-sequencer convention the TR-800
+ * One bar of sixteenths on one row is the step-sequencer convention the TR-808
  * lineage settled on, and it is the longest row that still reads at a glance.
  */
 const STEPS_PER_ROW_LIMIT = 16;
@@ -349,9 +362,13 @@ function descendingDivisors(count) {
  * beat is wider than the row, the pattern scrolls rather than shrinking.
  */
 function layoutSteps() {
+  // Measure every rhythm, then write every rhythm. Interleaving the two costs a
+  // synchronous reflow per rhythm, because each write invalidates the layout the
+  // next read needs and this runs on every render — including every step click.
+  // Batching also makes the answer independent of the order rhythms are visited
+  // in, since none of them is measured against another's freshly applied rows.
+  const plans = [];
   for (const steps of elements.cycles.querySelectorAll(".steps")) {
-    const beats = Number(steps.dataset.beats);
-    const subdivision = Number(steps.dataset.subdivision);
     const beat = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available = steps.clientWidth
@@ -363,19 +380,40 @@ function layoutSteps() {
     // the grouping being chosen and can be measured before choosing it.
     const beatWidth = beat.getBoundingClientRect().width;
     const beatGap = parseFloat(style.columnGap) || 0;
+    const beats = Number(steps.dataset.beats);
+    const subdivision = Number(steps.dataset.subdivision);
     const perRow = descendingDivisors(beats).find((candidate) => (
       candidate * subdivision <= STEPS_PER_ROW_LIMIT
       && candidate * beatWidth + (candidate - 1) * beatGap <= available
     )) ?? 1;
 
+    plans.push({ steps, perRow, scrolling: beatWidth > available });
+  }
+
+  for (const { steps, perRow, scrolling } of plans) {
     steps.style.setProperty("--beats-per-row", String(perRow));
-    steps.classList.toggle("is-scrolling", beatWidth > available);
+    steps.classList.toggle("is-scrolling", scrolling);
   }
 }
 
 /**
  * Only width changes the answer. Watching height as well would re-enter this on
  * the layout it just produced.
+ *
+ * Width is not fully independent of that layout either: changing the row count
+ * changes page height, which on a classic-scrollbar platform can toggle the
+ * vertical scrollbar and so change this container's width. That settles rather
+ * than oscillates, because the grouping is monotone in width — a narrower row
+ * can only take the same number of beats or fewer, so it can only produce the
+ * same number of rows or more. Losing the scrollbar therefore never makes the
+ * page taller, and gaining one never makes it shorter, so each toggle is
+ * self-confirming and stops after one pass.
+ *
+ * The exception is a step-size breakpoint sitting inside one scrollbar width of
+ * the current viewport, where narrowing shrinks the steps and can fit more beats
+ * to a row. Reaching it needs the page height to cross the viewport height at
+ * that same width; the browser's own ResizeObserver loop limit ends it after a
+ * frame, which is why there is no debounce here to buy.
  */
 let laidOutWidth = 0;
 new ResizeObserver((entries) => {
@@ -530,6 +568,9 @@ function rhythmTemplate(rhythm, cycle) {
         </div>
       </div>
 
+      <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
+           data attribute, and the beat-gap clamp needs it as a number CSS can
+           calculate with. Neither can read the other's form. -->
       <div class="steps" role="group" aria-label="${label} step levels" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
         ${beatsTemplate(rhythm)}
       </div>
@@ -1161,9 +1202,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// Major ticks carry their own number, so the tick row is also the tempo scale.
 elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
   const bpm = 30 + index * 10;
-  return `<span data-bpm="${bpm}" class="${bpm % 90 === 30 || bpm === 300 ? "is-major" : ""}"></span>`;
+  const major = bpm % 90 === 30 || bpm === 300;
+  return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
-elements.bpmMarks.innerHTML = Array.from({ length: 28 }, (_, index) => `<option value="${30 + index * 10}"></option>`).join("");
 render();

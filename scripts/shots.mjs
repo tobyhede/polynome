@@ -132,7 +132,7 @@ async function waitForServer(url, signal) {
     } catch {
       // Not listening yet.
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((settle) => setTimeout(settle, 100));
   }
   throw new Error(`Server did not respond at ${url} within 10s`);
 }
@@ -147,10 +147,13 @@ async function startServer(port) {
   child.on("exit", () => {
     signal.exited = true;
   });
+  // `settle`, not `resolve`: this module imports `resolve` from node:path, and
+  // shadowing it here would hand any later path work in this scope the wrong
+  // binding without a word of complaint.
   const stop = () =>
-    new Promise((resolve) => {
-      if (signal.exited) return resolve();
-      child.on("exit", resolve);
+    new Promise((settle) => {
+      if (signal.exited) return settle();
+      child.on("exit", settle);
       child.kill("SIGTERM");
     });
   try {

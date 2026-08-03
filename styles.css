@@ -422,33 +422,42 @@ h1 {
   background: rgb(12 12 13 / 14%);
 }
 
-/* One stacked layout at every width. The card still spans the shell so it lines
-   up with the rhythm cards, while its contents sit in a single centred column
-   that stops widening once there is more room than the controls can use. */
+/* One stacked layout at every width — the arrangement never reflows, it only
+   scales. The card still spans the shell so it lines up with the rhythm cards,
+   while its contents sit in a single centred column that stops widening once
+   there is more room than the controls can use. The card is also the size
+   container every `cqw` below resolves against: under a 500px column those
+   units track the column exactly, and above it the `min()`/`clamp()` ceilings
+   take over so nothing keeps growing with the empty space beside the column. */
 .transport {
   display: grid;
   grid-template-columns: minmax(0, 500px);
-  gap: 28px;
+  gap: clamp(14px, 4cqw, 20px);
   justify-content: center;
-  justify-items: center;
-  padding: 20px 18px;
+  justify-items: stretch;
+  padding: clamp(14px, 4cqw, 20px);
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--card);
+  container-type: inline-size;
 }
 
+/* A full-width bar rather than a share of a shrinking cap, so the tap target
+   keeps its height as the card narrows. */
 .play-button {
-  display: grid;
-  place-items: center;
-  width: 60%;
-  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: clamp(48px, 13cqw, 60px);
   padding: 0 0 0 4px;
   border: 0;
   border-radius: 2px;
   background: var(--ink);
   color: #0c0c0d;
   cursor: pointer;
-  font-size: 1.9rem;
+  font-size: clamp(1rem, 4.4cqw, 1.9rem);
   transition: background-color 140ms ease, transform 120ms ease;
 }
 
@@ -456,30 +465,33 @@ h1 {
   padding-left: 0;
   background: var(--accent);
   box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 40%, transparent);
-  font-size: 1.4rem;
+  font-size: clamp(0.95rem, 3.4cqw, 1.4rem);
 }
 
+/* No inline padding: reserving half the readout's width here is what collapsed
+   the track at narrow widths. The readout's travel is clamped in `.bpm-readout`
+   instead, which costs nothing when there is room. */
 .tempo {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   justify-items: stretch;
   width: 100%;
   min-width: 0;
-  /* Half the readout's width, which is what it needs to avoid clipping at either
-     end of the track, and symmetric so the slider centres under the button. */
-  padding-inline: 54px;
 }
 
 .bpm-track {
   position: relative;
   width: 100%;
-  height: 88px;
+  height: clamp(56px, 17cqw, 80px);
 }
 
+/* --bpm-left / --bpm-width / --bpm-half / --bpm-size are set in renderTransport().
+   The clamp keeps the travelling number half its own width inside either end of
+   the track, so it can never overhang the card. */
 .bpm-readout {
   position: absolute;
   bottom: 0;
-  left: var(--bpm-left, 24%);
+  left: clamp(var(--bpm-half, 54px), var(--bpm-left, 24%), calc(100% - var(--bpm-half, 54px)));
   display: block;
   width: var(--bpm-width, 108px);
   transform: translateX(-50%);
@@ -492,9 +504,9 @@ h1 {
   margin-bottom: var(--bpm-label-margin, -4px);
   transform: translateX(-50%);
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: clamp(0.5rem, 1.9cqw, 0.6rem);
   font-weight: 700;
-  letter-spacing: 0.26em;
+  letter-spacing: 0.22em;
   text-align: center;
   text-transform: uppercase;
   white-space: nowrap;
@@ -525,15 +537,31 @@ h1.is-glitching {
   will-change: transform;
 }
 
+.tempo-slider {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+}
+
+/* The ticks carry the scale: the major ones label themselves from `data-label`,
+   which is what the separate `.tempo-scale` row used to do. Ticks hang from a
+   common top edge so every label sits on one baseline regardless of tick
+   height. */
 .bpm-ticks {
   display: flex;
-  height: 9px;
-  margin: 0 10px 2px;
-  align-items: flex-end;
+  height: auto;
+  /* The thumb's centre stops half a thumb short of either end of the slider, so
+     the row is inset to match. Without it the last tick sits ~9px past the
+     thumb at 300bpm, which reads as a misalignment now that the row sits
+     directly beneath the track. */
+  margin-inline: 9px;
+  padding-bottom: 16px;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
 .bpm-ticks span {
+  position: relative;
   width: 1px;
   height: 5px;
   background: var(--line-strong);
@@ -549,20 +577,24 @@ h1.is-glitching {
   opacity: 0.9;
 }
 
-.tempo-slider {
-  width: 100%;
-  height: 26px;
-  margin: 0;
+.bpm-ticks span::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* The tick mark itself can be a hairline, but its label is text: --line-strong
+     reads as 2.2:1 on the card and fails WCAG 1.4.3. The scale row this replaced
+     used --muted, and a passed label takes the accent its tick already wears. */
+  color: var(--muted);
+  font-size: clamp(0.5rem, 1.9cqw, 0.6rem);
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
-.tempo-scale {
-  display: flex;
-  justify-content: space-between;
-  margin: 0 6px;
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 640;
+.bpm-ticks span.is-passed::after {
+  color: var(--accent);
 }
 
 .cycle-list {
@@ -778,6 +810,16 @@ h1.is-glitching {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
+}
+
+/* Overlay scrollbars draw nothing until a scroll is already under way, and iOS
+   is both where they are unavoidable and where this row is most likely to
+   appear. Without a cue the clipped step reads as a step drawn wrong rather than
+   as more to come, so the trailing edge fades out. It lifts while focus is
+   inside: a keyboard user reaching the last step must see its focus ring at full
+   strength, and by then the affordance has done its job. */
+.steps.is-scrolling:not(:focus-within) {
+  mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
 }
 
 /* A beat is atomic: a row break can only fall between beats, never inside one. */

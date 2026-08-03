@@ -498,6 +498,126 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   }
 });
 
+/**
+ * Reads the beat grouping off the rendered layout: how many beats share each
+ * row, top to bottom. The grouping is only ever expressed as geometry, so
+ * asserting on `--beats-per-row` would test the input rather than the result.
+ */
+async function beatsPerRow(page) {
+  await page.evaluate(() => new Promise((settle) => {
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+  }));
+  return page.evaluate(() => {
+    const perRow = new Map();
+    for (const beat of document.querySelectorAll(".rhythm-card .beat")) {
+      const top = Math.round(beat.getBoundingClientRect().top);
+      perRow.set(top, (perRow.get(top) ?? 0) + 1);
+    }
+    return [...perRow.entries()].sort((a, b) => a[0] - b[0]).map(([, count]) => count);
+  });
+}
+
+async function setSignature(page, count) {
+  await page.getByRole("button", { name: /^Edit \d+\/\d+$/ }).first().click();
+  const numerator = page.getByRole("spinbutton", { name: /meter numerator$/ });
+  await numerator.fill(String(count));
+  await numerator.blur();
+}
+
+async function setSubdivision(page, subdivision) {
+  await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
+  await page.locator(`.subdivision-option[data-subdivision="${subdivision}"]`).click();
+}
+
+/**
+ * A prime beat count has no divisor between one and itself, so the rule's whole
+ * job is to refuse the plausible-looking uneven split. 7/8 must be one row of
+ * seven or seven rows of one, never 4+3.
+ */
+test("a prime meter never splits into unequal rows", async ({ page }) => {
+  await setSignature(page, 7);
+  await expect(page.locator(".rhythm-card .beat")).toHaveCount(7);
+
+  for (const width of [375, 540, 700, 768, 800, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    const rows = await beatsPerRow(page);
+
+    expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
+    expect([7, 1], `${width}px grouped ${rows[0]} beats to a row`).toContain(rows[0]);
+  }
+});
+
+/**
+ * The sixteen-step ceiling is an invariant here rather than a discriminating
+ * case: the shell caps at 1000px, which leaves at most ~966px of row, and
+ * seventeen 58px steps need ~1146px. Width therefore rejects every grouping the
+ * ceiling would have rejected, and no viewport makes the ceiling the deciding
+ * bound. This pins the property anyway — widening the shell or shrinking a step
+ * is exactly the change that would let a thirty-two step row through, and this
+ * is what would notice.
+ */
+for (const { beats, subdivision, steps } of [
+  { beats: 8, subdivision: 4, steps: 32 },
+  { beats: 16, subdivision: 2, steps: 32 },
+  { beats: 32, subdivision: 1, steps: 32 },
+]) {
+  test(`${beats} beats of ${subdivision} never puts more than sixteen steps on a row`, async ({ page }) => {
+    await setSignature(page, beats);
+    if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await expect(page.locator(".rhythm-card .step")).toHaveCount(steps);
+
+    for (const width of [1600, 1024, 540]) {
+      await page.setViewportSize({ width, height: 900 });
+      const rows = await beatsPerRow(page);
+
+      expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
+      expect(
+        rows[0] * subdivision,
+        `${width}px put ${rows[0] * subdivision} steps on a row`,
+      ).toBeLessThanOrEqual(16);
+    }
+  });
+}
+
+/**
+ * When even one beat is wider than the row there is no grouping left to choose,
+ * so the pattern scrolls rather than shrinking the steps. Nothing else asserts
+ * that the fallback both engages and actually scrolls.
+ */
+test("a beat wider than the row scrolls instead of shrinking", async ({ page }) => {
+  // A beat of five is the case the fallback exists for: five 52px steps and
+  // their gaps are 300px, and the narrowest row is 274px.
+  await setSignature(page, 3);
+  await setSubdivision(page, 5);
+  await page.setViewportSize({ width: 320, height: 900 });
+
+  const steps = page.locator(".rhythm-card .steps");
+  await expect(steps).toHaveClass(/is-scrolling/);
+
+  const overflow = await steps.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(overflow.overflowX).toBe("auto");
+  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+
+  // The page itself must not inherit the overflow; only the step row scrolls.
+  const document_ = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(document_.scroll).toBeLessThanOrEqual(document_.client);
+
+  // Overlay scrollbars show nothing at rest, so the fade is the only cue that
+  // the row continues.
+  await expect(steps).not.toHaveCSS("mask-image", "none");
+
+  // ...but it must not dim the focus ring of a step the user has tabbed to.
+  await steps.getByRole("button").last().focus();
+  await expect(steps).toHaveCSS("mask-image", "none");
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 
