@@ -25,6 +25,30 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      # `test/workflow.test.js` checks what this repository decided about its
+      # own workflows — pinned actions, no persisted credentials. actionlint
+      # checks what GitHub will accept: unknown keys, expressions referring to
+      # contexts a trigger does not provide, a `runs-on` label that does not
+      # exist. Neither covers the other. It also runs shellcheck over every
+      # `run:` block, which is why the step below is written to survive it.
+      #
+      # Fetched as a release binary rather than through a third-party action.
+      # Every `uses:` in this file is GitHub-owned, and a linter is not a good
+      # reason to widen that. The version is pinned and the download verified
+      # against the checksum published with that release.
+      - name: Lint workflows
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --output "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --status
+          tar --extract --gzip --file "${archive}" actionlint
+          ./actionlint -color
+          rm -f actionlint "${archive}"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
