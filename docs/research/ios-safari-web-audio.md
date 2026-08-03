@@ -173,16 +173,18 @@ Note that the same `Ambient` category also means **screen lock silences the metr
 
 Owned by the W3C Media WG "Audio Session" spec ([ED](https://w3c.github.io/audio-session/), [TR WD 2024-11-13](https://www.w3.org/TR/audio-session/)). `AudioSessionType` values and WebKit's mapping ([DOMAudioSession.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/audiosession/DOMAudioSession.cpp)):
 
-| `type` | WebKit category | AVAudioSession | Silenced by Ring/Silent switch |
-|---|---|---|---|
-| `auto` (**default**) | `None` → media-type heuristic | `Ambient` for Web Audio | **Yes** |
-| `playback` | `MediaPlayback` | `Playback` | No |
-| `transient` | `AmbientSound` | `Ambient` | Yes |
-| `transient-solo` | `SoloAmbientSound` | `SoloAmbient` | Yes |
-| `ambient` | `AmbientSound` | `Ambient` | Yes |
-| `play-and-record` | `PlayAndRecord` | `PlayAndRecord` | No |
+| `type` | WebKit category | AVAudioSession | Silenced by Ring/Silent switch | Mixes with other audio |
+|---|---|---|---|---|
+| `auto` (**default**) | `None` → media-type heuristic | `Ambient` for Web Audio | **Yes** | Yes |
+| `playback` | `MediaPlayback` | `Playback` | No | **No — interrupts** |
+| `transient` | `AmbientSound` | `Ambient` | Yes | Yes |
+| `transient-solo` | `SoloAmbientSound` | `SoloAmbient` | Yes | No — interrupts |
+| `ambient` | `AmbientSound` | `Ambient` | Yes | Yes |
+| `play-and-record` | `PlayAndRecord` | `PlayAndRecord` | No | Yes |
 
 The spec initialises `[[type]]` to `auto` ([§AudioSession](https://w3c.github.io/audio-session/#audiosession)). The spec itself never mentions the silent switch; the mapping above is only derivable by combining WebKit source with Apple's category documentation.
+
+The last two columns are not two independent facts. `AVAudioSessionCategoryOptionMixWithOthers` is the only thing that makes a nonmixable category mix, and WebKit sets it for `PlayAndRecord` and for no other category ([AudioSessionIOS.mm](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/audio/ios/AudioSessionIOS.mm)) — which is why every row that ignores the Ring/Silent switch also interrupts. Apple states the cost of `playback` outright: *"By default, using this category implies that your app's audio is nonmixable—activating your session will interrupt any other audio sessions which are also nonmixable. To allow mixing for this category, use the `mixWithOthers` option."* ([AVAudioSession.Category.playback](https://developer.apple.com/documentation/avfaudio/avaudiosession/category-swift.struct/playback)). That option is not reachable from `navigator.audioSession`, and it is not an oversight: Jer Noble, in the same bug quoted above, says the two properties cannot be separated at all ([bug 252746 comments 2–3](https://bugs.webkit.org/show_bug.cgi?id=252746)) — *"there's no way to untangle the 'mixable' with 'ignore the mute switch' from one another."* Lifting the mute switch and interrupting the user's other audio are the same purchase.
 
 **Shipped in Safari 16.4 / iOS 16.4** (March 2023) — [WebKit Features in Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/) ("Support for a subset of the AudioSession Web API"), [Safari 16.4 Release Notes](https://developer.apple.com/documentation/safari-release-notes/safari-16_4-release-notes). MDN BCD: `safari: 16.4`, `safari_ios: mirror` ([api/AudioSession.json](https://github.com/mdn/browser-compat-data/blob/main/api/AudioSession.json)).
 
@@ -217,7 +219,15 @@ if ("audioSession" in navigator) navigator.audioSession.type = "playback";
 
 Reading the value back tells you the setter was not no-op'd by the Permissions Policy gate. It tells you nothing about the switch position.
 
-**Failure mode:** silent. **Versions:** all. **Detect:** impossible; mitigate on 16.4+.
+**The mitigation is not free.** Per the table above, `playback` is nonmixable, so claiming it interrupts every other nonmixable session on the device — for a metronome, most plausibly the backing track the user is playing along to. A page that sets the type once at load and leaves it there holds that interruption for its whole life, including every second it is silent. Scope the claim to the interval that has something to claim it for, and hand it back after.
+
+### Reverting to `auto`
+
+**`type` is not a one-way switch.** `auto` maps to `AudioSessionCategory::None`, which is the no-override value rather than a category: the setter clears the override with `setCategoryOverride(None)` and then calls `updateAudioSessionCategoryIfNecessary()`, which re-runs the media-type heuristic in the first code block of this section and lands Web Audio back on `AmbientSound` ([DOMAudioSession.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/audiosession/DOMAudioSession.cpp), [MediaSessionManagerCocoa.mm](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/audio/cocoa/MediaSessionManagerCocoa.mm)). Nothing about the override is sticky and the `AudioContext` does not have to be rebuilt to shed it.
+
+What **could not be sourced** is the other app's side of it: whether an app the claim interrupted actually resumes once the category reverts. Reverting a category is not the same as deactivating the session, and WebKit's deactivation path, `sessionWillEndPlayback`, is gated on `presentationType() == MediaType::Audio` — an `AudioContext`'s presentation type is `WebAudio`, so that path does not apply to it at all. What iOS does for the interrupted app on a bare category change is not answerable from source and needs hardware to settle.
+
+**Failure mode:** silent. **Versions:** all. **Detect:** impossible; mitigate on 16.4+, and give the session back when you stop.
 
 ---
 
@@ -302,6 +312,12 @@ if (m_state != state) {
 
 The spec, by contrast, deliberately suppresses the event when interrupting an already-suspended context: *"If the AudioContext is suspended a statechange event is not fired for privacy reasons to avoid over-sharing user activity - e.g. when a phone call comes in or when the screen gets locked."* ([spec §2.7](https://webaudio.github.io/web-audio-api/#interruption-handling)). WebKit currently diverges here.
 
+**Every transition, but a refused `resume()` is not a transition.** `AudioContext::resumeRendering` parks the promise and returns on the `if (!willBegin)` branch — the not-allowed-to-start case quoted in §1 — without ever calling `setState`, and its failure path returns the same way ([AudioContext.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webaudio/AudioContext.cpp)). Even a call that does reach `setState` is silent unless something actually changed, because the dispatch above is inside `if (m_state != state)` ([BaseAudioContext.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webaudio/BaseAudioContext.cpp)). So a refused or failed resume produces **no event, no rejection, and no state change** — nothing observable whatsoever.
+
+That settles a design question that otherwise looks dangerous: a `statechange` handler that responds by calling `resume()` cannot drive itself in a loop. A refusal is silent, so the handler cannot re-enter through it, and no attempt cap, backoff or rate limit is needed to stop it. Only a genuine transition can run it again.
+
+There is a second divergence from the spec in the same area, and it is the reason the loop question has a different answer on a conforming engine. The editor's draft gives `resume()` a branch that both fires the event and rejects: when `state` is `"suspended"` and `[[control thread state]]` is `"interrupted"`, it fires `statechange` *and* rejects the promise with `InvalidStateError` ([spec `resume()`](https://webaudio.github.io/web-audio-api/#dom-audiocontext-resume)). WebKit implements neither half — no rejection (§1) and no event — so a page written against the spec is told twice about a refused resume, and on iOS is told nothing.
+
 ### `resume()` while interrupted
 
 WebKit's own layout test is the behaviour contract ([audiocontext-state-interrupted-expected.txt](https://github.com/WebKit/WebKit/blob/main/LayoutTests/webaudio/audiocontext-state-interrupted-expected.txt)):
@@ -326,7 +342,9 @@ This is the one that most cleanly matches "no sound, no errors, `state` looks fi
 | [281955](https://bugs.webkit.org/show_bug.cgi?id=281955) | [iOS] AudioContext is not resuming when page is put to foreground — filed by a WebKit engineer; log line *"failed to activate audio session, error: Session activation failed"* | Safari 18 | NEW |
 | [237878](https://bugs.webkit.org/show_bug.cgi?id=237878) | AudioContext is suspended on iOS when page is backgrounded | — | RESOLVED FIXED (2022-03-17) |
 
-The recurring reporter workaround across 283419, 263627 and 202846 is `await ctx.suspend(); await ctx.resume();`, sometimes with a ~250–300 ms delay after the visibility event.
+The recurring reporter workaround is `await ctx.suspend(); await ctx.resume();`, in [bug 283419 comment 3](https://bugs.webkit.org/show_bug.cgi?id=283419) and [bug 263627 comment 3](https://bugs.webkit.org/show_bug.cgi?id=263627). Both describe the `running`-but-frozen case specifically — which is exactly the case that fires no `statechange` at all, the state having never changed, so the cycle has to be driven by something else: a `visibilitychange` handler, or a clock-drift probe of the kind below.
+
+[Bug 202846](https://bugs.webkit.org/show_bug.cgi?id=202846) is often cited alongside those two but carries no such comment. Its only workaround is a delay: *"put the ctx.resume() call … in a setTimeout with about 300ms"* (Jesper van den Ende, 2019-10-11).
 
 **Failure mode:** silent throughout. `statechange` is the only signal for state transitions; for the running-but-dead case there is no signal at all except a frozen `currentTime`.
 
@@ -465,7 +483,7 @@ button.addEventListener("pointerup", (e) => {
 | Gesture log shows `type: "touchstart"` or `pointerdown` with `pointerType: "touch"` | Not an activation-triggering event | §1 |
 | `resume` resolves; `state: "running"`; `currentTime` advances; still no sound | Ring/Silent switch, screen lock, or Control Center volume. Undetectable — set `navigator.audioSession.type = "playback"` and retest | §2 |
 | `state: "interrupted"` in the `statechange` log | Call, other app, background, or lock. Check whether the next transition is `running` (auto-resumed) or `suspended` (you must resume) | §4 |
-| `state: "running"` but `frozen: true` | Known open WebKit bug family (283419 / 263627 / 291892). Workaround: `await ctx.suspend(); await ctx.resume();` | §4 |
+| `state: "running"` but `frozen: true` | Known open WebKit bug family (283419 / 263627 / 291892), and the one case that fires no `statechange`. Workaround, reported in 283419 and 263627 only: `await ctx.suspend(); await ctx.resume();` | §4 |
 | `ctxAdvance` tracks `wallAdvance` but your transport origin predates the first `running` transition | Events computed in the past; `stop` before `start` plays nothing | §3 |
 | `sampleRate` differs from the value logged at construction | Route change (Bluetooth/headphones); rebuild the context | §6 |
 | `audioSession: "unsupported"` | iOS < 16.4, or the API was removed by Permissions Policy / site quirk | §2 |
@@ -503,5 +521,6 @@ Recorded so they are not repeated as fact:
 - **Switching between Safari tabs putting an `AudioContext` into `interrupted`.** Asserted by [MDN](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/state) and by bug reporters ([202846](https://bugs.webkit.org/show_bug.cgi?id=202846)), but no corresponding WebKit code path was found: `InterruptionType::PageNotVisible` is declared with no call sites, and `BackgroundTabPlaybackRestricted` is enforced only for media elements. Likely mediated by generic page suspension rather than a tab-visibility rule.
 - **A WebKit blog post or WWDC session explaining the Web Audio gesture requirement or `navigator.audioSession` in depth.** Does not exist. [New `<video>` Policies for iOS](https://webkit.org/blog/6784/new-video-policies-for-ios/) and [Auto-Play Policy Changes for macOS](https://webkit.org/blog/7734/auto-play-policy-changes-for-macos/) cover media elements only and never mention Web Audio. The only first-party prose about `audioSession` is a one-line release-note entry; everything else is source code and Bugzilla.
 - **The exact iOS version at which `type="playback"` began defeating the silent switch.** Code says 16.4; the one first-party statement says "iOS 17". Unresolved.
+- **Whether an app interrupted by a `playback` claim resumes when the page reverts to `auto`.** The revert itself is sourced (§2): `auto` is `AudioSessionCategory::None`, which clears the override and re-runs the heuristic. What is not sourced is the other app's side of it. Reverting a category is not deactivating the session, and WebKit's `sessionWillEndPlayback` deactivation path is gated on `presentationType() == MediaType::Audio`, which an `AudioContext` (`WebAudio`) never satisfies. Needs hardware.
 - **A documented "too many concurrent nodes ⇒ silence" behaviour in WebKit.** None found; the only numeric guards are channel counts and periodic-wave size, which throw.
 - **Whether iOS 26.2 fixes [bug 291892](https://bugs.webkit.org/show_bug.cgi?id=291892).** A reporter comment only; no Apple or WebKit confirmation.
