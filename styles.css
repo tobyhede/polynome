@@ -425,17 +425,24 @@ h1 {
 /* One stacked layout at every width — the arrangement never reflows, it only
    scales. The card still spans the shell so it lines up with the rhythm cards,
    while its contents sit in a single centred column that stops widening once
-   there is more room than the controls can use. The card is also the size
-   container every `cqw` below resolves against: under a 500px column those
+   there is more room than the controls can use. The card is the size container
+   every `cqw` in the rules below resolves against: under a 500px column those
    units track the column exactly, and above it the `min()`/`clamp()` ceilings
-   take over so nothing keeps growing with the empty space beside the column. */
+   take over so nothing keeps growing with the empty space beside the column.
+
+   The card's own gap and padding are the exception, and are written in `vw` to
+   say so. A container cannot query itself — the size it would resolve against
+   is the size those declarations set — so `cqw` here would silently mean the
+   nearest ancestor container, or the viewport when there is none. Since the
+   card tracks the shell up to its cap and both reach the 20px ceiling above it,
+   the viewport is the honest spelling of what these already do. */
 .transport {
   display: grid;
   grid-template-columns: minmax(0, 500px);
-  gap: clamp(14px, 4cqw, 20px);
+  gap: clamp(14px, 4vw, 20px);
   justify-content: center;
   justify-items: stretch;
-  padding: clamp(14px, 4cqw, 20px);
+  padding: clamp(14px, 4vw, 20px);
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--card);

@@ -167,8 +167,6 @@ function renderTransport() {
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
   const glitchIntensity = Math.min(1, Math.max(0, (state.bpm - 250) / 50));
-  const width = pixelSize * 0.86 * 3;
-  const labelMargin = 6.5 - pixelSize * 0.255;
   // Every length the readout uses is offered twice: the design value, and the
   // same value as a share of the transport card. The card is the size container,
   // and 1cqw is 5px at the 500px column this was drawn against, so taking the
@@ -180,11 +178,18 @@ function renderTransport() {
   const readout = elements.bpmReadout.style;
   readout.setProperty("--bpm-left", `calc(${progress * 100}% + ${(0.5 - progress) * 22}px)`);
   readout.setProperty("--bpm-size", `min(${size}rem, ${cq(pixelSize)})`);
-  readout.setProperty("--bpm-width", fit(width));
+  // Derived from the resolved glyph size rather than recomputed in pixels. Both
+  // branches of `--bpm-size` above are the same length as `pixelSize` while the
+  // root is the 16px this was drawn against, so these are the values the pixel
+  // arithmetic used to produce — but they stay the width of the digits when a
+  // reader raises their browser's default text size and the `rem` branch grows.
+  // Everything the box does depends on that: it centres the number over its own
+  // point of the track, and `--bpm-half` is what holds it inside the card.
+  readout.setProperty("--bpm-width", "calc(var(--bpm-size) * 0.86 * 3)");
   // Half the width, which is how far from either end of the track the CSS has
   // to hold the number to keep it fully inside the card.
-  readout.setProperty("--bpm-half", fit(width / 2));
-  readout.setProperty("--bpm-label-margin", fit(labelMargin));
+  readout.setProperty("--bpm-half", "calc(var(--bpm-size) * 0.86 * 1.5)");
+  readout.setProperty("--bpm-label-margin", fit(6.5 - pixelSize * 0.255));
   const glitchTargets = [elements.bpm, elements.heading];
   glitchTargets.forEach((target) => {
     target.classList.toggle("is-glitching", glitchIntensity > 0);

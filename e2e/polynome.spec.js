@@ -631,3 +631,111 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   }));
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 });
+
+async function settleLayout(page) {
+  await page.evaluate(() => new Promise((settle) => {
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+  }));
+}
+
+/**
+ * The readout is a box positioned over the tempo it names, so its width has to
+ * be the width of the digits inside it: the box is what centres the number on
+ * its own point of the track, and what `--bpm-half` measures to keep it inside
+ * the card.
+ *
+ * A reader who raises their browser's default text size is what pulls the two
+ * apart. The glyphs are sized in `rem` and grow; a width computed in pixels
+ * from an assumed 16px root does not.
+ */
+test("the tempo readout fits its digits at an enlarged root text size", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.addStyleTag({ content: "html { font-size: 24px }" });
+  await page.getByLabel("Tempo in beats per minute").fill("300");
+  await settleLayout(page);
+
+  const readout = await page.locator("#bpm-readout").evaluate((element) => ({
+    box: element.getBoundingClientRect().width,
+    digits: element.querySelector("input").scrollWidth,
+  }));
+
+  expect(readout.box).toBeGreaterThanOrEqual(readout.digits);
+});
+
+/**
+ * `container-type` makes the transport card a query container for what is
+ * inside it, never for itself — a container's own declarations cannot query the
+ * size those declarations would change. So the card's own spacing resolves
+ * against the viewport while its contents resolve against the card.
+ *
+ * The 4% and 13% below deliberately mirror the stylesheet: the question this
+ * asks is not what the percentages are but which box each one applies to, and
+ * the `not` assertions are what make it an answer rather than a restatement.
+ * Below about 500px the two candidates straddle the clamps and disagree, which
+ * is the only place the difference is observable.
+ */
+test("transport spacing follows the viewport and its contents follow the card", async ({ page }) => {
+  await page.setViewportSize({ width: 420, height: 900 });
+  await settleLayout(page);
+
+  const measured = await page.evaluate(() => {
+    const card = document.querySelector(".transport");
+    const style = getComputedStyle(card);
+    return {
+      viewportWidth: window.innerWidth,
+      cardWidth: card.clientWidth
+        - parseFloat(style.paddingLeft)
+        - parseFloat(style.paddingRight),
+      padding: parseFloat(style.paddingTop),
+      playHeight: parseFloat(getComputedStyle(document.querySelector(".play-button")).height),
+    };
+  });
+
+  const clamp = (low, value, high) => Math.min(high, Math.max(low, value));
+  const share = (percent, of) => (percent * of) / 100;
+
+  expect(measured.cardWidth).toBeLessThan(measured.viewportWidth);
+  expect(measured.padding).toBeCloseTo(clamp(14, share(4, measured.viewportWidth), 20), 1);
+  expect(measured.padding).not.toBeCloseTo(clamp(14, share(4, measured.cardWidth), 20), 1);
+  expect(measured.playHeight).toBeCloseTo(clamp(48, share(13, measured.cardWidth), 60), 1);
+  expect(measured.playHeight).not.toBeCloseTo(clamp(48, share(13, measured.viewportWidth), 60), 1);
+});
+
+/**
+ * The readout travels the width of the track and grows with the tempo, so the
+ * two ends are where it can hang off the card. Nothing else pins that: the
+ * inline padding that used to reserve room for it is gone, and `--bpm-half`
+ * now holds it half its own width inside either end instead.
+ */
+test("the travelling tempo readout stays inside the transport card", async ({ page }) => {
+  for (const width of [320, 375, 540, 800, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const bpm of [30, 96, 300]) {
+      await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
+      await settleLayout(page);
+
+      const { readout, card, page: viewport } = await page.evaluate(() => {
+        const box = (selector) => {
+          const { left, right } = document.querySelector(selector).getBoundingClientRect();
+          return { left, right };
+        };
+        return {
+          readout: box("#bpm-readout"),
+          card: box(".transport"),
+          page: {
+            client: document.documentElement.clientWidth,
+            scroll: document.documentElement.scrollWidth,
+          },
+        };
+      });
+
+      const where = `${width}px at ${bpm}bpm`;
+      expect(readout.left, `${where} overhangs the card on the left`)
+        .toBeGreaterThanOrEqual(card.left);
+      expect(readout.right, `${where} overhangs the card on the right`)
+        .toBeLessThanOrEqual(card.right);
+      expect(viewport.scroll, `${where} widened the page`)
+        .toBeLessThanOrEqual(viewport.client);
+    }
+  }
+});
