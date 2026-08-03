@@ -160,6 +160,108 @@ test("Meter fields accept direct entry and recover accessibly from invalid input
   );
 });
 
+/**
+ * The status region announces a rejection once. A musician who returns to the
+ * field afterwards needs the requirement to still be reachable from the field
+ * itself, which is what marking it invalid and describing it provides.
+ */
+test("a rejected Meter field is marked invalid and describes the requirement", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await expect(denominator).not.toHaveAttribute("aria-invalid", "true");
+
+  await denominator.fill("0");
+  await denominator.press("Enter");
+
+  const rejected = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await expect(rejected).toHaveAttribute("aria-invalid", "true");
+  const description = await rejected.getAttribute("aria-describedby");
+  await expect(page.locator(`#${description}`)).toHaveText(
+    "Meter denominator must be a whole number from 1 to 32",
+  );
+  await expect(page.getByRole("textbox", { name: "4/4 meter numerator" })).not.toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+
+  await rejected.fill("3");
+  await rejected.press("Enter");
+
+  await expect(page.getByRole("textbox", { name: "4/3 meter denominator" })).not.toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+});
+
+test("Subdivision options name a non-dyadic signature unit", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await denominator.fill("3");
+  await denominator.press("Enter");
+
+  await page.getByRole("button", { name: "4/3 subdivision" }).click();
+
+  await expect(page.getByRole("option", { name: "3 per 1/3 unit · triplet" })).toBeVisible();
+});
+
+/**
+ * Tab commits whatever the musician typed, but passing through a field they
+ * never touched is navigation, not an edit. Committing anyway would announce a
+ * Meter that did not change and rebuild the cycles under the moving focus.
+ */
+test("Tab through an unedited Meter field commits nothing", async ({ page }) => {
+  const status = page.locator("#status");
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await expect(status).toHaveText("Stopped");
+
+  await page.getByRole("textbox", { name: "4/4 meter numerator" }).press("Tab");
+
+  await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).toBeFocused();
+  await expect(status).toHaveText("Stopped");
+});
+
+test("closing rhythm settings clears a Meter rejection", async ({ page }) => {
+  const editRhythm = page.getByRole("button", { name: "Edit 4/4", exact: true });
+  await editRhythm.click();
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await denominator.fill("0");
+  await denominator.press("Enter");
+  await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+
+  await editRhythm.click();
+  await editRhythm.click();
+
+  await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).not.toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+});
+
+/**
+ * The status region is the only place a rejected Meter is reported, and it is
+ * shared with the transport state. A message left behind after the musician
+ * corrects the value would keep asserting the Meter is invalid.
+ */
+test("a corrected Meter replaces the invalid-value message", async ({ page }) => {
+  const status = page.locator("#status");
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await denominator.fill("0");
+  await denominator.press("Enter");
+  await expect(status).toHaveText("Meter denominator must be a whole number from 1 to 32");
+
+  const corrected = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await corrected.fill("3");
+  await corrected.press("Enter");
+
+  await expect(page.getByRole("button", { name: "4/3 Edit 4/3 rhythm" })).toBeVisible();
+  await expect(status).toHaveText("Meter 4/3");
+});
+
 test("Tab commits a Meter numerator and continues to the denominator", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const numerator = page.getByRole("textbox", { name: "4/4 meter numerator" });
