@@ -56,11 +56,13 @@ Install development dependencies and the managed browser once with `npm install`
 
 Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`.
 
-Browser interaction changes must update `e2e/` when the behavior is observable there. Also manually verify the audio-specific behavior Playwright cannot assess:
+Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
+
+Also manually verify the audio-specific behavior Playwright cannot assess:
 
 1. Presets `4/4` and `4/4 + 3/4` sound as configured.
-2. Headphone separation at hard left and hard right.
-3. Full, half, quarter, and off levels sound progressively quieter.
+2. Headphone separation at hard left and hard right through physical output.
+3. Full, half, quarter, and off levels are perceptually distinguishable, not merely correctly scaled.
 4. Signature and pulse edits restart cleanly while playing.
 
 ## Product boundaries
