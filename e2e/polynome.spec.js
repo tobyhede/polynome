@@ -193,6 +193,34 @@ test("a rejected Meter field is marked invalid and describes the requirement", a
   );
 });
 
+/**
+ * The widest grid the interface can produce, and the sequence the screenshot
+ * workflow drives to reach it. That workflow is deliberately outside
+ * `npm run check`, so entering a Meter and a Subdivision has to be covered
+ * here or a change to either control rots it unnoticed.
+ */
+test("the widest rhythm grid is reachable by entering a Meter and a Subdivision", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+
+  const numerator = page.getByRole("textbox", { name: "4/4 meter numerator" });
+  await numerator.fill("7");
+  await numerator.press("Tab");
+
+  const denominator = page.getByRole("textbox", { name: "7/4 meter denominator" });
+  await denominator.fill("8");
+  await denominator.press("Enter");
+  await expect(page.getByRole("button", { name: "Edit 7/8", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "7/8 subdivision" }).click();
+  await page.getByRole("option").last().click();
+
+  await expect(
+    page.getByRole("group", { name: "7/8 step levels" }).getByRole("button"),
+  ).toHaveCount(35);
+});
+
 test("Subdivision options name a non-dyadic signature unit", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });

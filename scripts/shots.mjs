@@ -91,7 +91,9 @@ const STATES = [
       await signatureCount.fill("7");
       await signatureCount.press("Tab");
       await page.locator(".rhythm-card .step").nth(6).waitFor();
-      await settings.locator('[data-field="signature-unit"]').selectOption("8");
+      const signatureUnit = settings.locator('[data-field="signature-unit"]');
+      await signatureUnit.fill("8");
+      await signatureUnit.press("Tab");
       await page.getByRole("button", { name: "Edit 7/8", exact: true }).waitFor();
       await settings.locator('[data-action="toggle-subdivision-menu"]').click();
       await page.locator(".subdivision-option").last().click();
