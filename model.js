@@ -25,12 +25,13 @@ const STEP_LEVELS = lookup({
  * The shared musical vocabulary. `model.js` is the single definition; every
  * other module imports these rather than restating the literals.
  *
- * Tempo is always interpreted as quarter-note BPM, so `60 / bpm` is a quarter
- * note in seconds throughout this module regardless of any meter's unit.
+ * Tempo names the shared primary beat rate. Every rhythm layer receives one
+ * signature-unit beat per `60 / bpm` seconds; Subdivision alone divides that
+ * duration into Pattern positions.
  */
-export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
+export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 16 });
 
-export const METER_UNIT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
+export const METER_UNITS = Object.freeze([1, 2, 4, 8]);
 
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
 
@@ -61,24 +62,18 @@ export function normaliseNumber(value, fallback, min, max) {
 }
 
 /**
- * A Meter denominator names a division of a whole note, so a fraction of one
- * has no meaning and clamping an out-of-range value would invent a Meter the
- * musician never wrote. Anything but a whole number in range falls back.
+ * A Meter denominator is one of the conventional written units the interface
+ * offers. Stored values outside that finite vocabulary fall back rather than
+ * being coerced into a different Meter.
  */
 export function normaliseMeterUnit(value, fallback = 4) {
   const parsed = numericValue(value);
-  return Number.isInteger(parsed) &&
-    parsed >= METER_UNIT_LIMIT.minimum &&
-    parsed <= METER_UNIT_LIMIT.maximum
-    ? parsed
-    : fallback;
+  return METER_UNITS.includes(parsed) ? parsed : fallback;
 }
 
 /**
- * Both take and return `BigInt` only. A Cycle span is the exact least common
- * multiple of its Meters' lengths as fractions, which a double cannot hold
- * once a non-dyadic denominator is involved; mixing a `Number` in here throws
- * rather than silently rounding.
+ * Both take and return `BigInt` only so a Cycle span's least common multiple
+ * remains exact until its final conversion to seconds.
  */
 function greatestCommonDivisor(left, right) {
   let a = left < 0n ? -left : left;
@@ -97,56 +92,29 @@ export function cycleSpanSeconds(bpm, cycle) {
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  const meterDurations = rhythms.map((rhythm) => {
-    const count = Math.round(
-      normaliseNumber(
-        rhythm.signature?.count,
-        4,
-        METER_COUNT_LIMIT.minimum,
-        METER_COUNT_LIMIT.maximum,
-      ),
-    );
-    const unit = normaliseMeterUnit(rhythm.signature?.unit);
-    const numerator = BigInt(count * 4);
-    const denominator = BigInt(unit);
-    const divisor = greatestCommonDivisor(numerator, denominator);
-    return {
-      numerator: numerator / divisor,
-      denominator: denominator / divisor,
-    };
-  });
-  const spanNumerator = meterDurations
-    .map(({ numerator }) => numerator)
+  const spanInBeats = rhythms
+    .map((rhythm) => {
+      const count = Math.round(
+        normaliseNumber(
+          rhythm.signature?.count,
+          4,
+          METER_COUNT_LIMIT.minimum,
+          METER_COUNT_LIMIT.maximum,
+        ),
+      );
+      return BigInt(count);
+    })
     .reduce(leastCommonMultiple);
-  const spanDenominator = meterDurations
-    .map(({ denominator }) => denominator)
-    .reduce(greatestCommonDivisor);
-  const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
-  // Where the exactness stops. The span is a `Number` from here on, so the
-  // arithmetic above is only worth its `BigInt` if the numerator it produces is
-  // one a double still holds exactly.
-  //
-  // It is, by the limits: a Meter is `count × 4 / unit` quarter notes, and
-  // reduced, an odd numerator needs the denominator to absorb both factors of
-  // two, which caps it at `count`. So odd numerators stop at 31 and even ones at
-  // 128, and the prime powers reachable inside that are 2⁷, 3³, 5², and each
-  // prime from 7 to 31. Eleven factors, within the twelve rhythm layers a
-  // Sequence allows, and no twelfth adds one:
-  //
-  //   128 × 27 × 25 × 7 × 11 × 13 × 17 × 19 × 23 × 29 × 31 ≈ 5.8 × 10¹⁴
-  //
-  // Comfortably inside 2⁵³. Raising METER_UNIT_LIMIT, METER_COUNT_LIMIT or the
-  // layer limit is what would move that, and it is worth redoing this sum then.
-  return (Number(spanNumerator) / Number(spanDenominator)) * quarterSeconds;
+  const beatSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
+  return Number(spanInBeats) * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
-  const unit = normaliseMeterUnit(rhythm?.signature?.unit);
   const subdivision = Math.round(
     normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
   );
-  return ((60 / safeBpm) * (4 / unit)) / subdivision;
+  return 60 / safeBpm / subdivision;
 }
 
 const UNIT_NAMES = lookup({
@@ -173,9 +141,10 @@ const SUBDIVISION_HINTS = lookup({
  *
  * Only dyadic denominators have conventional note-value names. Any other
  * denominator in range is still a Meter a musician can enter, so it is named
- * by the duration it stands for — `1/denominator` of a whole note — which
- * keeps a /3 unit distinguishable from a /5 one. "signature" remains for a
- * unit that is not a whole number at all.
+ * by its written fraction — `1/denominator` — which keeps a /3 unit
+ * distinguishable from a /5 one without implying that the denominator changes
+ * the primary beat duration. "signature" remains for a unit that is not a
+ * whole number at all.
  */
 export function subdivisionLabel(subdivision, unit) {
   const unitName = UNIT_NAMES[unit] || (Number.isInteger(unit) ? `1/${unit}` : "signature");

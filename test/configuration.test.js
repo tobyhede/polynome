@@ -471,7 +471,7 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   assert.equal(simpler.consequence, "restart-transport-run");
 });
 
-test("a non-dyadic Meter denominator preserves the meter-relative grid", () => {
+test("a conventional Meter denominator edit preserves the grid and transport run", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -494,14 +494,14 @@ test("a non-dyadic Meter denominator preserves the meter-relative grid", () => {
     type: "set-meter-unit",
     cycleId: cycle.id,
     rhythmId: rhythm.id,
-    unit: 3,
+    unit: 8,
   });
 
   assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0], {
     ...rhythm,
-    signature: { count: 2, unit: 3 },
+    signature: { count: 2, unit: 8 },
   });
-  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.consequence, "update-configuration");
 });
 
 test("advancing a Step level cycles the levels and preserves the transport run", () => {
@@ -571,6 +571,8 @@ test("Configuration description exposes domain choices and unavailable final rem
 
   assert.deepEqual(description.choices, {
     presetNames: ["4/4", "4/4 + 3/4"],
+    meterCounts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    meterUnits: [1, 2, 4, 8],
     subdivisions: [1, 2, 3, 4, 5],
     sounds: ["high", "low", "wood"],
     stepLevels: ["off", "quarter", "half", "full"],
@@ -800,15 +802,15 @@ test("generated identifiers survive repeated Configuration repair", () => {
   assert.equal(repaired.sequence.cycles[0].rhythms[0].id, "layer-abc123-8");
 });
 
-test("stored Meter denominators accept integers in range and repair other values", () => {
-  const units = [3, 0, 2.5, "nope", 33].map(
+test("stored Meter denominators accept offered units and repair other values", () => {
+  const units = [8, 3, 0, 2.5, "nope", 16].map(
     (unit) =>
       createConfiguration({
         sequence: { cycles: [{ rhythms: [{ signature: { count: 4, unit } }] }] },
       }).sequence.cycles[0].rhythms[0].signature.unit,
   );
 
-  assert.deepEqual(units, [3, 4, 4, 4, 4]);
+  assert.deepEqual(units, [8, 4, 4, 4, 4, 4]);
 });
 
 test("duplicate generated identifiers are still de-duplicated", () => {
@@ -845,7 +847,7 @@ test("every edit outcome returns a repaired Configuration", () => {
   const repaired = createConfiguration(stored);
   assert.equal(repaired.bpm, 300);
   assert.equal(repaired.sequence.cycles[0].repetitions, 1);
-  assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 32);
+  assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 16);
 
   const outcomes = [
     [{ type: "remove-cycle", cycleId: "cycle-stored-1" }, "sequence-requires-cycle"],
@@ -933,7 +935,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
-    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 0 },
+    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 2 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "clap" },
@@ -957,7 +959,11 @@ test("both Meter components reject invalid committed values consistently", () =>
     ["set-meter-count", "count"],
     ["set-meter-unit", "unit"],
   ]) {
-    for (const value of ["", "2.5", "not-a-number", "0", "-1", "33"]) {
+    const values =
+      type === "set-meter-count"
+        ? ["", "2.5", "not-a-number", "0", "-1", "17"]
+        : ["", "2.5", "not-a-number", "0", "-1", "3", "16"];
+    for (const value of values) {
       const result = changeConfiguration(configuration, {
         type,
         cycleId: cycle.id,
@@ -975,9 +981,9 @@ test("both Meter components reject invalid committed values consistently", () =>
 /**
  * Every edit carrying a value from a control parses it the same way, and that
  * way is `Number`, which reads hex, binary, octal and exponent literals. Meter
- * denominators are where it started to matter: the control was a `<select>` and
- * is now free text advertising `[0-9]*`, so `0x10` is now typeable and would
- * commit as 16. The rule is shared, so tempo is here to say so.
+ * Select controls constrain Meter entry, while Configuration remains strict at
+ * its boundary so programmatic callers cannot smuggle alternate numeric syntax
+ * into the same edits. The rule is shared, so tempo is here to say so.
  *
  * Surrounding space is not one of these: a pasted value is a plain numeral with
  * something around it, and refusing it would only puzzle whoever pasted it.

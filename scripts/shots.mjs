@@ -83,21 +83,19 @@ const STATES = [
   },
   {
     name: "wide-pattern",
-    note: "7/8 at maximum subdivision — the widest rhythm grid",
+    note: "16/8 at maximum subdivision — the widest rhythm grid",
     async prepare(page) {
       await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
       const settings = page.locator(".rhythm-settings").first();
       const signatureCount = settings.locator('[data-field="signature-count"]');
-      await signatureCount.fill("7");
-      await signatureCount.press("Tab");
-      await page.locator(".rhythm-card .step").nth(6).waitFor();
+      await signatureCount.selectOption("16");
+      await page.locator(".rhythm-card .step").nth(15).waitFor();
       const signatureUnit = settings.locator('[data-field="signature-unit"]');
-      await signatureUnit.fill("8");
-      await signatureUnit.press("Tab");
-      await page.getByRole("button", { name: "Edit 7/8", exact: true }).waitFor();
+      await signatureUnit.selectOption("8");
+      await page.getByRole("button", { name: "Edit 16/8", exact: true }).waitFor();
       await settings.locator('[data-action="toggle-subdivision-menu"]').click();
       await page.locator(".subdivision-option").last().click();
-      await page.locator(".rhythm-card .step").nth(34).waitFor();
+      await page.locator(".rhythm-card .step").nth(79).waitFor();
     },
   },
   {

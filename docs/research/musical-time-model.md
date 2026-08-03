@@ -1,5 +1,9 @@
 # Musical-time model for Polynome
 
+> **Superseded timing decision:** This document records the earlier fixed-
+> quarter-note model. Polynome now defines BPM as the shared primary-click rate;
+> see [Meter validity and tempo reference](meter-validity-and-tempo-reference.md).
+
 > **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four amplitude-only step levels express emphasis: off, quarter, half, and full. Existing local state is hard-reset without migration or schema-version machinery.
 
 ## Conclusion

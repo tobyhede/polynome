@@ -291,7 +291,7 @@ test("5/4 with one pulse per quarter plans five positions per meter", () => {
   );
 });
 
-test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
+test("7/8 at 60 BPM plans seven primary beats one second apart", () => {
   const layer = createLayer({
     id: "seven-eight",
     signature: { count: 7, unit: 8 },
@@ -302,57 +302,30 @@ test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
   transport.start(sequence(60, [layer]), 0);
 
   assert.deepEqual(
-    transport.plan(0, 3.5).map((event) => event.audioTime),
-    [0, 0.5, 1, 1.5, 2, 2.5, 3],
+    transport.plan(0, 7).map((event) => event.audioTime),
+    [0, 1, 2, 3, 4, 5, 6],
   );
 });
 
 /**
- * Every other Meter here is `/4` or `/8`, which sit on the fixed note lattice
- * the Cycle span used to be measured against. A `/3` unit does not, and this is
- * where that has to hold: the span is exact rational arithmetic, but it reaches
- * the scheduler as a double and is divided by a step duration that is also one.
- *
- * At 60bpm a quarter note is one second. A `/3` signature unit is a third of a
- * whole note, so `4/3` of a quarter — 4/3 seconds — and the Meter is four of
- * them, 16/3 seconds. Against a `2/4` Meter of 2 seconds, the two share a span
- * at 16 seconds: three `4/3` Meters and eight `2/4` Meters, both landing on a
- * downbeat there and nowhere earlier.
+ * BPM names the shared primary beat. The denominator describes that beat in
+ * the written Meter but does not give one layer a faster clock than another.
+ * Numerators still determine when independently repeating Meters return to a
+ * downbeat together.
  */
-test("a non-dyadic Meter schedules its own unit and shares a Cycle span", () => {
-  const third = createLayer({ id: "four-three", signature: { count: 4, unit: 3 } });
+test("different Meter denominators share the primary beat and numerator span", () => {
+  const whole = createLayer({ id: "four-one", signature: { count: 4, unit: 1 } });
   const quarter = createLayer({ id: "two-four", signature: { count: 2, unit: 4 } });
   const transport = new SharedTransport();
   const at = (time) => Number(time.toFixed(6));
 
-  transport.start(sequence(60, [third, quarter]), 0);
-  const events = transport.plan(0, 17);
+  transport.start(sequence(60, [whole, quarter]), 0);
+  const events = transport.plan(0, 5);
   const times = (id) =>
     events.filter((event) => event.layerId === id).map((event) => at(event.audioTime));
 
-  assert.deepEqual(
-    times("four-three"),
-    [
-      0,
-      4 / 3,
-      8 / 3,
-      4,
-      16 / 3,
-      20 / 3,
-      8,
-      28 / 3,
-      32 / 3,
-      12,
-      40 / 3,
-      44 / 3,
-      // The shared span, which is also the next Meter's downbeat.
-      16,
-    ].map(at),
-  );
-  assert.deepEqual(times("two-four"), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-  // Nothing between the two downbeats coincides, or the span would be shorter.
-  const shared = times("four-three").filter((time) => times("two-four").includes(time));
-  assert.deepEqual(shared, [0, 4, 8, 12, 16]);
+  assert.deepEqual(times("four-one"), [0, 1, 2, 3, 4]);
+  assert.deepEqual(times("two-four"), [0, 1, 2, 3, 4]);
 });
 
 test("a computed fractional event exactly at the horizon remains excluded", () => {
@@ -367,13 +340,13 @@ test("a computed fractional event exactly at the horizon remains excluded", () =
   transport.start(sequence(30, [layer]), 12345.678);
 
   assert.deepEqual(
-    transport.plan(12345.67, 12351.011333333334).map((event) => ({
+    transport.plan(12345.67, 12347.011333333334).map((event) => ({
       absoluteStep: event.absoluteStep,
       audioTime: event.audioTime,
     })),
     [
       { absoluteStep: 0, audioTime: 12345.678 },
-      { absoluteStep: 1, audioTime: 12348.344666666666 },
+      { absoluteStep: 1, audioTime: 12346.344666666666 },
     ],
   );
 });
@@ -565,7 +538,7 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   transport.start(sequence(96, [layer]), 0.06);
   const event = transport.plan(0, 1).find((candidate) => candidate.absoluteStep === 2);
 
-  assert.equal(event.audioTime, 0.8933333333333333);
+  assert.equal(event.audioTime, 0.4766666666666667);
   assert.equal(event.patternPosition, 2);
   assert.equal(
     transport.patternPosition("fractional-playhead", event.audioTime),

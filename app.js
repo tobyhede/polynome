@@ -8,7 +8,7 @@ import {
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
-import { METER_COUNT_LIMIT, METER_UNIT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
+import { panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
@@ -74,17 +74,12 @@ function focusWithin(root, selector) {
 
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
-/**
- * The Meter field a committed edit rejected, as `{rhythmId, field}`. Rebuilding
- * the cycles markup discards any attribute set on the live input, so the
- * invalid marking has to be state the template reads rather than something
- * written to the element the musician was editing.
- */
-let invalidMeter = null;
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
+  meterCounts: METER_COUNTS,
+  meterUnits: METER_UNITS,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
@@ -161,11 +156,6 @@ const persistence = createPersistence({
 });
 
 function applyEdit(edit, options = {}) {
-  // The marking outlives one edit and no more: it describes the entry the
-  // musician last committed, and this is that commit. The Meter handler is the
-  // only thing that sets it, and it does so after this returns, so clearing
-  // here leaves a rejection standing and retires every other kind of edit's.
-  invalidMeter = null;
   const result = changeConfiguration(state, edit);
   state = result.configuration;
   description = describeConfiguration(state);
@@ -662,56 +652,28 @@ function rhythmTemplate(rhythm, cycle) {
   `;
 }
 
-/**
- * Both Meter components take free text rather than a number input: a number
- * input reports a rejected entry as an empty string, which would leave the
- * musician's own value unrecoverable and every malformed entry reading alike.
- * `inputmode` and `pattern` keep the numeric keypad on a touch keyboard.
- */
-function meterFieldTemplate(rhythm, field, value, name) {
-  const invalid = invalidMeter?.rhythmId === rhythm.id && invalidMeter.field === field;
-  const described = invalid
-    ? ` aria-invalid="true" aria-describedby="${meterMessageId(rhythm)}"`
-    : "";
-  return `<input type="text" inputmode="numeric" pattern="[0-9]*" value="${value}" data-field="${field}" aria-label="${name}"${described} />`;
-}
-
-function meterMessageId(rhythm) {
-  return `rhythm-${rhythm.id}-meter-message`;
-}
-
-function meterLimitMessage(field) {
-  const numerator = field === "signature-count";
-  const limit = numerator ? METER_COUNT_LIMIT : METER_UNIT_LIMIT;
-  const component = numerator ? "numerator" : "denominator";
-  return `Meter ${component} must be a whole number from ${limit.minimum} to ${limit.maximum}`;
+function meterFieldTemplate(field, value, name, choices) {
+  return `
+    <select data-field="${field}" aria-label="${name}">
+      ${choices.map((choice) => `<option value="${choice}"${choice === value ? " selected" : ""}>${choice}</option>`).join("")}
+    </select>
+  `;
 }
 
 function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
-  // Visible, not `sr-only`: `#status` announces the rejection once and to a
-  // screen reader alone, so this is the whole of what a musician watching the
-  // screen has to go on. It carries the description the marked field points at,
-  // which is why the two are rendered from the same state.
-  const meterMessage =
-    invalidMeter?.rhythmId === rhythm.id
-      ? `<span id="${meterMessageId(rhythm)}" class="field-message">${meterLimitMessage(invalidMeter.field)}</span>`
-      : "";
   return `
     <div class="timing-settings">
-      <div class="meter-control">
-        <label class="control-label">
-          <span>Signature</span>
-          <span class="signature-input">
-            ${meterFieldTemplate(rhythm, "signature-count", rhythm.signature.count, `${label} meter numerator`)}
-            <span aria-hidden="true">/</span>
-            ${meterFieldTemplate(rhythm, "signature-unit", rhythm.signature.unit, `${label} meter denominator`)}
-          </span>
-        </label>
-        ${meterMessage}
-      </div>
+      <label class="control-label">
+        <span>Signature</span>
+        <span class="signature-input">
+          ${meterFieldTemplate("signature-count", rhythm.signature.count, `${label} meter numerator`, METER_COUNTS)}
+          <span aria-hidden="true">/</span>
+          ${meterFieldTemplate("signature-unit", rhythm.signature.unit, `${label} meter denominator`, METER_UNITS)}
+        </span>
+      </label>
 
       <div class="control-label subdivision-control">
         <span>Subdivision</span>
@@ -927,9 +889,6 @@ function toggleRhythmSettings(rhythmId, activatingToggle = null) {
       : null;
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
-  // The rejected entry is gone with the drawer, so its marking must not outlive
-  // it and reappear against the value the Meter actually holds.
-  if (invalidMeter?.rhythmId === rhythmId) invalidMeter = null;
   renderCycles();
   if (toggleSelector) {
     const rhythmCard = elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"]`);
@@ -1289,64 +1248,27 @@ elements.cycles.addEventListener("change", (event) => {
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
   let result = null;
-  // The invalid marking is template state, so the edit defers its render until
-  // that state is settled and the rebuilt field can carry the right attributes.
   if (field === "signature-count") {
-    result = applyEdit(
-      {
-        type: "set-meter-count",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        count: target.value,
-      },
-      { render: false },
-    );
+    result = applyEdit({
+      type: "set-meter-count",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      count: target.value,
+    });
   } else if (field === "signature-unit") {
-    result = applyEdit(
-      {
-        type: "set-meter-unit",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        unit: target.value,
-      },
-      { render: false },
-    );
+    result = applyEdit({
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      unit: target.value,
+    });
   }
   if (!result) return;
-  const rejected = result.reason === "invalid-value";
-  invalidMeter = rejected ? { rhythmId: rhythm.id, field } : null;
-  render();
-  // The status region is shared with the transport state, so a rejected Meter
-  // has to be replaced rather than merely left behind: a message that outlived
-  // its value would keep reporting a Meter the musician has already corrected.
-  if (rejected) {
-    elements.status.textContent = meterLimitMessage(field);
-    return;
-  }
-  // A commit that names the Meter already in force is not an edit, and the
-  // region it would write into is the transport's. `04` over `4` reaches here
-  // like any other retyped entry; only a Configuration that moved is news.
   if (result.consequence === "none") return;
   const committed = result.configuration.sequence.cycles
     .find(({ id }) => id === cycle.id)
     ?.rhythms.find(({ id }) => id === rhythm.id);
   if (committed) elements.status.textContent = `Meter ${rhythmLabel(committed)}`;
-});
-
-/**
- * Enter and Tab commit a Meter entry that the browser would otherwise hold
- * until the field lost focus. `defaultValue` is the value the template last
- * rendered from the Configuration, so comparing against it commits only what
- * the musician actually retyped: tabbing through an untouched field is
- * navigation, and must not announce an edit or rebuild the cycles beneath it.
- */
-elements.cycles.addEventListener("keydown", (event) => {
-  if (!event.target.matches('[data-field="signature-count"], [data-field="signature-unit"]'))
-    return;
-  if (!["Enter", "Tab"].includes(event.key)) return;
-  if (event.key === "Enter") event.preventDefault();
-  if (event.target.value === event.target.defaultValue) return;
-  event.target.dispatchEvent(new Event("change", { bubbles: true }));
 });
 
 engine.addEventListener("playstate", () => {

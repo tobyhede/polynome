@@ -976,26 +976,6 @@ h1.is-glitching {
   text-transform: none;
 }
 
-/* Holds the Signature label and the message a rejected entry produces, so the
-   message stacks under the field it is about rather than becoming a second item
-   in the `.timing-settings` row and landing beside Subdivision. */
-.meter-control {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-
-/* Sized and spaced like the control labels it sits among, but left as written
-   rather than upper-cased and letter-spaced: it is a sentence to read, not a
-   name to scan. */
-.field-message {
-  max-width: 22ch;
-  color: var(--danger);
-  font-size: 0.62rem;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
 .signature-input {
   display: grid;
   grid-template-columns: 56px 10px 56px;
@@ -1008,7 +988,7 @@ h1.is-glitching {
   text-align: center;
 }
 
-.signature-input input,
+.signature-input select,
 .notation-select {
   height: 44px;
   border: 1px solid var(--line);
@@ -1017,19 +997,12 @@ h1.is-glitching {
   color: var(--ink);
 }
 
-.signature-input input {
+.signature-input select {
   min-width: 0;
   padding: 7px;
   font-size: 1rem;
   font-weight: 620;
   text-align: center;
-}
-
-/* Which of the two fields the message is about. The message alone names the
-   component in words; this is what lets a reader find it without parsing them.
-   Colour is not the only signal — the message below carries the same news. */
-.signature-input input[aria-invalid="true"] {
-  border-color: var(--danger);
 }
 
 .notation-picker {

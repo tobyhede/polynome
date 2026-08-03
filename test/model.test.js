@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   METER_COUNT_LIMIT,
-  METER_UNIT_LIMIT,
+  METER_UNITS,
   STEP,
   cycleSpanSeconds,
   stepDurationSeconds,
@@ -53,10 +53,10 @@ test("Meter count clamps to one shared maximum in Configuration and timing", () 
 
 test("the shared vocabulary has one definition", () => {
   assert.deepEqual(Object.values(STEP), ["off", "quarter", "half", "full"]);
-  assert.deepEqual(METER_COUNT_LIMIT, { minimum: 1, maximum: 32 });
+  assert.deepEqual(METER_COUNT_LIMIT, { minimum: 1, maximum: 16 });
   assert.ok(Object.isFrozen(METER_COUNT_LIMIT));
-  assert.deepEqual(METER_UNIT_LIMIT, { minimum: 1, maximum: 32 });
-  assert.ok(Object.isFrozen(METER_UNIT_LIMIT));
+  assert.deepEqual(METER_UNITS, [1, 2, 4, 8]);
+  assert.ok(Object.isFrozen(METER_UNITS));
 });
 
 test("Subdivision labels name the signature unit and the grouping", () => {
@@ -76,33 +76,24 @@ test("Subdivision labels fall back for values outside the named vocabulary", () 
   assert.equal(subdivisionLabel(1, 2.5), "1 per signature unit · straight");
 });
 
-/**
- * Every denominator from 1 to 32 is now a Meter a musician can enter, so a
- * non-dyadic signature unit needs a name of its own. Naming them all
- * "signature" would leave every Subdivision option in a /3 Meter reading
- * identically to the same option in a /5 Meter.
- */
-test("Subdivision labels name a non-dyadic signature unit by its duration", () => {
+test("Subdivision labels retain a readable fallback outside the offered units", () => {
   assert.equal(subdivisionLabel(2, 3), "2 per 1/3 unit · duple");
   assert.equal(subdivisionLabel(1, 5), "1 per 1/5 unit · straight");
   assert.notEqual(subdivisionLabel(2, 3), subdivisionLabel(2, 5));
 });
 
-test("every Subdivision over every enterable Meter denominator is named", () => {
-  const { subdivisions } = describeConfiguration(createConfiguration()).choices;
+test("every Subdivision over every offered Meter denominator is named", () => {
+  const { subdivisions, meterUnits } = describeConfiguration(createConfiguration()).choices;
 
   assert.ok(subdivisions.length, "Expected Configuration to offer Subdivisions");
   for (const subdivision of subdivisions) {
-    for (let unit = METER_UNIT_LIMIT.minimum; unit <= METER_UNIT_LIMIT.maximum; unit += 1) {
+    for (const unit of meterUnits) {
       const label = subdivisionLabel(subdivision, unit);
       assert.ok(
         !label.includes("undefined"),
         `Subdivision ${subdivision} over unit ${unit} labels as "${label}"`,
       );
-      assert.ok(
-        !label.includes("signature unit"),
-        `Subdivision ${subdivision} over unit ${unit} falls back to "${label}"`,
-      );
+      assert.ok(!label.includes("signature unit"));
     }
   }
 });
@@ -116,50 +107,46 @@ test("step duration follows Subdivision within each signature unit", () => {
   closeTo(stepDurationSeconds(120, rhythm), 1 / 6);
 });
 
-test("step duration supports a non-dyadic signature unit", () => {
+test("step duration follows BPM and Subdivision regardless of Meter denominator", () => {
   const rhythm = {
-    signature: { count: 4, unit: 3 },
+    signature: { count: 4, unit: 1 },
     subdivision: 2,
   };
 
-  closeTo(stepDurationSeconds(120, rhythm), 1 / 3);
+  closeTo(stepDurationSeconds(120, rhythm), 1 / 4);
+  closeTo(
+    stepDurationSeconds(120, {
+      ...rhythm,
+      signature: { count: 4, unit: 8 },
+    }),
+    1 / 4,
+  );
 });
 
-test("a Cycle span exactly completes dyadic and non-dyadic Meters", () => {
+test("a Cycle span completes every beat count regardless of Meter denominator", () => {
   const cycle = {
     rhythms: [
-      { signature: { count: 4, unit: 3 }, subdivision: 5 },
+      { signature: { count: 4, unit: 8 }, subdivision: 5 },
       { signature: { count: 3, unit: 4 }, subdivision: 2 },
     ],
   };
 
-  closeTo(cycleSpanSeconds(120, cycle), 24);
+  closeTo(cycleSpanSeconds(120, cycle), 6);
 });
 
-/**
- * A lone non-dyadic Meter spans its own written length and nothing longer. In
- * `4/3` each signature unit is a third of a whole note, so the Meter is
- * `4 × 4/3 = 16/3` quarter notes; a span rounded up to a whole number of
- * quarters would silently pad every Cycle containing one.
- */
-test("a Cycle span of one non-dyadic Meter is that Meter's own length", () => {
-  const cycle = { rhythms: [{ signature: { count: 4, unit: 3 }, subdivision: 1 }] };
+test("a lone Meter spans its numerator in primary beats", () => {
+  const cycle = { rhythms: [{ signature: { count: 4, unit: 8 }, subdivision: 1 }] };
 
-  closeTo(cycleSpanSeconds(120, cycle), 8 / 3);
+  closeTo(cycleSpanSeconds(120, cycle), 2);
 });
 
-/**
- * Meters sharing a non-dyadic denominator must combine over that denominator
- * rather than over a whole-quarter lattice: `4/6` is exactly half of `4/3`, so
- * the two complete together after one `4/3`, not after three of them.
- */
-test("a Cycle span reduces Meters that share a non-dyadic denominator", () => {
+test("changing only a Meter denominator does not change its Cycle span", () => {
   const cycle = {
     rhythms: [
-      { signature: { count: 4, unit: 3 }, subdivision: 1 },
-      { signature: { count: 4, unit: 6 }, subdivision: 1 },
+      { signature: { count: 4, unit: 1 }, subdivision: 1 },
+      { signature: { count: 4, unit: 8 }, subdivision: 1 },
     ],
   };
 
-  closeTo(cycleSpanSeconds(120, cycle), 8 / 3);
+  closeTo(cycleSpanSeconds(120, cycle), 2);
 });
