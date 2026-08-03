@@ -299,6 +299,8 @@ Control chain: `PlatformMediaSession::beginInterruption()` → `AudioContext::su
 
 Background interruption can be waived: `AudioContext::shouldOverrideBackgroundPlaybackRestriction()` returns true for `EnteringBackground` when `navigator.audioSession.type` is `playback` or `play-and-record` ([AudioContext.cpp `hasPlayBackAudioSession`](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webaudio/AudioContext.cpp), [bug 261554](https://bugs.webkit.org/show_bug.cgi?id=261554)).
 
+That waiver is much newer than the type that triggers it. Bug 261554 — *"[iOS] AudioContext is getting suspended when page goes in the background even if `navigator.audioSession.type` is set to playback"* — was filed 2023-09-14 and RESOLVED FIXED on main 2024-03-01, shipping in iOS 17.5. `navigator.audioSession.type` itself is Safari 16.4. So on 16.4 through 17.4 the type is accepted, the Ring/Silent and lock-screen lift applies, and the context is still suspended on backgrounding.
+
 ### Does `statechange` fire?
 
 WebKit fires it on **every** transition, with no privacy suppression ([BaseAudioContext.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webaudio/BaseAudioContext.cpp)):
@@ -343,6 +345,8 @@ This is the one that most cleanly matches "no sound, no errors, `state` looks fi
 | [237878](https://bugs.webkit.org/show_bug.cgi?id=237878) | AudioContext is suspended on iOS when page is backgrounded | — | RESOLVED FIXED (2022-03-17) |
 
 The recurring reporter workaround is `await ctx.suspend(); await ctx.resume();`, in [bug 283419 comment 3](https://bugs.webkit.org/show_bug.cgi?id=283419) and [bug 263627 comment 3](https://bugs.webkit.org/show_bug.cgi?id=263627). Both describe the `running`-but-frozen case specifically — which is exactly the case that fires no `statechange` at all, the state having never changed, so the cycle has to be driven by something else: a `visibilitychange` handler, or a clock-drift probe of the kind below.
+
+It is recorded here as a reported observation on that one case, not as a technique this document endorses. Written as above it contains the failure at the top of §1: a context deliberately put into `suspended` is a context that has to be allowed to start again, and `await ctx.resume()` is precisely the call WebKit parks and settles neither way when it is not — so the workaround's second line can hang forever, and the `suspend()` before it has already stopped the audio that was at least nominally running. Anything adopting it must race the resume against a timeout and treat the timeout as the expected outcome, never await it unguarded, and be prepared for a context left suspended by its own recovery attempt.
 
 [Bug 202846](https://bugs.webkit.org/show_bug.cgi?id=202846) is often cited alongside those two but carries no such comment. Its only workaround is a delay: *"put the ctx.resume() call … in a setTimeout with about 300ms"* (Jesper van den Ende, 2019-10-11).
 
