@@ -1,9 +1,29 @@
+import { stepDurationSeconds } from "./model.js";
 import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
+
+/**
+ * How late a planned click may be and still be worth sounding. Two limits,
+ * because lateness has two costs and they bind on different grids.
+ *
+ * The absolute limit bounds how far a click may be displaced from where the
+ * listener expects it: past roughly 50 ms a nudged click stops reading as the
+ * beat and starts reading as a mistake.
+ *
+ * The relative limit protects the grid. A clamped click keeps its own start
+ * time but its successor keeps the original grid time, so clamping always eats
+ * into the gap that follows. Capping the pull at a quarter of a step leaves at
+ * least three quarters of the grid spacing intact, which is a nudge; anything
+ * more collapses toward the next click and is heard as a flam. 45 ms is
+ * negligible on a 500 ms step at 120 bpm and nearly a whole step on the 50 ms
+ * step of a 32nd-note grid, so the same absolute lateness has to be judged
+ * differently on each.
+ */
 const MAX_CLICK_LATENESS_SECONDS = 0.05;
+const MAX_CLICK_LATENESS_STEPS = 0.25;
 
 export const SOUND_PROFILES = Object.freeze({
   high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
@@ -385,9 +405,15 @@ export class MetronomeEngine extends EventTarget {
     // larger than that would put the stop time before the start time and the
     // click would produce no sound at all, silently. Pull a marginally late
     // click forward instead, carrying its stop time with it, and abandon a
-    // hopelessly stale one deliberately rather than by accident.
+    // hopelessly stale one deliberately rather than by accident. What counts as
+    // marginal depends on this layer's own step, because the pull comes out of
+    // the gap before the next click on that layer's grid.
     const now = this.#context.currentTime;
-    if (when < now - MAX_CLICK_LATENESS_SECONDS) return;
+    const maxLateness = Math.min(
+      MAX_CLICK_LATENESS_SECONDS,
+      stepDurationSeconds(this.#state.bpm, layer) * MAX_CLICK_LATENESS_STEPS,
+    );
+    if (when < now - maxLateness) return;
 
     const oscillator = scheduleClickVoice(this.#context, output, {
       sound: layer.sound,

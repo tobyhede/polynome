@@ -28,7 +28,7 @@ class FakeAudioParam {
 
   setTargetAtTime(value, when, timeConstant) {
     this.automation.push({ method: "setTargetAtTime", value, when, timeConstant });
-    this.context.consumeGraphSyncAdvance();
+    this.context.noteGraphSync();
     return this;
   }
 
@@ -124,6 +124,11 @@ class FakeOscillatorNode extends EventTarget {
 }
 
 class FakeAudioContext extends EventTarget {
+  #clock = 0;
+  #graphSyncAdvance = 0;
+  #snapshotAdvance = 0;
+  #snapshotArmed = false;
+
   constructor({ state = "suspended", currentTime = 0, resume = "resolve" } = {}) {
     super();
     this.state = state;
@@ -136,23 +141,59 @@ class FakeAudioContext extends EventTarget {
     this.oscillators = [];
     this.resumeCalls = 0;
     this.resumeBehaviour = resume;
-    this.pendingGraphSyncAdvance = 0;
   }
 
   /**
-   * Make the render clock move on by `seconds` during the next graph sync,
-   * which is what the engine does at the top of a scheduler tick after it has
-   * already read `currentTime`. Every rhythm event in that tick is then late
-   * by that much by the time it is committed.
+   * The render clock. Reading it is what arms `advanceAfterSchedulingSnapshot`,
+   * so the drift lands between two engine reads rather than at a point the test
+   * has to count reads to reach.
    */
-  advanceDuringNextGraphSync(seconds) {
-    this.pendingGraphSyncAdvance = seconds;
+  get currentTime() {
+    if (this.#snapshotArmed) {
+      this.#clock += this.#snapshotAdvance;
+      this.#snapshotAdvance = 0;
+      this.#snapshotArmed = false;
+    } else if (this.#snapshotAdvance) {
+      this.#snapshotArmed = true;
+    }
+    return this.#clock;
   }
 
-  consumeGraphSyncAdvance() {
-    if (!this.pendingGraphSyncAdvance) return;
-    this.currentTime += this.pendingGraphSyncAdvance;
-    this.pendingGraphSyncAdvance = 0;
+  set currentTime(seconds) {
+    this.#clock = seconds;
+  }
+
+  /**
+   * Drift *before* the scheduling snapshot: the render clock moves on by
+   * `seconds` while the engine is pushing parameter automation into the graph.
+   * Whether that manufactures lateness depends entirely on whether the engine
+   * reads `currentTime` before or after the sync, which is the point.
+   */
+  advanceDuringNextGraphSync(seconds) {
+    this.#graphSyncAdvance = seconds;
+  }
+
+  /**
+   * Drift *after* the scheduling snapshot: the clock jumps forward by `seconds`
+   * immediately after the reading a tick plans against, so every click that
+   * tick commits is exactly that late. Modelling it as "the read after the
+   * snapshot read" keeps it independent of where in `#schedule()` the snapshot
+   * is taken, which is why it survives the reordering that neuters
+   * `advanceDuringNextGraphSync`.
+   *
+   * Reads that feed parameter automation are graph-sync housekeeping rather
+   * than a scheduling snapshot, so `noteGraphSync` disarms them again.
+   */
+  advanceAfterSchedulingSnapshot(seconds) {
+    this.#snapshotAdvance = seconds;
+    this.#snapshotArmed = false;
+  }
+
+  noteGraphSync() {
+    this.#snapshotArmed = false;
+    if (!this.#graphSyncAdvance) return;
+    this.#clock += this.#graphSyncAdvance;
+    this.#graphSyncAdvance = 0;
   }
 
   createGain() {
@@ -248,6 +289,17 @@ const pulsePerSecond = () =>
 /** A meter-relative grid with one rhythm event every 50 ms at 150 bpm. */
 const fiftyMillisecondGrid = () =>
   configurationOf(150, [{ signature: { count: 4, unit: 32 }, subdivision: 1 }]);
+
+/** Audio times are sums of binary fractions; a nanosecond is not a defect. */
+const roundSeconds = (value) => Math.round(value * 1e6) / 1e6;
+
+/** The instants the engine committed each audible click to start at. */
+const clickStarts = (context) =>
+  context.audibleClicks().map((click) => roundSeconds(click.when));
+
+/** The spacing a listener actually hears between consecutive clicks. */
+const gapsBetween = (starts) =>
+  starts.slice(1).map((start, index) => roundSeconds(start - starts[index]));
 
 test("an injected audio context factory supplies the whole audio graph", async () => {
   let created = 0;
@@ -386,17 +438,85 @@ test("a transport run recovers from an interruption without replaying past event
   engine.stop();
 });
 
-test("a marginally late rhythm event is sounded rather than silently dropped", async () => {
+/**
+ * Lateness is only meaningful against the grid it is measured on, so the four
+ * tests below fix the resulting start times rather than counting clicks: a
+ * click that is sounded in the wrong place is not a click that was sounded.
+ */
+
+test("an on-time transport run puts every click exactly on the grid", async () => {
   const { context, engine } = harness({ state: "running", currentTime: 0 });
 
   await engine.start(fiftyMillisecondGrid());
-  assert.equal(context.audibleClicks().length, 2);
+  for (const clock of [0.12, 0.24, 0.36]) {
+    context.currentTime = clock;
+    tick();
+  }
 
+  const starts = clickStarts(context);
+  assert.deepEqual(
+    starts,
+    [0.06, 0.11, 0.16, 0.21, 0.26, 0.31, 0.36, 0.41, 0.46],
+  );
+  assert.deepEqual(gapsBetween(starts), Array(8).fill(0.05));
+
+  engine.stop();
+});
+
+test("a marginally late rhythm event is nudged forward rather than dropped", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(fiftyMillisecondGrid());
+
+  // The clock lands 5 ms past the event planned for 0.16: a tenth of a step.
+  // Sounding it 5 ms late is a smaller error than the 100 ms hole that
+  // dropping it would leave.
   context.currentTime = 0.12;
-  context.advanceDuringNextGraphSync(0.085);
+  context.advanceAfterSchedulingSnapshot(0.045);
   tick();
 
-  assert.equal(context.audibleClicks().length, 4);
+  const starts = clickStarts(context);
+  assert.deepEqual(starts, [0.06, 0.11, 0.165, 0.21]);
+  assert.deepEqual(gapsBetween(starts), [0.05, 0.055, 0.045]);
+
+  engine.stop();
+});
+
+test("a rhythm event most of a step late is dropped so the grid survives", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(fiftyMillisecondGrid());
+  assert.deepEqual(clickStarts(context), [0.06, 0.11]);
+
+  // 45 ms is 90% of a 50 ms step. Dragging the 0.16 event up to the clock
+  // would put it 5 ms in front of the 0.21 event, which is a flam, not a
+  // metronome. A gap keeps the remaining events on the grid.
+  context.currentTime = 0.12;
+  context.advanceAfterSchedulingSnapshot(0.085);
+  tick();
+
+  const starts = clickStarts(context);
+  assert.deepEqual(starts, [0.06, 0.11, 0.21]);
+  assert.deepEqual(gapsBetween(starts), [0.05, 0.1]);
+
+  engine.stop();
+});
+
+test("the same absolute lateness is nudged forward on a slow grid", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(pulsePerSecond());
+  assert.deepEqual(clickStarts(context), [0.06]);
+
+  // The same 45 ms that costs a 50 ms grid its shape is 4.5% of a one-second
+  // step, and losing a whole beat is far worse than starting it late.
+  context.currentTime = 1;
+  context.advanceAfterSchedulingSnapshot(0.105);
+  tick();
+
+  const starts = clickStarts(context);
+  assert.deepEqual(starts, [0.06, 1.105]);
+  assert.equal(roundSeconds(starts[1] - 1.06), 0.045);
 
   engine.stop();
 });
@@ -405,15 +525,16 @@ test("a hopelessly stale rhythm event is skipped rather than dragged forward", a
   const { context, engine } = harness({ state: "running", currentTime: 0 });
 
   await engine.start(fiftyMillisecondGrid());
-  assert.equal(context.clicks.length, 2);
+  assert.deepEqual(clickStarts(context), [0.06, 0.11]);
 
   context.currentTime = 0.12;
-  context.advanceDuringNextGraphSync(0.13);
+  context.advanceAfterSchedulingSnapshot(0.13);
   tick();
 
-  // Two events were planned; the one 90 ms behind the clock is abandoned.
-  assert.equal(context.clicks.length, 3);
-  assert.equal(context.audibleClicks().length, 3);
+  // Both planned events are more than a quarter step behind the clock by the
+  // time they would be committed, so the tick sounds nothing rather than
+  // stacking two clicks onto the same instant.
+  assert.deepEqual(clickStarts(context), [0.06, 0.11]);
 
   engine.stop();
 });
