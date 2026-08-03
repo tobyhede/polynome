@@ -1,8 +1,8 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { createConfiguration } from "../configuration.js";
-import { STEP } from "../model.js";
+import { createConfiguration, describeConfiguration } from "../configuration.js";
+import { SOUND, STEP } from "../model.js";
 import {
   CLICK_ENVELOPE,
   SOUND_PROFILES,
@@ -475,6 +475,31 @@ test("an unrecognised sound falls back to the high profile, inherited or not", (
       `${String(sound)} did not fall back to the high profile`,
     );
     assert.equal(oscillator.type, SOUND_PROFILES.high.type);
+  }
+});
+
+/**
+ * The sound names were written out in three places: the profile table that
+ * tunes them, the repair that validates them, and the choice list the interface
+ * renders. Nothing failed when only one of the three learned a new name — the
+ * profile simply sat there unreachable, because repair rejected the name that
+ * would have selected it. These assertions are what make that drift loud.
+ */
+test("one sound vocabulary reaches the profiles, the repair, and the interface", () => {
+  const names = Object.values(SOUND);
+
+  assert.deepEqual(Object.keys(SOUND_PROFILES).sort(), [...names].sort());
+  assert.deepEqual(describeConfiguration(createConfiguration()).choices.sounds, names);
+});
+
+test("every sound profile carries the same tuning shape", () => {
+  for (const name of Object.values(SOUND)) {
+    const profile = SOUND_PROFILES[name];
+
+    assert.ok(profile.frequency > 0, `${name} has no frequency`);
+    assert.equal(typeof profile.type, "string");
+    assert.ok(profile.durationSeconds > 0, `${name} has no durationSeconds`);
+    assert.ok(Object.isFrozen(profile));
   }
 });
 
