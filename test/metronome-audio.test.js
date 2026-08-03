@@ -840,6 +840,24 @@ test("a rhythm event most of a step late is dropped so the grid survives", async
   engine.stop();
 });
 
+test("a fast grid stops nudging a quarter of a step late", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(fiftyMillisecondGrid());
+  assert.deepEqual(clickStarts(context), [0.06, 0.11]);
+
+  // 15 ms is past a quarter of this 50 ms step, and nowhere near the 50 ms
+  // that bounds a slow grid. Only the step-relative limit can drop it, so this
+  // is what holds the quarter to a quarter.
+  context.currentTime = 0.12;
+  context.advanceAfterSchedulingSnapshot(0.055);
+  tick();
+
+  assert.deepEqual(clickStarts(context), [0.06, 0.11, 0.21]);
+
+  engine.stop();
+});
+
 test("the same absolute lateness is nudged forward on a slow grid", async () => {
   const { context, engine } = harness({ state: "running", currentTime: 0 });
 
@@ -855,6 +873,24 @@ test("the same absolute lateness is nudged forward on a slow grid", async () => 
   const starts = clickStarts(context);
   assert.deepEqual(starts, [0.06, 1.105]);
   assert.equal(roundSeconds(starts[1] - 1.06), 0.045);
+
+  engine.stop();
+});
+
+test("a slow grid stops nudging 50 ms late, long before a quarter of its step", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(pulsePerSecond());
+  assert.deepEqual(clickStarts(context), [0.06]);
+
+  // 55 ms is a twentieth of this one-second step, so the step-relative limit
+  // is nowhere near binding: only the absolute 50 ms can drop this event, and
+  // beyond it the sound profile is shorter than the drift.
+  context.currentTime = 1;
+  context.advanceAfterSchedulingSnapshot(0.115);
+  tick();
+
+  assert.deepEqual(clickStarts(context), [0.06]);
 
   engine.stop();
 });
