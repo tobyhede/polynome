@@ -72,6 +72,10 @@ _Avoid_: Accent, hit, rest, strength
 A scheduled non-off occurrence identified by rhythm layer, absolute step, pattern position, step level, and audio time. Sound and mix are not properties of the rhythm event.
 _Avoid_: Tick, callback
 
+**Configuration**:
+The complete editable metronome state: tempo, master level, and the full Sequence including every rhythm layer's pattern, sound, level, stereo position, and mute state. It is the value the interface edits, the value stored between visits, and the value a Preset holds a snapshot of. Values arriving from storage are repaired into a Configuration rather than rejected.
+_Avoid_: Settings, state, options
+
 **Preset**:
-A named reusable snapshot of the complete editable metronome state: tempo, master level, and the full Sequence including every rhythm layer's pattern, sound, level, stereo position, and mute state. Applying a preset recalls that state exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
+A named reusable snapshot of a Configuration. Applying a preset recalls that Configuration exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
 _Avoid_: Pattern, project, session

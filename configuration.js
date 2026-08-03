@@ -289,16 +289,20 @@ export function createSavedPresets(input) {
     ))) return presets;
 
     const candidateId = safeIdentifier(candidate.id, "preset");
-    const preset = {
-      id: presets.some(({ id }) => id === candidateId)
-        ? makeIdentifier("preset")
-        : candidateId,
-      name,
-      configuration: createConfiguration(candidate.configuration),
-    };
     const duplicate = presets.findIndex((stored) => (
       normalisedPresetName(stored.name) === normalisedPresetName(name)
     ));
+    // Sharing an identifier with the entry this one replaces is not a
+    // collision: that entry is about to stop existing, and regenerating here
+    // would move the surviving Preset's identity on every load.
+    const collides = presets.some(({ id }, index) => (
+      id === candidateId && index !== duplicate
+    ));
+    const preset = {
+      id: collides ? makeIdentifier("preset") : candidateId,
+      name,
+      configuration: createConfiguration(candidate.configuration),
+    };
     if (duplicate < 0) return [...presets, preset];
     return presets.map((stored, index) => index === duplicate ? preset : stored);
   }, []);

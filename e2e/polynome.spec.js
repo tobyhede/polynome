@@ -318,37 +318,42 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
  * not an empty store, which is why the second save keeps the first.
  */
 test("saving into refused storage is reported and keeps earlier saves", async ({ browser }) => {
+  // This context is not the one the test fixture manages, so a failed assertion
+  // would leak it for the rest of the run without the finally.
   const denied = await browser.newContext();
-  await denied.addInitScript(() => {
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      get() {
-        throw new DOMException("Access denied", "SecurityError");
-      },
+  try {
+    await denied.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        get() {
+          throw new DOMException("Access denied", "SecurityError");
+        },
+      });
     });
-  });
-  const page = await denied.newPage();
-  const status = page.getByRole("status");
-  const name = page.getByRole("textbox", { name: "Save current preset" });
-  const save = page.getByRole("button", { name: "Save", exact: true });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Presets" }).click();
+    const page = await denied.newPage();
+    const status = page.getByRole("status");
+    const name = page.getByRole("textbox", { name: "Save current preset" });
+    const save = page.getByRole("button", { name: "Save", exact: true });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Presets" }).click();
 
-  await name.fill("First");
-  await save.click();
-  await expect(status).toHaveText("Preset could not be saved in this browser");
-  await expect(presetButton(page, "First")).toBeVisible();
+    await name.fill("First");
+    await save.click();
+    await expect(status).toHaveText("Preset could not be saved in this browser");
+    await expect(presetButton(page, "First")).toBeVisible();
 
-  await name.fill("Second");
-  await save.click();
-  await expect(presetButton(page, "Second")).toBeVisible();
-  await expect(presetButton(page, "First")).toBeVisible();
+    await name.fill("Second");
+    await save.click();
+    await expect(presetButton(page, "Second")).toBeVisible();
+    await expect(presetButton(page, "First")).toBeVisible();
 
-  await deletePreset(page, "First");
-  await expect(status).toHaveText("Preset deletion could not be saved in this browser");
-  await expect(presetButton(page, "First")).toHaveCount(0);
-  await expect(presetButton(page, "Second")).toBeVisible();
-  await denied.close();
+    await deletePreset(page, "First");
+    await expect(status).toHaveText("Preset deletion could not be saved in this browser");
+    await expect(presetButton(page, "First")).toHaveCount(0);
+    await expect(presetButton(page, "Second")).toBeVisible();
+  } finally {
+    await denied.close();
+  }
 });
 
 /**

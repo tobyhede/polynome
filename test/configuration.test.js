@@ -189,6 +189,38 @@ test("malformed saved Presets are discarded or repaired on load", () => {
   assert.equal(loaded[0].configuration.sequence.cycles.length, 1);
 });
 
+/**
+ * Storage can hold two entries under one name, and the later snapshot replaces
+ * the earlier one. Replacing a Preset is not a collision with it, so the
+ * survivor keeps the identity the interface is already addressing it by; a
+ * regenerated one would move on every load, none of which is a write.
+ */
+test("a repeated Preset name keeps the identity of the entry it replaces", () => {
+  const stored = [
+    { id: "preset-abc-1", name: "Warmup", configuration: { bpm: 100 } },
+    { id: "preset-abc-1", name: "Warmup", configuration: { bpm: 140 } },
+  ];
+
+  const loaded = createSavedPresets(stored);
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].id, "preset-abc-1");
+  assert.equal(loaded[0].configuration.bpm, 140);
+  assert.equal(createSavedPresets(stored)[0].id, "preset-abc-1");
+});
+
+test("Presets sharing an identifier under different names are given separate ones", () => {
+  const loaded = createSavedPresets([
+    { id: "preset-abc-1", name: "One", configuration: {} },
+    { id: "preset-abc-1", name: "Two", configuration: {} },
+  ]);
+
+  assert.equal(loaded.length, 2);
+  assert.equal(loaded[0].id, "preset-abc-1");
+  assert.match(loaded[1].id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
+  assert.notEqual(loaded[0].id, loaded[1].id);
+});
+
 test("describing Presets identifies exact snapshots without comparing identifiers", () => {
   const original = createConfiguration({ bpm: 137 });
   const saved = savePreset([], "Odd IDs", original);
