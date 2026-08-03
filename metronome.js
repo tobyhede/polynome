@@ -6,8 +6,18 @@ const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
 
 /**
- * How late a planned click may be and still be worth sounding. Two limits,
- * because lateness has two costs and they bind on different grids.
+ * How late a planned click may be and still be worth sounding: the committing
+ * side of the two lateness policies this metronome runs.
+ *
+ * The planning side is `LATENESS_TOLERANCE_SECONDS` in `shared-transport.js`,
+ * an order of magnitude tighter at 4 ms. `plan()` will not emit an event that
+ * is already further behind than that, so every event reaching this method
+ * started out comfortably inside these limits. What makes them reachable is the
+ * render clock advancing between the tick's scheduling snapshot and the moment
+ * the click is committed. These limits govern that window only; they are not a
+ * looser restatement of the transport's rule and must not be read as one.
+ *
+ * Two limits, because lateness has two costs and they bind on different grids.
  *
  * The absolute limit bounds how far a click may be displaced from where the
  * listener expects it: past roughly 50 ms a nudged click stops reading as the
