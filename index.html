@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A tiny polyrhythm and polymeter metronome with independent left/right balance for each rhythm."
+      content="A compact polyrhythm and polymeter metronome with sequenced cycles and independent rhythm levels."
     />
-    <meta name="theme-color" content="#f5f4ef" />
+    <meta name="theme-color" content="#0c0c0d" />
     <title>Polynome</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -15,81 +15,57 @@
     <main class="app-shell">
       <header class="page-header">
         <div>
-          <p class="eyebrow">METRONOME</p>
+          <p class="eyebrow">Yet another metronome</p>
           <h1>Polynome</h1>
         </div>
+        <nav class="header-actions" aria-label="Application panels">
+          <button id="presets-toggle" class="chip-button" type="button" aria-expanded="false" aria-controls="preset-panel">Presets</button>
+          <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
+        </nav>
       </header>
 
+      <section id="help-panel" class="top-panel" aria-labelledby="help-heading" hidden>
+        <h2 id="help-heading">Help</h2>
+        <div class="help-grid">
+          <p><strong>Space</strong><span>Starts and stops playback.</span></p>
+          <p><strong>Rhythm steps</strong><span>Tap to cycle full → half → quarter → off. More rings mean a louder step.</span></p>
+          <p><strong>Cycle dots</strong><span>Set 0–8 repetitions. At least one cycle always remains active.</span></p>
+          <p><strong>Rhythm settings</strong><span>Double-click a rhythm card, or use its pencil, to edit meter, subdivision, sound, level, and balance.</span></p>
+          <p><strong>Presets</strong><span>Open the panel to replace the current sequence with a built-in pattern.</span></p>
+          <p><strong>Stacking</strong><span>Cycles play in sequence; rhythms inside a cycle play together.</span></p>
+        </div>
+      </section>
+
+      <section id="preset-panel" class="top-panel" aria-labelledby="preset-heading" hidden>
+        <h2 id="preset-heading">Presets <span class="panel-divider" aria-hidden="true">/</span><span id="preset-count">2</span><span id="preset-count-noun" class="sr-only"> presets</span></h2>
+        <div id="preset-list" class="preset-grid"></div>
+      </section>
+
       <section class="transport" aria-label="Transport and tempo">
-        <button
-          id="play-button"
-          class="play-button"
-          type="button"
-          aria-pressed="false"
-          aria-label="Play metronome"
-        >
-          <span id="play-icon" class="play-icon" aria-hidden="true">▶</span>
-          <span id="play-label">Play</span>
+        <button id="play-button" class="play-button" type="button" aria-pressed="false" aria-label="Play metronome">
+          <span id="play-icon" aria-hidden="true">▶</span>
         </button>
 
         <div class="tempo">
-          <div class="tempo-number">
-            <button id="bpm-down" class="tempo-nudge" type="button" aria-label="Decrease tempo">−</button>
-            <label>
-              <span class="sr-only">Tempo in quarter-note beats per minute</span>
+          <div class="bpm-track">
+            <div id="bpm-readout" class="bpm-readout">
+              <label for="bpm-input">BPM</label>
               <input id="bpm-input" type="number" min="30" max="300" inputmode="numeric" />
-            </label>
-            <button id="bpm-up" class="tempo-nudge" type="button" aria-label="Increase tempo">+</button>
-          </div>
-          <div class="tempo-unit">BPM</div>
-          <div class="tempo-slider-wrap">
-            <input
-              id="bpm-slider"
-              class="tempo-slider"
-              type="range"
-              min="30"
-              max="300"
-              step="1"
-              list="bpm-marks"
-              aria-label="Tempo in beats per minute"
-            />
-            <datalist id="bpm-marks">
-              <option value="30"></option>
-              <option value="40"></option>
-              <option value="50"></option>
-              <option value="60"></option>
-              <option value="70"></option>
-              <option value="80"></option>
-              <option value="90"></option>
-              <option value="100"></option>
-              <option value="110"></option>
-              <option value="120"></option>
-              <option value="130"></option>
-              <option value="140"></option>
-              <option value="150"></option>
-              <option value="160"></option>
-              <option value="170"></option>
-              <option value="180"></option>
-              <option value="190"></option>
-              <option value="200"></option>
-              <option value="210"></option>
-              <option value="220"></option>
-              <option value="230"></option>
-              <option value="240"></option>
-              <option value="250"></option>
-              <option value="260"></option>
-              <option value="270"></option>
-              <option value="280"></option>
-              <option value="290"></option>
-              <option value="300"></option>
-            </datalist>
-            <div class="tempo-scale" aria-hidden="true">
-              <span>30</span>
-              <span>120</span>
-              <span>210</span>
-              <span>300</span>
             </div>
           </div>
+          <div id="bpm-ticks" class="bpm-ticks" aria-hidden="true"></div>
+          <input
+            id="bpm-slider"
+            class="tempo-slider"
+            type="range"
+            min="30"
+            max="300"
+            step="1"
+            list="bpm-marks"
+            aria-label="Tempo in beats per minute"
+          />
+          <datalist id="bpm-marks"></datalist>
+          <div class="tempo-scale" aria-hidden="true"><span>30</span><span>120</span><span>210</span><span>300</span></div>
         </div>
 
         <label class="master-volume">
@@ -98,25 +74,11 @@
         </label>
       </section>
 
-      <section class="presets" aria-labelledby="preset-heading">
-        <h2 id="preset-heading">Presets</h2>
-        <div id="preset-list" class="preset-list"></div>
-      </section>
-
-      <section class="sequence" aria-labelledby="sequence-heading">
-        <div class="section-heading">
-          <div>
-            <h2 id="sequence-heading">Sequence</h2>
-          </div>
-          <button id="add-cycle" class="add-button" type="button">+ Add cycle</button>
-        </div>
-        <p id="sequence-summary" class="sequence-summary"></p>
-        <div id="cycles" class="cycle-list"></div>
-      </section>
+      <section id="cycles" class="cycle-list" aria-label="Cycles"></section>
 
       <footer class="page-footer">
-        <p><strong>Space</strong> plays and stops.</p>
-        <p id="status" class="status" role="status" aria-live="polite">Stopped</p>
+        <button id="add-cycle" class="chip-button" type="button">+ Cycle</button>
+        <p id="status" class="sr-only" role="status" aria-live="polite">Stopped</p>
       </footer>
     </main>
 

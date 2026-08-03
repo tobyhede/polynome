@@ -1,6 +1,6 @@
 # Musical-time model for Polynome
 
-> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Ratio presets use a `1/4` meter; grouping is not modeled as state or UI; existing accent/hit/rest patterns remain the complete expression of emphasis. Existing local state will be hard-reset without migration or schema-version machinery.
+> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four amplitude-only step levels express emphasis: off, quarter, half, and full. Existing local state is hard-reset without migration or schema-version machinery.
 
 ## Conclusion
 
@@ -29,7 +29,7 @@ No additional grouping metadata is required for the product's meter-relative tim
 - **Pulse / grid position**: one evenly spaced scheduling position exposed by the app. This is a product-domain concept, not necessarily a sounded note.
 - **Note value**: a written duration such as quarter, eighth, or sixteenth. Note values do not by themselves state their metrical role ([Open Music Theory, Notating Rhythm](https://viva.pressbooks.pub/openmusictheory/chapter/notating-rhythm/)).
 - **Tuplet**: an explicit proportional division. A triplet places three parts in a span normally occupied by two in simple meter; compound meter already divides beats naturally into three, so three eighth notes within a 6/8 dotted-quarter beat are not a triplet ([Open Music Theory, Borrowed Divisions](https://viva.pressbooks.pub/openmusictheory/chapter/other-rhythmic-essentials/)).
-- **Pattern step**: one editable accent/hit/rest value. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
+- **Pattern step**: one editable amplitude-level value. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
 
 ## What time signatures actually say
 
@@ -88,14 +88,16 @@ For an eighth-note triplet, three eighths occupy the normal duration of two: `ac
 
 At quarter-note BPM `B`, with the recommended `K = pulsesPerSignatureUnit`:
 
+Grouping shown below is music-theory annotation for the reader, not part of the model: no grouping state is stored or exposed (ADR-0001).
+
 | Example | Representation | Positions | Pulse duration |
 |---|---|---:|---:|
 | 4/4 quarter grid | `N=4, D=4, K=1` | 4 | `60/B` |
 | 4/4 eighth grid | `N=4, D=4, K=2` | 8 | `30/B` |
 | 4/4 quarter-beat triplets | `N=4, D=4, K=3` | 12 | `20/B` |
-| 5/4 quarter grid | `N=5, D=4, K=1`, optional groups `[3,2]` | 5 | `60/B` |
-| 6/8 eighth grid | `N=6, D=8, K=1`, groups `[3,3]` | 6 | `30/B` |
-| 7/8 eighth grid | `N=7, D=8, K=1`, groups `[2,2,3]` | 7 | `30/B` |
+| 5/4 quarter grid | `N=5, D=4, K=1` (heard as 3+2) | 5 | `60/B` |
+| 6/8 eighth grid | `N=6, D=8, K=1` (heard as 3+3) | 6 | `30/B` |
+| 7/8 eighth grid | `N=7, D=8, K=1` (heard as 2+2+3) | 7 | `30/B` |
 
 For 6/8, positions 0 and 3 are the two ordinary beat starts. The six positions are denominator-unit divisions, not six perceived beats. A pattern can accent positions 0 and 3 and mark or silence the other positions according to the desired click.
 
@@ -127,7 +129,7 @@ Costs: more state, validation, terminology, and UI than this metronome currently
 
 ### Recommendation: pulses per signature unit
 
-Use option A's small integer but name its reference precisely: `pulsesPerSignatureUnit`, where the signature unit is `1/D` of a whole note. This guarantees `N*K` editable positions for every meter, handles odd meters uniformly, and permits dynamic, honest labels. Keep optional `groups` for accent structure.
+Use option A's small integer but name its reference precisely: `pulsesPerSignatureUnit`, where the signature unit is `1/D` of a whole note. This guarantees `N*K` editable positions for every meter, handles odd meters uniformly, and permits dynamic, honest labels. Grouping is deliberately not kept as state: accent structure is expressed only through amplitude-only step levels (see ADR-0001).
 
 This is intentionally less ambitious than a full beat-aware or note-value/tuplet model. If a later requirement demands “click only perceived beats” or arbitrary tuplets spanning multiple units, add an explicit grid reference/span then; do not overload `K`.
 
@@ -155,13 +157,15 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 - The former 3:2 preset was a valid three-against-two division of one shared two-quarter span. It should not be used as evidence that the meter numerator always determines pattern length.
 - The former 7/8 preset was musically reasonable as seven eighth-note positions accented 2+2+3, but the model stored the grouping only implicitly in accent states.
 
-## Presets and persistence implications
+## Presets and persistence implications (superseded — options considered before the hard reset)
 
-- Introduce an explicit schema version before changing persisted meaning. An old `steps.length=8` cannot always reveal whether the user intended eight pulses per cycle or two pulses per quarter.
+> These options were considered and rejected. Polynome hard-resets persisted state: it writes a new storage key, deletes the retired keys on load, and stores no schema version and no migration path. Only the "clear one-time reset" option was adopted; the rest is the reasoning behind the rejection, not guidance.
+
+- Considered and rejected: introduce an explicit schema version before changing persisted meaning. An old `steps.length=8` cannot always reveal whether the user intended eight pulses per cycle or two pulses per quarter.
 - Safest migration: preserve old layers as a legacy `pulsesPerCycle` mode, or invalidate old local state with a clear one-time reset. Inferring `K = steps.length/N` is safe only when it is an allowed integer.
 - 4/4 + 3/4 maps cleanly to `K=1` for each layer.
-- 7/8 maps cleanly to `K=1`, `groups=[2,2,3]`, with accents at group starts.
-- 3:2, 4:3, and 5:4 require a product decision about the shared comparison span. Preserve them as explicit `pulsesPerCycle` polyrhythms, or redefine their meter/span and accept changed playback speed and pattern length.
+- 7/8 maps cleanly to `K=1`; a 2+2+3 feel is expressed with step levels at pattern positions 0, 2, and 4 rather than stored grouping.
+- Considered and rejected: 3:2, 4:3, and 5:4 require a product decision about the shared comparison span. Preserve them as explicit `pulsesPerCycle` polyrhythms, or redefine their meter/span and accept changed playback speed and pattern length.
 - Do not silently reinterpret existing saved arrays; that would change users' rhythms while retaining their labels.
 
 ## Resolved product direction
@@ -170,5 +174,5 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 - The subdivision dropdown supports `K = 1..5` pulses per signature unit.
 - The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter.
 - Ratio presets remain out of scope until the product has an explicit shared-cycle pulse model.
-- Emphasis remains entirely in accent/hit/rest pattern states; no grouping state or control is introduced.
+- Emphasis remains entirely in amplitude-only step levels; no grouping state or control is introduced.
 - Existing persisted state is discarded rather than migrated because its subdivision meaning is ambiguous.

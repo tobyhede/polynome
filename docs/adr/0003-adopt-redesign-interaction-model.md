@@ -1,0 +1,16 @@
+# Adopt the redesign interaction model
+
+Polynome will adopt the visual and interaction model of an external single-file React design prototype reviewed during the redesign. That prototype is not versioned in this repository and is not authoritative: the consequences recorded below are the reference. The production shared transport, Web Audio scheduler, zero-dependency architecture, accessibility, and responsive behavior are retained. This supersedes ADR-0002 only where that decision specified repetition limits, display-only dots, an always-expanded rhythm interface, or a generated sequence summary.
+
+## Consequences
+
+- Pattern positions have four amplitude-only step levels: `off`, `quarter`, `half`, and `full`. Their factors are `0`, `0.25`, `0.5`, and `1`; they never alter frequency, click duration, meter, cycle span, or transport phase.
+- Step controls cycle `full → half → quarter → off → full`. New patterns use `full` for the first position and `half` for remaining positions.
+- Step-level and mix edits preserve the current transport position: step levels, mute, sound, rhythm level, balance, and master volume never move the transport origin. Step-level and sound changes apply to subsequently scheduled rhythm events, so events already inside the scheduler look-ahead keep the values they were scheduled with; mute, rhythm level, balance, and master volume apply immediately through the shared per-layer gain and pan nodes.
+- Tempo, meter, subdivision, cycle-repetition, and structural edits (adding or removing a cycle or a rhythm layer, and applying a preset) begin a new transport run from a new transport origin, at the first active cycle and its first cycle repetition. Dragging the tempo slider keeps the current run at its previous tempo; the new run begins when the slider is released.
+- Eight interactive dots set each cycle's repetition count from 0–8. A zero-repetition cycle is inactive and skipped, but the final active cycle cannot be disabled or removed. When the sequence contains exactly one cycle, that cycle always has exactly one repetition; zero and multiple repetitions apply only when the sequence contains multiple cycles.
+- Rhythm settings live in an accessible collapsible drawer. The sequence summary and numeric repetition input are removed; cycle dots communicate both the configured count and active repetition.
+- The initial preset catalogue remains `4/4` and `4/4 + 3/4`. Presets replace the sequence, use one active repetition per cycle, and begin with centred rhythm layers. Preset saving and additional presets are out of scope.
+- The prototype is a design reference, not production code. Its React runtime, animation-driven audio, external Google Font requests, and non-responsive shortcuts are not adopted.
+- JetBrains Mono and Major Mono Display are self-hosted with system fallbacks and embedded in the generated single-file bundle.
+- Persistence takes a clean break because step values and cycle repetition rules change.

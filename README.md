@@ -5,10 +5,10 @@ A deliberately small browser metronome with:
 - ordered cycles of one or more simultaneous rhythm layers
 - polyrhythm and polymeter presets
 - editable meter and subdivision per signature unit for every layer
-- accent, hit, and rest steps
+- four step levels: off, quarter, half, and full
 - independent volume and stereo pan for each rhythm
 - sample-accurate Web Audio scheduling from one shared transport clock
-- no runtime dependencies, accounts, analytics, or build step
+- no runtime dependencies, accounts, analytics, or framework build step
 
 ## Open it immediately
 
@@ -19,7 +19,7 @@ npm run bundle
 open dist/polynome.html
 ```
 
-A prebuilt copy is included in `dist/polynome.html`. It contains the complete application in one file and needs no server.
+The generated `dist/polynome.html` contains the complete application, including its fonts, in one file and needs no server. Generated output is intentionally not committed.
 
 ## Run the source version
 
@@ -56,7 +56,7 @@ Each layer has:
 - a meter such as `1/4`, `4/4`, or `7/8`
 - a subdivision of 1–5 equal pulses within each signature unit
 - exactly `signature count × subdivision` editable pattern positions
-- a pattern containing accents, hits, and rests
+- a pattern whose steps control click amplitude at 0, 0.25, 0.5, or 1
 - its own sound, volume, mute state, and stereo position
 
 Examples:
@@ -65,7 +65,7 @@ Examples:
 - `1(4/4 + 3/4)`: one cycle containing simultaneous 4/4 and 3/4 rhythms; their downbeats realign after 12 quarter notes.
 - `4(4/4), 3(3/4)`: four complete 4/4 cycles followed by three complete 3/4 cycles.
 
-Tempo is always expressed as quarter-note BPM (`♩ BPM`).
+Tempo is expressed as BPM against the fixed quarter-note reference used by the timing model. The interface labels it simply as `BPM`.
 
 ## Timing design
 
@@ -83,11 +83,14 @@ This prevents cumulative drift between rhythm layers and cycle transitions.
 index.html       Interface shell
 styles.css       Responsive visual design
 app.js           UI state, persistence, and interaction
+configuration.js Editable configuration, presets, and edit availability
 model.js         Pure sequence, cycle, rhythm, and timing model
 shared-transport.js  Stateful sequence event planning and playhead
 metronome.js     Web Audio graph and look-ahead scheduler
+persistence.js   Deferred storage writes and storage-key migration
 server.mjs       Zero-dependency local static server
 scripts/          Single-file bundler
+fonts/            Self-hosted interface fonts and licenses
 dist/             Browser-ready one-file application
 test/            Node built-in tests
 ```
@@ -95,6 +98,6 @@ test/            Node built-in tests
 ## Current limitations
 
 - Tempo reference is fixed to the quarter note.
-- Changes to sequence timing or structure restart the shared transport when playing.
+- Changes to sequence timing or structure restart the shared transport when playing; step-level and mix edits do not.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.
