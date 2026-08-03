@@ -46,11 +46,14 @@ npm install
 npx playwright install chromium
 ```
 
+Then run everything:
+
 ```bash
-npm test
-npm run test:browser
 npm run check
 ```
+
+`npm run check` runs both suites and generates the bundle and site output.
+Either suite can be run on its own with `npm test` or `npm run test:browser`.
 
 `npm test` covers the pure timing and state model. The Chromium suite covers
 browser focus, accessibility state, persistence, playback controls, step-level
@@ -58,7 +61,6 @@ cycling, the mobile layout, and deterministic offline rendering of click timing,
 step levels, muted layers, and stereo panning. It also opens the generated
 `dist/polynome.html` over `file://` to confirm the single-file bundle boots and
 plays, so `npm run test:browser` regenerates the bundle before running.
-`npm run check` runs both suites and generates the bundle and site output.
 Physical output latency and subjective sound quality still require manual
 listening checks.
 

@@ -114,6 +114,12 @@ test("sound customization clears preset selection and persists", async ({ page }
     "aria-pressed",
     "false",
   );
+
+  // The preset assertion above only shows the stored configuration differs from
+  // the default one the "4/4" preset builds. Ask the sound itself, so the test
+  // keeps meaning what its name says if preset matching ever changes.
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await expect(lowSound).toHaveAttribute("aria-pressed", "true");
 });
 
 test("core controls fit a 375px mobile viewport", async ({ page }) => {

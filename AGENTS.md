@@ -46,13 +46,13 @@ The application intentionally has zero runtime dependencies. Playwright is the s
 
 ## Verification
 
-Run:
+Install development dependencies and the managed browser once with `npm install` and `npx playwright install chromium`.
+
+Then run:
 
 ```bash
 npm run check
 ```
-
-Install development dependencies and the managed browser once with `npm install` and `npx playwright install chromium`.
 
 Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`.
 
