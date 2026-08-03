@@ -1,4 +1,4 @@
-import { stepDurationSeconds } from "./model.js";
+import { lookup, STEP, stepDurationSeconds } from "./model.js";
 import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
@@ -72,7 +72,7 @@ const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVA
 const MAX_CLICK_LATENESS_SECONDS = 0.05;
 const MAX_CLICK_LATENESS_STEPS = 0.25;
 
-export const SOUND_PROFILES = Object.freeze({
+export const SOUND_PROFILES = lookup({
   high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
   low: Object.freeze({ frequency: 690, type: "triangle", length: 0.042 }),
   wood: Object.freeze({ frequency: 930, type: "sine", length: 0.026 }),
@@ -85,10 +85,20 @@ export const CLICK_ENVELOPE = Object.freeze({
   releaseSeconds: 0.002,
 });
 
-export const STEP_PITCH_RATIOS = Object.freeze({
-  tertiary: 2 ** (-8 / 12),
-  secondary: 2 ** (-4 / 12),
-  primary: 1,
+/**
+ * The pitch of each audible Step voice, as a ratio against the selected sound
+ * profile's frequency. Four semitones apart, so the three voices outline an
+ * augmented triad and stay distinguishable on a small speaker without any of
+ * them being quieter than the others.
+ *
+ * `off` is deliberately absent rather than present as a silent entry: a voice
+ * this table cannot price is a voice the scheduler must not play, which makes
+ * the lookup itself the audibility test.
+ */
+export const STEP_PITCH_RATIOS = lookup({
+  [STEP.TERTIARY]: 2 ** (-8 / 12),
+  [STEP.SECONDARY]: 2 ** (-4 / 12),
+  [STEP.PRIMARY]: 1,
 });
 
 /**
@@ -99,11 +109,11 @@ export const STEP_PITCH_RATIOS = Object.freeze({
  * name.
  */
 export function scheduleClickVoice(context, output, { sound, voice, when }) {
-  if (voice === "off") return null;
+  const pitchRatio = STEP_PITCH_RATIOS[voice];
+  if (!pitchRatio) return null;
 
   const profile = SOUND_PROFILES[sound] || SOUND_PROFILES.high;
   const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
-  const pitchRatio = STEP_PITCH_RATIOS[voice] || STEP_PITCH_RATIOS.primary;
   const end = when + profile.length;
 
   const oscillator = context.createOscillator();

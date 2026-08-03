@@ -1,4 +1,5 @@
 import {
+  lookup,
   METER_COUNT_LIMIT,
   METER_UNITS,
   normaliseMeterUnit,
@@ -514,15 +515,22 @@ function editRhythm(current, cycleId, rhythmId, updater) {
   };
 }
 
+/**
+ * Every caller reaches this through `changeConfiguration`, which repairs before
+ * it edits, so the argument is always one of the four voices. The null
+ * prototype is not load-bearing today; it is here so the guarantee is the
+ * table's own rather than something a reader has to go and re-derive from the
+ * repair path each time.
+ */
+const NEXT_STEP_VOICE = lookup({
+  [STEP.PRIMARY]: STEP.SECONDARY,
+  [STEP.SECONDARY]: STEP.TERTIARY,
+  [STEP.TERTIARY]: STEP.OFF,
+  [STEP.OFF]: STEP.PRIMARY,
+});
+
 function nextStepVoice(voice) {
-  return (
-    {
-      [STEP.PRIMARY]: STEP.SECONDARY,
-      [STEP.SECONDARY]: STEP.TERTIARY,
-      [STEP.TERTIARY]: STEP.OFF,
-      [STEP.OFF]: STEP.PRIMARY,
-    }[voice] || STEP.PRIMARY
-  );
+  return NEXT_STEP_VOICE[voice] || STEP.PRIMARY;
 }
 
 /**

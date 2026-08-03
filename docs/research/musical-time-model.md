@@ -4,7 +4,7 @@
 > quarter-note model. Polynome now defines BPM as the shared primary-click rate;
 > see [Meter validity and tempo reference](meter-validity-and-tempo-reference.md).
 
-> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four amplitude-only step levels express emphasis: off, quarter, half, and full. Existing local state is hard-reset without migration or schema-version machinery.
+> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four Step voices express emphasis: off, tertiary, secondary, and primary. The three audible voices share one gain and descend in four-semitone intervals (ADR-0008, which replaced the earlier amplitude-only levels). Existing local state is hard-reset without migration or schema-version machinery.
 
 ## Conclusion
 
