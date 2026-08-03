@@ -168,6 +168,36 @@ test("saved Preset names cannot be empty, oversized, or collide with built-ins",
     assert.deepEqual(result.presets, []);
     assert.equal(result.reason, reason);
   }
+
+  // The longest accepted name, checked beside the shortest rejected one: a limit
+  // is only pinned from both sides.
+  const longest = savePreset([], "x".repeat(80), configuration);
+  assert.equal(longest.reason, null);
+  assert.equal(longest.preset.name, "x".repeat(80));
+});
+
+/**
+ * Preset names fold to compare them, and the store travels: the single-file
+ * distribution opens anywhere, and `createSavedPresets` drops an entry whose
+ * folded name already exists. Locale-sensitive folding would make that dedup
+ * disagree between hosts — under `tr`, `I` lowercases to `ı` — so one browser
+ * would silently discard a Preset another browser considers distinct.
+ */
+test("Preset name folding does not depend on the host locale", () => {
+  const configuration = createConfiguration();
+  const first = savePreset([], "Ionian", configuration);
+  const second = savePreset(first.presets, "IONIAN", configuration);
+
+  assert.equal(second.presets.length, 1);
+  assert.equal(second.preset.id, first.preset.id);
+  assert.equal(
+    createSavedPresets([
+      { id: "preset-abc-1", name: "Ionian", configuration: {} },
+      { id: "preset-def-2", name: "ıonian", configuration: {} },
+    ]).length,
+    2,
+    "Expected a dotless ı to be a different name from an ASCII I",
+  );
 });
 
 test("malformed saved Presets are discarded or repaired on load", () => {

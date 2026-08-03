@@ -403,11 +403,22 @@ h1 {
   color: #0c0c0d;
 }
 
+/* The delete button is a sibling painted over the card, so a selected card puts
+   the accent colour behind a glyph coloured for the unselected surface. */
 .preset-button.is-selected strong,
 .preset-button.is-selected .preset-notation,
 .preset-button.is-selected .preset-sequence-arrow,
-.preset-button.is-selected .preset-repetitions {
+.preset-button.is-selected .preset-repetitions,
+.preset-button.is-selected ~ .preset-delete {
   color: #0c0c0d;
+}
+
+/* Colour carries the hover cue everywhere else, and it cannot here, so the cue
+   moves to the surface. An armed delete keeps its own. */
+.preset-button.is-selected ~ .preset-delete:not(.is-armed):hover,
+.preset-button.is-selected ~ .preset-delete:not(.is-armed):focus-visible {
+  border-radius: 50%;
+  background: rgb(12 12 13 / 14%);
 }
 
 .transport {

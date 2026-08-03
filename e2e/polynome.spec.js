@@ -389,6 +389,59 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 });
 
+/**
+ * The rebuild that adopts another tab's deletion destroys whatever the user had
+ * focused. Restoring by identifier finds nothing when the identifier is what was
+ * deleted, and focus falls to the document, which is where a keyboard user least
+ * expects to be. The save field is where deleting in this tab already leaves it.
+ */
+test("focus survives another tab deleting the preset it was on", async ({ page, context }) => {
+  const other = await context.newPage();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Doomed");
+  await page.getByRole("button", { name: "Delete Doomed preset" }).focus();
+
+  await other.goto("/");
+  await other.getByRole("button", { name: "Presets" }).click();
+  await deletePreset(other, "Doomed");
+
+  await expect(presetButton(page, "Doomed")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Save current preset" })).toBeFocused();
+});
+
+/**
+ * A selected card paints the accent colour under its delete button, which keeps
+ * the muted grey it was given for the unselected surface. The declared colours
+ * are each fine against the surface they were written for, so only the rendered
+ * pair shows it: the glyph all but disappears on the card the user just picked.
+ */
+test("the delete glyph stays readable on a selected preset", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Chosen");
+  const preset = presetButton(page, "Chosen");
+  await preset.click();
+  await expect(preset).toHaveAttribute("aria-pressed", "true");
+
+  const ratio = await page.getByRole("button", { name: "Delete Chosen preset" })
+    .evaluate((element) => {
+      const channel = (value) => (value <= 0.03928
+        ? value / 12.92
+        : Math.pow((value + 0.055) / 1.055, 2.4));
+      const luminance = (colour) => {
+        const [red, green, blue] = colour.match(/[\d.]+/g).slice(0, 3)
+          .map((value) => channel(Number(value) / 255));
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+      };
+      // The glyph is transparent, so the colour behind it is the selected
+      // button's, which is the pair a reader actually sees.
+      const glyph = luminance(getComputedStyle(element).color);
+      const behind = luminance(getComputedStyle(element.previousElementSibling).backgroundColor);
+      return (Math.max(glyph, behind) + 0.05) / (Math.min(glyph, behind) + 0.05);
+    });
+
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 

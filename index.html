@@ -41,10 +41,10 @@
         <form id="preset-save" class="preset-save">
           <label for="preset-name">Save current preset</label>
           <div>
-            <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Preset name" />
+            <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Preset name" aria-describedby="preset-name-hint" />
             <button type="submit" class="chip-button">Save</button>
           </div>
-          <p>Saving an existing name replaces its snapshot.</p>
+          <p id="preset-name-hint">Saving an existing name replaces its snapshot.</p>
         </form>
         <div id="preset-list" class="preset-grid"></div>
       </section>

@@ -203,9 +203,11 @@ function renderPresets() {
   // text because `aria-label` on a generic span never reaches the accessibility
   // tree.
   elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
-  // Applying a preset re-renders this list, so preserve focus by its stable
-  // Preset identifier. Names can change when a duplicate save replaces one, and
-  // an armed delete survives a re-render, so both buttons have to be restorable.
+  // Saving, deleting, arming a deletion and adopting another tab's write all
+  // rebuild this list under whatever the user had focused; applying a Preset no
+  // longer does, because it only changes selection. Restore by stable Preset
+  // identifier rather than by name, which a duplicate save can change, and cover
+  // both buttons, because an armed delete keeps focus on the delete one.
   const focused = elements.presetList.contains(document.activeElement)
     ? document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
     : null;
@@ -240,7 +242,11 @@ function renderPresets() {
     </div>
   `).join("");
   if (focusedSelector) {
-    elements.presetList.querySelector(focusedSelector)?.focus();
+    // The Preset that had focus can be the one that just stopped existing, which
+    // is exactly when losing focus to the document costs the most.
+    const restored = elements.presetList.querySelector(focusedSelector);
+    if (restored) restored.focus();
+    else elements.presetName.focus();
   }
 }
 
@@ -1040,6 +1046,11 @@ window.addEventListener("storage", (event) => {
   const presets = readSavedPresets();
   if (presets === null) return;
   savedPresets = presets;
+  // An armed deletion whose Preset another tab has already removed has nothing
+  // left to confirm, and leaving it armed would keep state pointing at nothing.
+  if (!presets.some(({ id }) => id === pendingDeletePresetId)) {
+    pendingDeletePresetId = null;
+  }
   renderPresets();
 });
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,

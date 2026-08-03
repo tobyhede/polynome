@@ -270,8 +270,27 @@ function presetName(candidate) {
   return name && name.length <= MAX_PRESET_NAME_LENGTH ? name : null;
 }
 
+/**
+ * Deliberately not `toLocaleLowerCase`: a saved store opens on any host, and
+ * folding that follows the host's locale would have one browser treat two names
+ * as the same Preset and another treat them as two — under `tr`, `I` lowercases
+ * to a dotless `ı`. Loading discards an entry whose folded name already exists,
+ * so that disagreement loses a Preset rather than merely displaying one oddly.
+ */
 function normalisedPresetName(candidate) {
-  return candidate.toLocaleLowerCase();
+  return candidate.toLowerCase();
+}
+
+function reservedPresetName(name) {
+  return PRESETS.some((builtIn) => (
+    normalisedPresetName(builtIn) === normalisedPresetName(name)
+  ));
+}
+
+function findPresetNamed(presets, name) {
+  return presets.findIndex((stored) => (
+    normalisedPresetName(stored.name) === normalisedPresetName(name)
+  ));
 }
 
 /**
@@ -284,14 +303,10 @@ export function createSavedPresets(input) {
   return candidates.reduce((presets, candidate) => {
     if (!candidate || typeof candidate !== "object") return presets;
     const name = presetName(candidate.name);
-    if (!name || PRESETS.some((builtIn) => (
-      normalisedPresetName(builtIn) === normalisedPresetName(name)
-    ))) return presets;
+    if (!name || reservedPresetName(name)) return presets;
 
     const candidateId = safeIdentifier(candidate.id, "preset");
-    const duplicate = presets.findIndex((stored) => (
-      normalisedPresetName(stored.name) === normalisedPresetName(name)
-    ));
+    const duplicate = findPresetNamed(presets, name);
     // Sharing an identifier with the entry this one replaces is not a
     // collision: that entry is about to stop existing, and regenerating here
     // would move the surviving Preset's identity on every load.
@@ -315,15 +330,11 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
   const presets = createSavedPresets(savedPresets);
   const name = presetName(nameCandidate);
   if (!name) return { presets, preset: null, reason: "invalid-preset-name" };
-  if (PRESETS.some((builtIn) => (
-    normalisedPresetName(builtIn) === normalisedPresetName(name)
-  ))) {
+  if (reservedPresetName(name)) {
     return { presets, preset: null, reason: "preset-name-reserved" };
   }
 
-  const duplicate = presets.find((stored) => (
-    normalisedPresetName(stored.name) === normalisedPresetName(name)
-  ));
+  const duplicate = presets[findPresetNamed(presets, name)];
   const preset = {
     id: duplicate?.id || makeIdentifier("preset"),
     name,
