@@ -692,6 +692,24 @@ test("a start, stop and start cycle leaves the session where the run is", async 
   assert.equal(audioSession.type, "auto");
 });
 
+test("restarting a run holds the session it already has", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  const { engine } = harness({ state: "running" });
+
+  await engine.start(pulsePerSecond());
+  // Editing a signature mid-run clears the transport and starts it again, but
+  // the metronome never falls silent, so nothing else on the device should hear
+  // the session go down and come back up.
+  await engine.restart(fiftyMillisecondGrid());
+
+  assert.deepEqual(types, ["playback"]);
+
+  engine.stop();
+
+  assert.deepEqual(types, ["playback", "auto"]);
+});
+
 test("a browser without an audio session starts and stops as usual", async (t) => {
   withNavigator(t, {});
   const { context, engine } = harness({ state: "running" });
