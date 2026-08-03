@@ -724,8 +724,11 @@ elements.cycles.addEventListener("keydown", (event) => {
   if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = (index - 1 + options.length) % options.length;
   if (event.key === "Home") nextIndex = 0;
   if (event.key === "End") nextIndex = options.length - 1;
+  // Escape has no default action on these controls in either Chrome or
+  // Firefox — a number input keeps its typed value, its focus and its caret —
+  // so both Escape paths here only dismiss. The arrow keys below do need
+  // preventDefault, because they scroll.
   if (event.key === "Escape") {
-    event.preventDefault();
     dismissSubdivisionMenu();
     return;
   }
