@@ -1,6 +1,6 @@
 # Adopt Playwright browser tests
 
-Polynome will use Playwright with managed Chromium for browser interaction tests. The application retains zero runtime dependencies; `@playwright/test` is the sole development dependency.
+Polynome will use Playwright with managed Chromium for browser interaction tests. The application retains zero runtime dependencies, and `@playwright/test` is the only development dependency this decision adds.
 
 The level-scaling assertion is superseded by ADR-0008. Every other consequence
 below — the seam, the tooling, the ports, the bundle check — remains in force.
