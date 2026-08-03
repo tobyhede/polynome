@@ -4,11 +4,54 @@ const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
 
-const SOUND_PROFILES = Object.freeze({
-  high: { frequency: 1240, type: "triangle", length: 0.032 },
-  low: { frequency: 690, type: "triangle", length: 0.042 },
-  wood: { frequency: 930, type: "sine", length: 0.026 },
+export const SOUND_PROFILES = Object.freeze({
+  high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
+  low: Object.freeze({ frequency: 690, type: "triangle", length: 0.042 }),
+  wood: Object.freeze({ frequency: 930, type: "sine", length: 0.026 }),
 });
+
+export const CLICK_ENVELOPE = Object.freeze({
+  peakGain: 0.92,
+  silenceGain: 0.0001,
+  attackSeconds: 0.0015,
+  releaseSeconds: 0.002,
+});
+
+export function scheduleClickVoice(context, output, { sound, level, when }) {
+  if (!(level > 0)) return null;
+
+  const profile = SOUND_PROFILES[sound] || SOUND_PROFILES.high;
+  const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
+  const peak = peakGain * level;
+  const end = when + profile.length;
+
+  const oscillator = new OscillatorNode(context, {
+    type: profile.type,
+    frequency: profile.frequency,
+  });
+  const envelope = new GainNode(context, { gain: silenceGain });
+
+  oscillator.connect(envelope);
+  envelope.connect(output);
+
+  envelope.gain.setValueAtTime(silenceGain, when);
+  envelope.gain.exponentialRampToValueAtTime(peak, when + attackSeconds);
+  envelope.gain.exponentialRampToValueAtTime(silenceGain, end);
+
+  oscillator.start(when);
+  oscillator.stop(end + releaseSeconds);
+  return oscillator;
+}
+
+export function createLayerOutput(context, destination, layer) {
+  const gain = new GainNode(context, {
+    gain: layer.muted ? 0 : layer.volume,
+  });
+  const panner = new StereoPannerNode(context, { pan: layer.pan });
+  gain.connect(panner);
+  panner.connect(destination);
+  return { gain, panner };
+}
 
 export class MetronomeEngine extends EventTarget {
   #context = null;
@@ -197,11 +240,7 @@ export class MetronomeEngine extends EventTarget {
     for (const layer of rhythms) {
       let nodes = this.#layers.get(layer.id);
       if (!nodes) {
-        const gain = new GainNode(this.#context, { gain: layer.volume });
-        const panner = new StereoPannerNode(this.#context, { pan: layer.pan });
-        gain.connect(panner);
-        panner.connect(this.#master);
-        nodes = { gain, panner };
+        nodes = createLayerOutput(this.#context, this.#master, layer);
         this.#layers.set(layer.id, nodes);
       }
 
@@ -243,22 +282,12 @@ export class MetronomeEngine extends EventTarget {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
-    const profile = SOUND_PROFILES[layer.sound] || SOUND_PROFILES.high;
-    const peak = 0.92 * level;
-    const end = when + profile.length;
-
-    const oscillator = new OscillatorNode(this.#context, {
-      type: profile.type,
-      frequency: profile.frequency,
+    const oscillator = scheduleClickVoice(this.#context, output, {
+      sound: layer.sound,
+      level,
+      when,
     });
-    const envelope = new GainNode(this.#context, { gain: 0.0001 });
-
-    oscillator.connect(envelope);
-    envelope.connect(output);
-
-    envelope.gain.setValueAtTime(0.0001, when);
-    envelope.gain.exponentialRampToValueAtTime(peak, when + 0.0015);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+    if (!oscillator) return;
 
     this.#scheduledSources.add(oscillator);
     oscillator.addEventListener(
@@ -266,8 +295,5 @@ export class MetronomeEngine extends EventTarget {
       () => this.#scheduledSources.delete(oscillator),
       { once: true },
     );
-
-    oscillator.start(when);
-    oscillator.stop(end + 0.002);
   }
 }

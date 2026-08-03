@@ -12,7 +12,7 @@ A deliberately small browser metronome with:
 
 ## Open it immediately
 
-Run the bundle command once, then double-click the generated file:
+With Node.js 22 or newer, run the bundle command, then double-click the generated file:
 
 ```bash
 npm run bundle
@@ -23,7 +23,7 @@ The generated `dist/polynome.html` contains the complete application, including 
 
 ## Run the source version
 
-Requires Node.js 20 or newer only for the tiny local static server.
+Requires Node.js 22 or newer only for development tools and the tiny local static server.
 
 ```bash
 npm start
@@ -39,10 +39,30 @@ The application itself is static and can also be hosted directly on GitHub Pages
 
 ## Test it
 
+Install the development tools and managed Chromium once:
+
 ```bash
-npm test
+npm install
+npx playwright install chromium
+```
+
+Then run everything:
+
+```bash
 npm run check
 ```
+
+`npm run check` runs both suites and generates the bundle and site output.
+Either suite can be run on its own with `npm test` or `npm run test:browser`.
+
+`npm test` covers the pure timing and state model. The Chromium suite covers
+browser focus, accessibility state, persistence, playback controls, step-level
+cycling, the mobile layout, and deterministic offline rendering of click timing,
+step levels, muted layers, and stereo panning. It also opens the generated
+`dist/polynome.html` over `file://` to confirm the single-file bundle boots and
+plays, so `npm run test:browser` regenerates the bundle before running.
+Physical output latency and subjective sound quality still require manual
+listening checks.
 
 ## Sequence model
 
@@ -80,19 +100,21 @@ This prevents cumulative drift between rhythm layers and cycle transitions.
 ## Files
 
 ```text
-index.html       Interface shell
-styles.css       Responsive visual design
-app.js           UI state, persistence, and interaction
-configuration.js Editable configuration, presets, and edit availability
-model.js         Pure sequence, cycle, rhythm, and timing model
-shared-transport.js  Stateful sequence event planning and playhead
-metronome.js     Web Audio graph and look-ahead scheduler
-persistence.js   Deferred storage writes and storage-key migration
-server.mjs       Zero-dependency local static server
-scripts/          Single-file bundler
-fonts/            Self-hosted interface fonts and licenses
-dist/             Browser-ready one-file application
-test/            Node built-in tests
+index.html            Interface shell
+styles.css            Responsive visual design
+app.js                UI state, persistence, and interaction
+configuration.js      Editable configuration, presets, and edit availability
+model.js              Pure sequence, cycle, rhythm, and timing model
+shared-transport.js   Stateful sequence event planning and playhead
+metronome.js          Web Audio graph and look-ahead scheduler
+persistence.js        Deferred storage writes and storage-key migration
+server.mjs            Zero-dependency local static server
+playwright.config.js  Managed Chromium and local test server
+scripts/              Single-file bundler
+fonts/                Self-hosted interface fonts and licenses
+dist/                 Browser-ready one-file application
+test/                 Node built-in tests
+e2e/                  Playwright browser interaction tests
 ```
 
 ## Current limitations

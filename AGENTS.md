@@ -42,11 +42,13 @@ Every outcome, including both no-ops above, returns a freshly repaired Configura
 
 ## Dependencies
 
-The project intentionally has zero runtime or development dependencies. Prefer browser and Node standard APIs. Do not introduce a framework or bundler unless a concrete requirement justifies the cost.
+The application intentionally has zero runtime dependencies. Playwright is the sole development dependency and exists only for browser interaction tests. Prefer browser and Node standard APIs. Do not introduce a framework, bundler, or another dependency unless a concrete requirement justifies the cost.
 
 ## Verification
 
-Run:
+Install development dependencies and the managed browser once with `npm install` and `npx playwright install chromium`.
+
+Then run:
 
 ```bash
 npm run check
@@ -54,14 +56,14 @@ npm run check
 
 Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`.
 
-For browser changes, manually verify:
+Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
 
-1. Play and stop from the button and Space key.
-2. Presets `4/4` and `4/4 + 3/4`.
-3. Headphone separation at hard left and hard right.
-4. Full, half, quarter, and off step-level cycling.
-5. Signature and pulse edits while playing.
-6. Mobile layout around 375 px width.
+Also manually verify the audio-specific behavior Playwright cannot assess:
+
+1. Presets `4/4` and `4/4 + 3/4` sound as configured.
+2. Headphone separation at hard left and hard right through physical output.
+3. Full, half, quarter, and off levels are perceptually distinguishable, not merely correctly scaled.
+4. Signature and pulse edits restart cleanly while playing.
 
 ## Product boundaries
 
