@@ -200,6 +200,30 @@ test("describing Presets identifies exact snapshots without comparing identifier
   assert.equal(descriptions.find(({ name }) => name === "4/4").selected, false);
 });
 
+/**
+ * Repair belongs at the door. `describePresets` runs on every render, so
+ * repeating it there rebuilt every stored Configuration to reach the answer it
+ * had already been given.
+ */
+test("describing Presets trusts the Presets createSavedPresets has repaired", () => {
+  const presets = createSavedPresets([{ name: "Stored", configuration: { bpm: 5000 } }]);
+  assert.equal(presets[0].configuration.bpm, 300);
+
+  const described = describePresets(createConfiguration(), presets);
+
+  assert.equal(described.at(-1).name, "Stored");
+  assert.equal(described.at(-1).configuration, presets[0].configuration);
+});
+
+test("built-in Preset descriptions are the same Configurations every time", () => {
+  const first = describePresets(createConfiguration(), []);
+  const second = describePresets(createConfiguration({ bpm: 200 }), []);
+
+  assert.equal(first[0].configuration, second[0].configuration);
+  assert.equal(first[0].selected, true);
+  assert.equal(second[0].selected, false);
+});
+
 test("applying a saved Preset restores its snapshot with fresh identifiers", () => {
   const snapshot = createConfiguration({
     bpm: 137,

@@ -351,6 +351,36 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
   await denied.close();
 });
 
+/**
+ * A tempo change can only alter which Preset is selected: every name, notation
+ * and delete button is a function of that Preset's own stored Configuration, not
+ * of the current one. Rebuilding the grid to change one attribute throws away
+ * identical DOM on every pointer move of a drag.
+ */
+test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Watched");
+  const builtIn = page.locator('[data-preset-id="built-in-4-4"]');
+  await builtIn.click();
+  await expect(builtIn).toHaveAttribute("aria-pressed", "true");
+
+  await page.evaluate(() => {
+    window.presetListRebuilds = 0;
+    new MutationObserver((records) => {
+      window.presetListRebuilds += records.length;
+    }).observe(document.querySelector("#preset-list"), { childList: true, subtree: true });
+  });
+
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  await slider.focus();
+  for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
+
+  await expect(builtIn).toHaveAttribute("aria-pressed", "false");
+  await expect(builtIn).not.toHaveClass(/\bis-selected\b/);
+  await expect(presetButton(page, "Watched")).toBeVisible();
+  expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 

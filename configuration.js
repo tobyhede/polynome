@@ -348,23 +348,35 @@ export function removeSavedPreset(savedPresets, presetId) {
   };
 }
 
+/**
+ * Built-in Presets never change, so their Configurations are built once. The
+ * identifier is derived from the name rather than generated, because it has to
+ * survive a reload to be worth addressing a button by.
+ */
+const BUILT_IN_PRESETS = Object.freeze(PRESETS.map((name) => Object.freeze({
+  id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
+  name,
+  configuration: createPresetConfiguration(name),
+})));
+
+/**
+ * Runs on every render, so it repairs nothing: `createSavedPresets` is the only
+ * door in from storage, and `configuration` is a repaired Configuration the
+ * caller is already holding. Repeating either pass here would rebuild every
+ * stored Configuration to reach an answer it was handed.
+ */
 export function describePresets(configuration, savedPresets) {
-  const current = createConfiguration(configuration);
+  const presets = Array.isArray(savedPresets) ? savedPresets : [];
   return [
-    ...PRESETS.map((name) => {
-      const presetConfiguration = createPresetConfiguration(name);
-      return {
-        id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
-        name,
-        builtIn: true,
-        selected: sameConfiguration(current, presetConfiguration),
-        configuration: presetConfiguration,
-      };
-    }),
-    ...createSavedPresets(savedPresets).map((preset) => ({
+    ...BUILT_IN_PRESETS.map((preset) => ({
+      ...preset,
+      builtIn: true,
+      selected: sameConfiguration(configuration, preset.configuration),
+    })),
+    ...presets.map((preset) => ({
       ...preset,
       builtIn: false,
-      selected: sameConfiguration(current, preset.configuration),
+      selected: sameConfiguration(configuration, preset.configuration),
     })),
   ];
 }

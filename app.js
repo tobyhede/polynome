@@ -145,7 +145,9 @@ function applyEdit(edit, options = {}) {
 function render() {
   renderPanels();
   renderTransport();
-  renderPresets();
+  // An edit never adds, removes or renames a Preset, so the list itself cannot
+  // have changed; save, delete and the panel toggle rebuild it.
+  renderPresetSelection();
   renderCycles();
   renderFooter();
 }
@@ -252,6 +254,25 @@ function dismissPendingDelete() {
   if (pendingDeletePresetId === null) return;
   pendingDeletePresetId = null;
   renderPresets();
+}
+
+/**
+ * Tempo, master level and mix changes move the current Configuration, and the
+ * only thing that can change about this list is which Presets it now matches:
+ * every card describes a stored Configuration and cannot have changed. Setting
+ * the two attributes that carry selection leaves the grid untouched, which is
+ * what keeps a drag from rebuilding identical markup on every pointer move.
+ */
+function renderPresetSelection() {
+  if (!presetsOpen) return;
+  const selected = new Set(describePresets(state, savedPresets)
+    .filter((preset) => preset.selected)
+    .map((preset) => preset.id));
+  for (const button of elements.presetList.querySelectorAll("[data-preset-id]")) {
+    const isSelected = selected.has(button.dataset.presetId);
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  }
 }
 
 function presetNotationTemplate(configuration) {
@@ -685,7 +706,7 @@ elements.bpmSlider.addEventListener("input", (event) => {
     { deferConsequence: true, render: false },
   );
   renderTransport();
-  renderPresets();
+  renderPresetSelection();
 });
 /**
  * Dragging the slider defers the transport consequence, so on release the run
@@ -704,7 +725,7 @@ elements.masterVolume.addEventListener("input", (event) => {
     { type: "set-master-volume", masterVolume: event.target.value },
     { render: false },
   );
-  renderPresets();
+  renderPresetSelection();
 });
 elements.presetList.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-delete-preset-id]");
@@ -963,7 +984,7 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === rhythm.id).pan;
     rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(pan);
   }
-  renderPresets();
+  renderPresetSelection();
 });
 
 elements.cycles.addEventListener("change", (event) => {
