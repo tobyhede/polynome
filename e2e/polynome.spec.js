@@ -160,6 +160,17 @@ test("Meter fields accept direct entry and recover accessibly from invalid input
   );
 });
 
+test("Tab commits a Meter numerator and continues to the denominator", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const numerator = page.getByRole("textbox", { name: "4/4 meter numerator" });
+
+  await numerator.fill("3");
+  await numerator.press("Tab");
+
+  await expect(page.getByRole("button", { name: "3/4 Edit 3/4 rhythm" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "3/4 meter denominator" })).toBeFocused();
+});
+
 test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step levels" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });

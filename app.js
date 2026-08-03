@@ -1259,12 +1259,10 @@ elements.cycles.addEventListener("change", (event) => {
 });
 
 elements.cycles.addEventListener("keydown", (event) => {
-  if (
-    event.key !== "Enter" ||
-    !event.target.matches('[data-field="signature-count"], [data-field="signature-unit"]')
-  )
+  if (!event.target.matches('[data-field="signature-count"], [data-field="signature-unit"]'))
     return;
-  event.preventDefault();
+  if (!["Enter", "Tab"].includes(event.key)) return;
+  if (event.key === "Enter") event.preventDefault();
   event.target.dispatchEvent(new Event("change", { bubbles: true }));
 });
 
