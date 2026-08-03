@@ -43,6 +43,12 @@ conventional written units `1`, `2`, `4`, and `8`. Non-power-of-two time
 signatures are real contemporary notation, but they are too unusual for this
 metronome's ordinary control surface.
 
+Direct text entry of Meter components is cancelled as a concept, not deferred.
+It existed to reach denominators a list could not hold, and a list that holds
+every denominator Polynome recognizes leaves it nothing to do. A select commits
+in one gesture, cannot hold a value the domain will reject, and needs no
+restore-and-announce path for entries that were never possible.
+
 ## What a time signature determines
 
 In ordinary Western notation, the denominator maps a signature unit through
@@ -83,10 +89,13 @@ acknowledges fractional time signatures in Boulez's music.
 [Dorico: non-power-of-two and fractional time signatures](https://www.steinberg.help/r/dorico-pro/6.1/en/dorico/topics/notation_reference/notation_reference_time_signatures/notation_reference_time_signatures_types_r.html)
 
 That makes `4/3`, `5/6`, and `7/10` mathematically and musically interpretable,
-but niche. The current exact-rational interpretation—one `/D` unit is `4/D`
-quarter notes—is coherent for non-power-of-two meters. The UX question is
-whether Polynome intends to teach and expose that advanced notation. Its core
-product promise does not require doing so.
+but niche. An exact-rational interpretation—one `/D` unit is `4/D` quarter
+notes—would be coherent for non-power-of-two meters. The UX question was whether
+Polynome intends to teach and expose that advanced notation, and the answer is
+no: its core product promise does not require it, and the correction below
+removes the premise anyway. Once the denominator no longer scales the beat,
+`4/3` and `4/4` are one rhythm under two labels, so there is nothing left for a
+non-dyadic denominator to express.
 
 ## BPM needs a reference note value
 
@@ -162,6 +171,13 @@ Confirmed and implemented:
 - Numerator controls Meter and Cycle length.
 - Denominator remains the written name of the beat and has no timing
   consequence.
+
+Rejected, and not held open for later:
+
+- Direct text entry of either Meter component. Selects hold the whole domain.
+- Non-dyadic and fractional denominators. The timing correction leaves them
+  nothing to express.
+- Numerators and denominators beyond the offered ranges.
 
 This deliberately prioritizes metronome behavior over notation-engine
 semantics. Simultaneous `3/4` and `3/8` layers with the same Subdivision now have
