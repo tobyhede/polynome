@@ -86,7 +86,8 @@ Each layer has:
 - a subdivision of 1–5 equal pulses within each signature unit
 - exactly `signature count × subdivision` editable pattern positions
 - a pattern whose steps select primary, secondary, or tertiary pitched voices,
-  or silence; audible voices have equal gain and sit four semitones apart
+  or silence; audible voices have equal gain, and each adjacent voice is four
+  semitones lower than the one above it
 - its own sound, volume, mute state, and stereo position
 
 Examples:
