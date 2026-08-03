@@ -750,7 +750,7 @@ async function setSignature(page, count) {
     .getByRole("button", { name: /^Edit \d+\/\d+$/ })
     .first()
     .click();
-  const numerator = page.getByRole("spinbutton", { name: /meter numerator$/ });
+  const numerator = page.getByRole("textbox", { name: /meter numerator$/ });
   await numerator.fill(String(count));
   await numerator.blur();
 }
