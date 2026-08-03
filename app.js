@@ -1210,7 +1210,7 @@ function escapeHtml(value) {
 // Major ticks carry their own number, so the tick row is also the tempo scale.
 elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
   const bpm = 30 + index * 10;
-  const major = bpm % 90 === 30 || bpm === 300;
+  const major = bpm % 90 === 30;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
 render();

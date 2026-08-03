@@ -54,10 +54,13 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   await expect(heading).toHaveClass(/is-glitching/);
   await expect(page.getByLabel("BPM")).toHaveClass(/is-glitching/);
   await expect(heading).toHaveCSS("animation-name", "bpm-glitch");
+  await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "bpm-glitch");
 
   await bpm.fill("250");
   await expect(heading).not.toHaveClass(/is-glitching/);
   await expect(page.getByLabel("BPM")).not.toHaveClass(/is-glitching/);
+  await expect(heading).toHaveCSS("animation-name", "none");
+  await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
 });
 
 for (const [name, accessibleName] of [
@@ -476,22 +479,15 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator('.subdivision-option[data-subdivision="4"]').click();
   await expect(page.locator(".rhythm-card .step")).toHaveCount(16);
+  // Sixteen steps alone do not pin the grouping this test measures: eight beats
+  // of two would satisfy that count and still wrap evenly.
+  await expect(page.locator(".rhythm-card .beat")).toHaveCount(4);
 
   // 3+1 is the shape this guards against: four beats have to wrap 4, 2, or 1 to
   // a row, and 768 is a width where packing by available space would not.
   for (const width of [375, 540, 700, 768, 800, 1024]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.evaluate(() => new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(resolve));
-    }));
-
-    const rows = await page.evaluate(() => {
-      const tops = [...document.querySelectorAll(".rhythm-card .beat")]
-        .map((beat) => Math.round(beat.getBoundingClientRect().top));
-      const perRow = new Map();
-      for (const top of tops) perRow.set(top, (perRow.get(top) ?? 0) + 1);
-      return [...perRow.values()];
-    });
+    const rows = await beatsPerRow(page);
 
     expect(rows.length, `${width}px produced no rows`).toBeGreaterThan(0);
     expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);

@@ -7,13 +7,18 @@
 //   npm run shots -- --url=http://127.0.0.1:4173   (reuse a running server)
 
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices } from "@playwright/test";
 
+import { inMatrixOrder, priorShots } from "./shots-manifest.mjs";
+
 const root = fileURLToPath(new URL("..", import.meta.url));
 const shotsRoot = resolve(root, "shots");
+// Deliberately not the 4173 `npm start` uses, so a run does not collide with a
+// server the developer already has open.
+const DEFAULT_PORT = 4175;
 
 // Device entries emulate touch, user agent, and pixel density. The two
 // `boundary` entries are plain viewports sitting on the breakpoint edges in
@@ -175,24 +180,6 @@ function contextOptions(profile) {
   };
 }
 
-// A filtered run re-shoots part of the matrix, so it keeps the shots it did not
-// regenerate and folds the new ones in. Only a full run starts from empty.
-async function priorShots(directory, regenerated) {
-  try {
-    const previous = JSON.parse(await readFile(`${directory}/manifest.json`, "utf8"));
-    return previous.shots.filter((shot) => !regenerated.has(`${shot.state}__${shot.profile}`));
-  } catch {
-    return [];
-  }
-}
-
-function inMatrixOrder(shots) {
-  const rank = (shot) =>
-    STATES.findIndex((state) => state.name === shot.state) * PROFILES.length +
-    PROFILES.findIndex((profile) => profile.name === shot.profile);
-  return [...shots].sort((left, right) => rank(left) - rank(right));
-}
-
 function contactSheet(shots, states, profiles) {
   const card = (shot) => `
         <figure${shot.overflows ? ' class="overflows"' : ""}>
@@ -203,6 +190,7 @@ function contactSheet(shots, states, profiles) {
           </a>
           <figcaption>
             <strong>${shot.profile}</strong>
+            ${shot.note ? `<small>${shot.note}</small>` : ""}
             <span>${shot.viewport.width}×${shot.viewport.height} · page ${shot.pageHeight}px</span>
             ${shot.overflows ? `<em>horizontal overflow: ${shot.scrollWidth}px &gt; ${shot.viewport.width}px</em>` : ""}
           </figcaption>
@@ -245,6 +233,8 @@ function contactSheet(shots, states, profiles) {
       figure.overflows .frame { border-color: #e5484d; }
       figcaption { display: grid; gap: 2px; padding-top: 8px; font-size: 12px; color: #9a9aa2; }
       figcaption strong { color: #e8e8ea; font-size: 13px; }
+      /* Why this profile is in the matrix, carried to where the shots are read. */
+      figcaption small { color: #7a7a82; font-size: 11px; }
       figcaption em { color: #e5484d; font-style: normal; }
       a { text-decoration: none; }
     </style>
@@ -281,17 +271,19 @@ let browser = null;
 const shots = [];
 
 try {
-  stopServer = options.url ? null : await startServer(Number(options.port || 4175));
-  const baseUrl = options.url || `http://127.0.0.1:${options.port || 4175}`;
+  stopServer = options.url ? null : await startServer(Number(options.port || DEFAULT_PORT));
+  const baseUrl = options.url || `http://127.0.0.1:${options.port || DEFAULT_PORT}`;
 
   await mkdir(outputDirectory, { recursive: true });
+  // A full run clears every shot on disk, not just the ones the current matrix
+  // would name: a renamed or deleted state otherwise leaves its old PNG behind,
+  // where the next reader takes it for part of the run.
   if (isFullRun) {
+    const existing = await readdir(outputDirectory);
     const generatedFiles = [
       "index.html",
       "manifest.json",
-      ...STATES.flatMap((state) => (
-        PROFILES.map((profile) => `${state.name}__${profile.name}.png`)
-      )),
+      ...existing.filter((file) => file.endsWith(".png")),
     ];
     await Promise.all(generatedFiles.map((file) => (
       rm(resolve(outputDirectory, file), { force: true })
@@ -345,7 +337,11 @@ try {
 
 // The sheet always shows everything on disk, so re-shooting one device still
 // leaves a comparable set to flip through.
-const all = inMatrixOrder([...kept, ...shots]);
+const all = inMatrixOrder(
+  [...kept, ...shots],
+  STATES.map((state) => state.name),
+  PROFILES.map((profile) => profile.name),
+);
 const shownStates = STATES.filter((state) => all.some((shot) => shot.state === state.name));
 const shownProfiles = PROFILES.filter((profile) => all.some((shot) => shot.profile === profile.name));
 
