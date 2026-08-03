@@ -51,7 +51,7 @@ const elements = {
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
 let state = loadState();
-let savedPresets = loadSavedPresets();
+let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
   meterUnits: NOTE_UNITS,
@@ -88,13 +88,29 @@ function writeState(configuration) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
 }
 
-function loadSavedPresets() {
+/**
+ * Every tab rewrites the whole preset key, so a write built from the list this
+ * tab read at startup reinstates whatever another tab has since removed. Each
+ * write reads first, and this reports a refusal as null rather than as an empty
+ * list: storage this tab cannot read is not storage holding nothing, and the
+ * caller keeps what it has instead of adopting an emptiness it cannot verify.
+ */
+function readSavedPresets() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    raw = localStorage.getItem(PRESET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  try {
     return createSavedPresets(raw ? JSON.parse(raw) : undefined);
   } catch {
     return createSavedPresets();
   }
+}
+
+function storedSavedPresets() {
+  return readSavedPresets() ?? savedPresets;
 }
 
 function writeSavedPresets() {
@@ -664,7 +680,7 @@ elements.presetList.addEventListener("click", (event) => {
       id === deleteButton.dataset.deletePresetId
     ));
     if (!preset || !window.confirm(`Delete the “${preset.name}” preset?`)) return;
-    const result = removeSavedPreset(savedPresets, preset.id);
+    const result = removeSavedPreset(storedSavedPresets(), preset.id);
     if (result.reason) return;
     savedPresets = result.presets;
     const persisted = writeSavedPresets();
@@ -693,7 +709,7 @@ elements.presetName.addEventListener("input", () => {
 elements.presetSave.addEventListener("submit", (event) => {
   event.preventDefault();
   elements.presetName.setCustomValidity("");
-  const result = savePreset(savedPresets, elements.presetName.value, state);
+  const result = savePreset(storedSavedPresets(), elements.presetName.value, state);
   if (result.reason) {
     elements.presetName.setCustomValidity(result.reason === "preset-name-reserved"
       ? "Choose a name different from a built-in preset."
@@ -931,6 +947,19 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("pagehide", () => {
   persistence.flush();
   engine.stop();
+});
+/**
+ * Another tab saving or deleting leaves this one showing a list that no longer
+ * exists, and a null key is storage cleared wholesale. The configuration key is
+ * deliberately not adopted: two tabs each hold their own tempo and sequence, and
+ * taking over an edit in progress is not a reconciliation the user asked for.
+ */
+window.addEventListener("storage", (event) => {
+  if (event.key !== null && event.key !== PRESET_STORAGE_KEY) return;
+  const presets = readSavedPresets();
+  if (presets === null) return;
+  savedPresets = presets;
+  renderPresets();
 });
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,
 // and hiding is the last moment a mobile browser reliably hands over.

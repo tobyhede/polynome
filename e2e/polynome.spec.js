@@ -4,6 +4,19 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
+// A preset button's accessible name opens with the preset name and continues
+// into its notation summary, and the card's delete button carries the name too,
+// so anchoring at the start is what distinguishes the two.
+function presetButton(page, name) {
+  return page.getByRole("button", { name: new RegExp(`^${name}\\b`) });
+}
+
+async function savePreset(page, name) {
+  await page.getByRole("textbox", { name: "Save current preset" }).fill(name);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
+}
+
 test("playback toggles from the button and Space key", async ({ page }) => {
   const playButton = page.getByRole("button", { name: "Play metronome" });
   const status = page.getByRole("status");
@@ -122,6 +135,87 @@ test("sound customization clears preset selection and persists", async ({ page }
   // keeps meaning what its name says if preset matching ever changes.
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(lowSound).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
+ * Saved Presets live under one storage key that every tab rewrites whole, so a
+ * tab that saves from the list it read at startup writes back whatever another
+ * tab has since removed. Writing from storage instead of from that snapshot is
+ * what keeps a deletion deleted. The change here is made from inside this page,
+ * which is precisely a change it cannot observe: a storage event reaches every
+ * same-origin document except the one that wrote it.
+ */
+test("saving writes what storage holds now, not what this tab read at startup", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Shared");
+
+  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+  await savePreset(page, "Later");
+
+  await expect(presetButton(page, "Later")).toBeVisible();
+  await expect(presetButton(page, "Shared")).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(presetButton(page, "Later")).toBeVisible();
+  await expect(presetButton(page, "Shared")).toHaveCount(0);
+});
+
+test("deleting removes one preset without dropping presets this tab never saw", async ({ page }) => {
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Doomed");
+
+  await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("polynome-presets"));
+    stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
+    localStorage.setItem("polynome-presets", JSON.stringify(stored));
+  });
+  await page.getByRole("button", { name: "Delete Doomed preset" }).click();
+
+  await expect(page.getByRole("status")).toHaveText("Doomed preset deleted");
+  await expect(presetButton(page, "Doomed")).toHaveCount(0);
+  await expect(presetButton(page, "Keeper")).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(presetButton(page, "Doomed")).toHaveCount(0);
+  await expect(presetButton(page, "Keeper")).toBeVisible();
+});
+
+test("an open preset panel follows another tab's saves and deletions", async ({ page, context }) => {
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+  const other = await context.newPage();
+  other.on("dialog", (dialog) => dialog.accept());
+  await other.goto("/");
+  await page.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Presets" }).click();
+
+  await savePreset(other, "Rehearsal");
+  await expect(presetButton(page, "Rehearsal")).toBeVisible();
+  await expect(heading).toContainText("3");
+
+  await other.getByRole("button", { name: "Delete Rehearsal preset" }).click();
+  await expect(presetButton(page, "Rehearsal")).toHaveCount(0);
+  await expect(heading).toContainText("2");
+});
+
+test("a preset deleted in another tab stays deleted when this tab saves", async ({ page, context }) => {
+  const other = await context.newPage();
+  other.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Retired");
+
+  await other.goto("/");
+  await other.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Delete Retired preset" }).click();
+  await expect(presetButton(other, "Retired")).toHaveCount(0);
+
+  await savePreset(page, "Current");
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(presetButton(page, "Current")).toBeVisible();
+  await expect(presetButton(page, "Retired")).toHaveCount(0);
 });
 
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
