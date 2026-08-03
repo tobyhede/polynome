@@ -367,17 +367,17 @@ test("an off step produces no rhythm event", () => {
   );
 });
 
-test("rhythm events expose Step voices", () => {
+test("rhythm events expose every audible Step voice by name", () => {
   const layer = createLayer({
     id: "voices",
-    signature: { count: 2, unit: 4 },
-    steps: [STEP.TERTIARY, STEP.PRIMARY],
+    signature: { count: 3, unit: 4 },
+    steps: [STEP.TERTIARY, STEP.SECONDARY, STEP.PRIMARY],
   });
   const transport = new SharedTransport();
 
   transport.start(sequence(60, [layer]), 0);
 
-  assert.deepEqual(transport.plan(0, 2), [
+  assert.deepEqual(transport.plan(0, 3), [
     {
       layerId: "voices",
       absoluteStep: 0,
@@ -389,8 +389,15 @@ test("rhythm events expose Step voices", () => {
       layerId: "voices",
       absoluteStep: 1,
       patternPosition: 1,
-      voice: STEP.PRIMARY,
+      voice: STEP.SECONDARY,
       audioTime: 1,
+    },
+    {
+      layerId: "voices",
+      absoluteStep: 2,
+      patternPosition: 2,
+      voice: STEP.PRIMARY,
+      audioTime: 2,
     },
   ]);
 });

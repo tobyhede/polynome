@@ -91,10 +91,22 @@ test("Step voices change pitch without changing gain and off stays silent", asyn
   expect(tertiary.frequency).toBeLessThan(secondary.frequency);
   expect(secondary.frequency).toBeLessThan(primary.frequency);
 
+  // Rendered peaks cannot be asserted equal to each other exactly. The measured
+  // peak is the largest sample, and how near that lands to the envelope's apex
+  // depends on where an oscillator crest happens to fall — which differs per
+  // voice, because the voices differ in frequency. The envelope decays fast
+  // enough that half a period of offset costs a few per cent.
+  //
+  // What the tolerance still has to exclude is the model this replaced, where
+  // `secondary` and `tertiary` peaked at half and a quarter of `primary`. A
+  // floor at 80% of the shared ceiling clears the phase error by a wide margin
+  // and fails immediately if amplitude scaling ever comes back.
+  const peaks = [tertiary, secondary, primary].map((step) => step.peak);
   for (const step of [tertiary, secondary, primary]) {
-    expect(step.peak).toBeGreaterThan(0);
+    expect(step.peak).toBeGreaterThan(step.ceiling * 0.8);
     expect(step.peak).toBeLessThanOrEqual(step.ceiling);
   }
+  expect(Math.max(...peaks) / Math.min(...peaks)).toBeLessThan(1.15);
 });
 
 test("a muted layer output renders silence from its first frame", async ({ page }) => {

@@ -2,6 +2,7 @@ import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
 import { createConfiguration } from "../configuration.js";
+import { STEP } from "../model.js";
 import {
   CLICK_ENVELOPE,
   SOUND_PROFILES,
@@ -391,31 +392,101 @@ const clickStarts = (context) => context.audibleClicks().map((click) => roundSec
 const gapsBetween = (starts) =>
   starts.slice(1).map((start, index) => roundSeconds(start - starts[index]));
 
-test("audible Step voices share one gain envelope and use distinct pitches", () => {
-  const secondaryContext = new FakeAudioContext();
-  const primaryContext = new FakeAudioContext();
-
-  const secondary = scheduleClickVoice(secondaryContext, secondaryContext.destination, {
-    sound: "high",
-    voice: "secondary",
-    when: 1,
-  });
-  const primary = scheduleClickVoice(primaryContext, primaryContext.destination, {
-    sound: "high",
-    voice: "primary",
-    when: 1,
+/** Voices one `scheduleClickVoice` call each, in their own contexts. */
+const voiceClicks = (voices) =>
+  voices.map((voice) => {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound: "high",
+      voice,
+      when: 1,
+    });
+    return { context, oscillator };
   });
 
+test("every audible Step voice shares one gain envelope and its own pitch", () => {
+  const [tertiary, secondary, primary] = voiceClicks([STEP.TERTIARY, STEP.SECONDARY, STEP.PRIMARY]);
+
+  for (const { context } of [tertiary, secondary]) {
+    assert.deepEqual(context.gains[0].gain.automation, primary.context.gains[0].gain.automation);
+  }
+  assert.equal(primary.context.gains[0].gain.automation[1].value, CLICK_ENVELOPE.peakGain);
+
+  for (const [voice, { oscillator }] of [
+    [STEP.TERTIARY, tertiary],
+    [STEP.SECONDARY, secondary],
+    [STEP.PRIMARY, primary],
+  ]) {
+    assert.equal(
+      oscillator.frequency.value,
+      SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS[voice],
+    );
+  }
+  assert.ok(tertiary.oscillator.frequency.value < secondary.oscillator.frequency.value);
+  assert.ok(secondary.oscillator.frequency.value < primary.oscillator.frequency.value);
+});
+
+/**
+ * `scheduleClickVoice` is public surface (ADR-0004), so it is reached with
+ * values the Configuration repair never saw. Silence is the only safe answer:
+ * an unrecognised voice has no pitch to play, and guessing one puts a
+ * full-gain click on the grid at a position the listener switched off.
+ */
+test("a Step voice outside the vocabulary schedules silence", () => {
+  const unrecognised = [
+    STEP.OFF,
+    "full",
+    "bogus",
+    undefined,
+    null,
+    "",
+    "constructor",
+    "toString",
+    "valueOf",
+    "__proto__",
+  ];
+
+  for (const voice of unrecognised) {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound: "high",
+      voice,
+      when: 1,
+    });
+
+    assert.equal(oscillator, null, `${String(voice)} scheduled a click`);
+    assert.deepEqual(context.clicks, [], `${String(voice)} reached the graph`);
+    assert.deepEqual(context.oscillators, [], `${String(voice)} built a node`);
+  }
+});
+
+test("an unrecognised sound falls back to the high profile, inherited or not", () => {
+  for (const sound of ["bogus", undefined, "constructor", "toString"]) {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound,
+      voice: STEP.PRIMARY,
+      when: 1,
+    });
+
+    assert.equal(
+      oscillator.frequency.value,
+      SOUND_PROFILES.high.frequency,
+      `${String(sound)} did not fall back to the high profile`,
+    );
+    assert.equal(oscillator.type, SOUND_PROFILES.high.type);
+  }
+});
+
+test("the Step pitch table answers only to the vocabulary model.js defines", () => {
   assert.deepEqual(
-    secondaryContext.gains[0].gain.automation,
-    primaryContext.gains[0].gain.automation,
+    Object.keys(STEP_PITCH_RATIOS).sort(),
+    [STEP.PRIMARY, STEP.SECONDARY, STEP.TERTIARY].sort(),
   );
-  assert.equal(secondaryContext.gains[0].gain.automation[1].value, CLICK_ENVELOPE.peakGain);
-  assert.equal(
-    secondary.frequency.value,
-    SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS.secondary,
-  );
-  assert.equal(primary.frequency.value, SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS.primary);
+  assert.equal(Object.getPrototypeOf(STEP_PITCH_RATIOS), null);
+  for (const inherited of ["constructor", "toString", "valueOf"]) {
+    assert.equal(STEP_PITCH_RATIOS[inherited], undefined);
+  }
 });
 
 test("an injected audio context factory supplies the whole audio graph", async () => {
