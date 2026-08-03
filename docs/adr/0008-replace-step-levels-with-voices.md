@@ -12,6 +12,14 @@ and amplitude-only voicing, and ADR-0004's amplitude-scaling assertion.
 - Gain, click duration, and transport phase remain independent of audible Step
   voice. The pitch change is applied as a ratio, preserving the distinction
   between the selected `high`, `low`, and `wood` sound profiles.
+- Equal gain is equal amplitude, which is not quite equal loudness: the ear is
+  less sensitive as the voices descend. A-weighted, the drop from `primary` to
+  `tertiary` is 1.5 dB on `high`, 2.1 dB on `wood`, and 2.7 dB on `low`, whose
+  tertiary voice sits lowest at 435 Hz. That residual is accepted and not
+  compensated. The amplitude model it replaced coupled loudness to emphasis at
+  roughly 6 dB and 12 dB, so this is the same coupling reduced by most of an
+  order of magnitude, and trimming it away would restore the per-voice gain this
+  decision exists to remove.
 - Configuration repair maps the former `full`, `half`, and `quarter` values to
   `primary`, `secondary`, and `tertiary`, preserving patterns and saved presets.
   ADR-0003 took a clean break rather than migrate; that is not available here,

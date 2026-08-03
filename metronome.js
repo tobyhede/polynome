@@ -1,4 +1,4 @@
-import { lookup, STEP, stepDurationSeconds } from "./model.js";
+import { lookup, SOUND, STEP, stepDurationSeconds } from "./model.js";
 import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
@@ -72,10 +72,15 @@ const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVA
 const MAX_CLICK_LATENESS_SECONDS = 0.05;
 const MAX_CLICK_LATENESS_STEPS = 0.25;
 
+/**
+ * How each sound in the vocabulary is voiced. `durationSeconds` rather than
+ * `length`, because it is a span of time and its siblings in `CLICK_ENVELOPE`
+ * already say so; `length` on an object reads as a count of something.
+ */
 export const SOUND_PROFILES = lookup({
-  high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
-  low: Object.freeze({ frequency: 690, type: "triangle", length: 0.042 }),
-  wood: Object.freeze({ frequency: 930, type: "sine", length: 0.026 }),
+  [SOUND.HIGH]: Object.freeze({ frequency: 1240, type: "triangle", durationSeconds: 0.032 }),
+  [SOUND.LOW]: Object.freeze({ frequency: 690, type: "triangle", durationSeconds: 0.042 }),
+  [SOUND.WOOD]: Object.freeze({ frequency: 930, type: "sine", durationSeconds: 0.026 }),
 });
 
 export const CLICK_ENVELOPE = Object.freeze({
@@ -112,9 +117,9 @@ export function scheduleClickVoice(context, output, { sound, voice, when }) {
   const pitchRatio = STEP_PITCH_RATIOS[voice];
   if (!pitchRatio) return null;
 
-  const profile = SOUND_PROFILES[sound] || SOUND_PROFILES.high;
+  const profile = SOUND_PROFILES[sound] || SOUND_PROFILES[SOUND.HIGH];
   const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
-  const end = when + profile.length;
+  const end = when + profile.durationSeconds;
 
   const oscillator = context.createOscillator();
   oscillator.type = profile.type;

@@ -4,12 +4,14 @@ import assert from "node:assert/strict";
 import {
   METER_COUNT_LIMIT,
   METER_UNITS,
+  SOUND,
   STEP,
   cycleSpanSeconds,
   stepDurationSeconds,
   subdivisionLabel,
 } from "../model.js";
 import { createConfiguration, describeConfiguration } from "../configuration.js";
+import { SOUND_PROFILES } from "../metronome.js";
 
 const closeTo = (actual, expected, tolerance = 1e-9) => {
   assert.ok(
@@ -45,10 +47,37 @@ test("Meter count clamps to one shared maximum in Configuration and timing", () 
 
 test("the shared vocabulary has one definition", () => {
   assert.deepEqual(Object.values(STEP), ["off", "tertiary", "secondary", "primary"]);
+  assert.deepEqual(Object.values(SOUND), ["high", "low", "wood"]);
   assert.deepEqual(METER_COUNT_LIMIT, { minimum: 1, maximum: 16 });
   assert.ok(Object.isFrozen(METER_COUNT_LIMIT));
   assert.deepEqual(METER_UNITS, [1, 2, 4, 8]);
   assert.ok(Object.isFrozen(METER_UNITS));
+  assert.ok(Object.isFrozen(SOUND));
+});
+
+/**
+ * The sound names were written out in three places: the profile table that
+ * tunes them, the repair that validates them, and the choice list the interface
+ * renders. Nothing failed when only one of the three learned a new name — the
+ * profile simply sat there unreachable, because repair rejected the name that
+ * would have selected it. These assertions are what make that drift loud.
+ */
+test("one sound vocabulary reaches the profiles, the repair, and the interface", () => {
+  const names = Object.values(SOUND);
+
+  assert.deepEqual(Object.keys(SOUND_PROFILES).sort(), [...names].sort());
+  assert.deepEqual(describeConfiguration(createConfiguration()).choices.sounds, names);
+});
+
+test("every sound profile carries the same tuning shape", () => {
+  for (const name of Object.values(SOUND)) {
+    const profile = SOUND_PROFILES[name];
+
+    assert.ok(profile.frequency > 0, `${name} has no frequency`);
+    assert.equal(typeof profile.type, "string");
+    assert.ok(profile.durationSeconds > 0, `${name} has no durationSeconds`);
+    assert.ok(Object.isFrozen(profile));
+  }
 });
 
 test("Subdivision labels name the signature unit and the grouping", () => {
