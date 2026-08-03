@@ -66,12 +66,17 @@ let animationFrame = null;
 let runBpm = null;
 
 function loadState() {
-  const raw = readStoredValue({
-    storage: localStorage,
-    key: STORAGE_KEY,
-    supersededKeys: SUPERSEDED_STORAGE_KEYS,
-    retiredKeys: RETIRED_STORAGE_KEYS,
-  });
+  let raw = null;
+  try {
+    raw = readStoredValue({
+      storage: localStorage,
+      key: STORAGE_KEY,
+      supersededKeys: SUPERSEDED_STORAGE_KEYS,
+      retiredKeys: RETIRED_STORAGE_KEYS,
+    });
+  } catch {
+    // Accessing the browser's storage property can itself be forbidden.
+  }
   try {
     return createConfiguration(raw ? JSON.parse(raw) : undefined);
   } catch {
