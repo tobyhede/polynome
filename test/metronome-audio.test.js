@@ -710,6 +710,33 @@ test("restarting a run holds the session it already has", async (t) => {
   assert.deepEqual(types, ["playback", "auto"]);
 });
 
+test("a start that cannot build a context hands the session straight back", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  timers.callbacks.clear();
+  // The browser refusing another AudioContext: the session is already claimed
+  // by the time the refusal lands, and nothing downstream will release it —
+  // `app.js` reports the rejection and does not call `stop()`.
+  const refusal = new Error("cannot construct another AudioContext");
+  const engine = new MetronomeEngine({
+    createContext: () => {
+      throw refusal;
+    },
+  });
+
+  // The original failure is what the caller has to show the user, so releasing
+  // must not replace it with a failure of its own.
+  await assert.rejects(
+    () => engine.start(pulsePerSecond()),
+    (error) => error === refusal,
+  );
+
+  assert.deepEqual(types, ["playback", "auto"]);
+  assert.equal(audioSession.type, "auto");
+  assert.equal(engine.playing, false);
+  assert.equal(schedulerRunning(), false);
+});
+
 test("a browser without an audio session starts and stops as usual", async (t) => {
   withNavigator(t, {});
   const { context, engine } = harness({ state: "running" });

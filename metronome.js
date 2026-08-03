@@ -169,7 +169,18 @@ export class MetronomeEngine extends EventTarget {
     // Before the context exists, so the very first one is created under the
     // session this run means to hold rather than the one it is replacing.
     this.#claimAudioSession();
-    this.#ensureContext();
+    try {
+      this.#ensureContext();
+    } catch (error) {
+      // A start that never got a context is not playback, and nothing
+      // downstream will notice: callers report the rejection rather than
+      // stopping an engine that never started. Left claimed, the page holds a
+      // nonmixable session — silencing whatever else the device is playing —
+      // for a metronome that is not running. Releasing swallows its own
+      // failures, so it cannot displace the error the caller has to show.
+      this.#releaseAudioSession();
+      throw error;
+    }
 
     this.#requestResume();
 
