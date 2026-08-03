@@ -122,6 +122,21 @@ export function cycleSpanSeconds(bpm, cycle) {
     .map(({ denominator }) => denominator)
     .reduce(greatestCommonDivisor);
   const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
+  // Where the exactness stops. The span is a `Number` from here on, so the
+  // arithmetic above is only worth its `BigInt` if the numerator it produces is
+  // one a double still holds exactly.
+  //
+  // It is, by the limits: a Meter is `count × 4 / unit` quarter notes, and
+  // reduced, an odd numerator needs the denominator to absorb both factors of
+  // two, which caps it at `count`. So odd numerators stop at 31 and even ones at
+  // 128, and the prime powers reachable inside that are 2⁷, 3³, 5², and each
+  // prime from 7 to 31. Eleven factors, within the twelve rhythm layers a
+  // Sequence allows, and no twelfth adds one:
+  //
+  //   128 × 27 × 25 × 7 × 11 × 13 × 17 × 19 × 23 × 29 × 31 ≈ 5.8 × 10¹⁴
+  //
+  // Comfortably inside 2⁵³. Raising METER_UNIT_LIMIT, METER_COUNT_LIMIT or the
+  // layer limit is what would move that, and it is worth redoing this sum then.
   return (Number(spanNumerator) / Number(spanDenominator)) * quarterSeconds;
 }
 

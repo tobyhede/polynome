@@ -307,6 +307,54 @@ test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
   );
 });
 
+/**
+ * Every other Meter here is `/4` or `/8`, which sit on the fixed note lattice
+ * the Cycle span used to be measured against. A `/3` unit does not, and this is
+ * where that has to hold: the span is exact rational arithmetic, but it reaches
+ * the scheduler as a double and is divided by a step duration that is also one.
+ *
+ * At 60bpm a quarter note is one second. A `/3` signature unit is a third of a
+ * whole note, so `4/3` of a quarter — 4/3 seconds — and the Meter is four of
+ * them, 16/3 seconds. Against a `2/4` Meter of 2 seconds, the two share a span
+ * at 16 seconds: three `4/3` Meters and eight `2/4` Meters, both landing on a
+ * downbeat there and nowhere earlier.
+ */
+test("a non-dyadic Meter schedules its own unit and shares a Cycle span", () => {
+  const third = createLayer({ id: "four-three", signature: { count: 4, unit: 3 } });
+  const quarter = createLayer({ id: "two-four", signature: { count: 2, unit: 4 } });
+  const transport = new SharedTransport();
+  const at = (time) => Number(time.toFixed(6));
+
+  transport.start(sequence(60, [third, quarter]), 0);
+  const events = transport.plan(0, 17);
+  const times = (id) =>
+    events.filter((event) => event.layerId === id).map((event) => at(event.audioTime));
+
+  assert.deepEqual(
+    times("four-three"),
+    [
+      0,
+      4 / 3,
+      8 / 3,
+      4,
+      16 / 3,
+      20 / 3,
+      8,
+      28 / 3,
+      32 / 3,
+      12,
+      40 / 3,
+      44 / 3,
+      // The shared span, which is also the next Meter's downbeat.
+      16,
+    ].map(at),
+  );
+  assert.deepEqual(times("two-four"), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  // Nothing between the two downbeats coincides, or the span would be shorter.
+  const shared = times("four-three").filter((time) => times("two-four").includes(time));
+  assert.deepEqual(shared, [0, 4, 8, 12, 16]);
+});
+
 test("a computed fractional event exactly at the horizon remains excluded", () => {
   const layer = createLayer({
     id: "fractional-boundary",
