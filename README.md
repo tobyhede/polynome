@@ -24,6 +24,7 @@ Then double-click `dist/polynome.html`. On macOS, `open dist/polynome.html` does
 To build the deployable static site with cache-safe assets:
 
 ```bash
+npm ci
 npm run site
 ```
 

@@ -1,6 +1,10 @@
 name: Test and deploy to GitHub Pages
 
 on:
+  # A branch push and its pull request are the same commit, and their
+  # concurrency groups differ, so an unfiltered push trigger runs the checks
+  # twice without either run cancelling the other. Pull requests cover the
+  # branches; push covers what is about to deploy.
   push:
     branches: [main]
   pull_request:

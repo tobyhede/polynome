@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
@@ -10,11 +10,20 @@ import { buildDistribution } from "../scripts/build.mjs";
 const projectRoot = new URL("..", import.meta.url);
 const artifact = new URL("../dist/polynome.html", import.meta.url);
 
+/**
+ * `app.js` reads the document, wires listeners, and renders the whole interface
+ * while its module body evaluates, so the artifact cannot be executed at all
+ * without something document-shaped. A recursive proxy answers every property
+ * and every call with another proxy, which is all that markup-building code
+ * needs, and it keeps this test about the artifact rather than about how
+ * faithfully a hand-written DOM behaves.
+ */
 function browserStub() {
   return new Proxy(function stub() {}, {
     get(_target, property) {
       if (property === Symbol.toPrimitive) return () => "";
       if (property === Symbol.iterator) return function* empty() {};
+      // A thenable would make an awaited stub hang.
       if (property === "then") return undefined;
       return browserStub();
     },
@@ -25,6 +34,8 @@ function browserStub() {
   });
 }
 
+// The browser surface the application reaches for. Storage is real because the
+// application reads it back and parses what it gets.
 function browserContext() {
   const storage = new Map();
   return vm.createContext({
@@ -43,6 +54,10 @@ function browserContext() {
   });
 }
 
+/**
+ * Running the real build writes real output into the gitignored `dist/`, which
+ * is deliberate: only the shipped artifact shows what a browser would load.
+ */
 test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts", async () => {
   await buildDistribution({ target: "single-file", projectRoot });
   const html = await readFile(artifact, "utf8");
@@ -60,7 +75,6 @@ test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts",
 test("single-file distribution discovers transitive modules and preserves their scopes", async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), "polynome-build-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
-  await mkdir(join(fixture, "dist"));
   await Promise.all([
     writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
     writeFile(join(fixture, "styles.css"), "body { color: white; }"),
@@ -96,6 +110,67 @@ test("single-file distribution preserves String.replace tokens in bundled source
 
   assert.equal(context.fixtureToken, "$&");
   assert.match(html, /content: "\$&"/);
+});
+
+/**
+ * Esbuild's warnings are the only static analysis this project has beyond
+ * `node --check`, and every one of them describes source that parses but does
+ * not do what it says. Refusing the artifact is the difference between finding
+ * a duplicate key at build time and finding it in a browser.
+ */
+test("single-file distribution refuses JavaScript esbuild warns about", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-warning-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.js"), 'globalThis.fixture = { rate: 1, rate: 2 };'),
+  ]);
+
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /Duplicate key "rate" in object literal/,
+  );
+});
+
+test("single-file distribution refuses CSS esbuild warns about", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-css-warning-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body { colr: red; }"),
+    writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
+  ]);
+
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /"colr" is not a known CSS property/,
+  );
+});
+
+/**
+ * The document is the one input esbuild does not read, so a tag that moved or
+ * lost an attribute is only ever noticed here. Refusing beats emitting an
+ * artifact with a live `./app.js` request in it, which loads nothing from a
+ * file opened straight off disk.
+ */
+test("single-file distribution refuses a document it cannot rewrite", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-document-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await writeFile(join(fixture, "styles.css"), "body {}");
+  await writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;");
+
+  await writeFile(join(fixture, "index.html"), '<script type="module" src="./app.js"></script>');
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /index\.html has no \.\/styles\.css stylesheet/,
+  );
+
+  await writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" />');
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /index\.html has no \.\/app\.js module script/,
+  );
 });
 
 test("build diagnostics identify an unresolved transitive module", async (t) => {

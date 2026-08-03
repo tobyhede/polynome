@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, formatMessages } from "esbuild";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,11 +10,52 @@ function rootPath(projectRoot) {
   return resolve(projectRoot ?? defaultProjectRoot);
 }
 
+/**
+ * Esbuild warns about source that parses but cannot mean what it says: a
+ * duplicate key, an unknown CSS property, a `typeof` comparison no value
+ * satisfies. Every build here runs silent so the console stays quiet, which
+ * would also make those warnings vanish — and this project has no linter, so
+ * they are the only analysis it gets beyond `node --check`. Refuse the
+ * artifact instead, because a warning that merely prints is one a green build
+ * hides.
+ */
+async function refuseWarnings(description, results) {
+  const warnings = results.flatMap((result) => result.warnings);
+  if (!warnings.length) return;
+  const reported = await formatMessages(warnings, { kind: "warning", color: false });
+  throw new Error(
+    `Cannot build ${description}: esbuild reported ${
+      warnings.length === 1 ? "a warning" : `${warnings.length} warnings`
+    }\n${reported.join("")}`,
+  );
+}
+
+/**
+ * Counting the replacements rather than testing first keeps a global pattern
+ * honest: `RegExp.test` leaves `lastIndex` behind it, and the replacement is
+ * supplied as a function so a `$&` or `$1` inside bundled source cannot be
+ * read as a substitution token.
+ */
 function replaceRequired(source, pattern, replacement, description) {
-  if (!pattern.test(source)) {
+  let replaced = 0;
+  const result = source.replace(pattern, () => {
+    replaced += 1;
+    return replacement;
+  });
+  if (!replaced) {
     throw new Error(`Cannot build distribution: index.html has no ${description}`);
   }
-  return source.replace(pattern, () => replacement);
+  return result;
+}
+
+/**
+ * A document may name one asset several times — a preload hint beside the tag
+ * that uses it — so every occurrence is rewritten, not the first. Anchoring
+ * between the quotes keeps `./app.js` from matching part of a longer path and
+ * leaves the quote characters alone, so one pattern serves `href` and `src`.
+ */
+function referenceTo(specifier) {
+  return new RegExp(`(?<=["'])\\./${specifier.replaceAll(".", "\\.")}(?=["'])`, "g");
 }
 
 async function buildSingleFile(root) {
@@ -49,6 +90,8 @@ async function buildSingleFile(root) {
     }),
   ]);
 
+  await refuseWarnings("single-file distribution", [javascriptResult, cssResult]);
+
   const javascript = javascriptResult.outputFiles[0]?.text;
   const css = cssResult.outputFiles[0]?.text;
   if (!javascript || !css) throw new Error("Cannot build single-file distribution: esbuild emitted an incomplete artifact");
@@ -72,8 +115,27 @@ async function buildSingleFile(root) {
   return { target: "single-file", output: join(output, "polynome.html") };
 }
 
+/**
+ * Every emitted filename carries this string, so an empty one is not a version
+ * at all — it ships `app-.js`. A revision read from the environment is present
+ * and empty often enough (an unset expansion, a shell that exports the name
+ * anyway) that emptiness has to fall through rather than win.
+ *
+ * The resolved value is spliced into output paths and into the shell's asset
+ * references, so it is restricted to characters that mean the same thing in a
+ * filename and inside an HTML attribute: a separator would write outside the
+ * output directory, and a quote would end the attribute early.
+ */
+export function distributionVersion(requestedVersion, environmentRevision) {
+  const version = String(requestedVersion || environmentRevision || "local").slice(0, 12);
+  if (!/^[A-Za-z0-9._-]+$/.test(version)) {
+    throw new TypeError(`Distribution version is not filename-safe: ${version}`);
+  }
+  return version;
+}
+
 async function buildSite(root, requestedVersion) {
-  const version = String(requestedVersion ?? process.env.GITHUB_SHA ?? "local").slice(0, 12);
+  const version = distributionVersion(requestedVersion, process.env.GITHUB_SHA);
   const output = join(root, "site");
   const html = await readFile(join(root, "index.html"), "utf8");
 
@@ -96,6 +158,8 @@ async function buildSite(root, requestedVersion) {
     write: false,
   });
 
+  await refuseWarnings("site distribution", [result]);
+
   const expectedOutputs = [
     join(output, `app-${version}.js`),
     join(output, `styles-${version}.css`),
@@ -108,13 +172,13 @@ async function buildSite(root, requestedVersion) {
 
   let siteHtml = replaceRequired(
     html,
-    /\.\/styles\.css/,
+    referenceTo("styles.css"),
     `./styles-${version}.css`,
     "./styles.css reference",
   );
   siteHtml = replaceRequired(
     siteHtml,
-    /\.\/app\.js/,
+    referenceTo("app.js"),
     `./app-${version}.js`,
     "./app.js reference",
   );
