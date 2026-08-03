@@ -519,8 +519,18 @@ function nextStepLevel(level) {
   );
 }
 
+/**
+ * A control carries a numeral, which is narrower than what `Number` reads:
+ * `0x10`, `0b100`, `0o10` and `1e1` are all literals a source file may hold and
+ * no control ever produces. The Meter fields made that gap reachable — they
+ * take free text and advertise `[0-9]*` — but the gap belongs to every field,
+ * so it is closed here rather than at the one edit that noticed it. Surrounding
+ * space is not part of it: that is a plain numeral someone pasted.
+ */
+const NUMERAL = /^-?\d+(\.\d+)?$/;
+
 function formNumber(value) {
-  if (typeof value === "string" && value.trim() === "") return null;
+  if (typeof value === "string" && !NUMERAL.test(value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
