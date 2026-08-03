@@ -31,13 +31,21 @@
           <p><strong>Rhythm steps</strong><span>Tap to cycle full → half → quarter → off. More rings mean a louder step.</span></p>
           <p><strong>Cycle dots</strong><span>Set 0–8 repetitions. At least one cycle always remains active.</span></p>
           <p><strong>Rhythm settings</strong><span>Double-click a rhythm card, or use its pencil, to edit meter, subdivision, sound, level, and balance.</span></p>
-          <p><strong>Presets</strong><span>Open the panel to replace the current sequence with a built-in pattern.</span></p>
+          <p><strong>Presets</strong><span>Open the panel to recall a complete setup or save the current one in this browser.</span></p>
           <p><strong>Stacking</strong><span>Cycles play in sequence; rhythms inside a cycle play together.</span></p>
         </div>
       </section>
 
       <section id="preset-panel" class="top-panel" aria-labelledby="preset-heading" hidden>
         <h2 id="preset-heading">Presets <span class="panel-divider" aria-hidden="true">/</span><span id="preset-count">2</span><span id="preset-count-noun" class="sr-only"> presets</span></h2>
+        <form id="preset-save" class="preset-save">
+          <label for="preset-name">Save current preset</label>
+          <div>
+            <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Preset name" aria-describedby="preset-name-hint" />
+            <button type="submit" class="chip-button">Save</button>
+          </div>
+          <p id="preset-name-hint">Saving an existing name replaces its snapshot.</p>
+        </form>
         <div id="preset-list" class="preset-grid"></div>
       </section>
 

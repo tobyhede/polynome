@@ -136,6 +136,24 @@ test("every element app.js resolves by id exists in the shell", async () => {
 });
 
 /**
+ * A hint sitting next to a field is read by everyone who can see it and by
+ * nobody who cannot, unless the field points at it. `aria-describedby` is also
+ * silent when it names an element that is not there, so the reference has to
+ * resolve rather than merely exist.
+ */
+test("every aria-describedby names an element the shell emits", async () => {
+  const html = await readFile("index.html", "utf8");
+  const references = Array.from(
+    html.matchAll(/aria-describedby="([^"]+)"/g),
+    (match) => match[1].trim().split(/\s+/),
+  ).flat();
+
+  assert.ok(references.length, "Expected the shell to describe a control");
+  const missing = references.filter((id) => !new RegExp(`\\sid="${id}"`).test(html));
+  assert.deepEqual(missing, []);
+});
+
+/**
  * The palette separates surfaces, text and lines, and the line tokens are dark
  * enough that borders read as hairlines. Tinting text with one looks
  * deliberate and still fails WCAG 1.4.3, so check the ratio rather than the

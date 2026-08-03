@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import {
   changeConfiguration,
   createConfiguration,
+  createSavedPresets,
   describeConfiguration,
+  describePresets,
+  removeSavedPreset,
+  savePreset,
 } from "../configuration.js";
 
 /**
@@ -20,6 +24,18 @@ function reorderKeys(value) {
       .reverse()
       .map(([key, nested]) => [key, reorderKeys(nested)]),
   );
+}
+
+function withoutIds(configuration) {
+  return {
+    ...configuration,
+    sequence: {
+      cycles: configuration.sequence.cycles.map(({ id: _cycleId, ...cycle }) => ({
+        ...cycle,
+        rhythms: cycle.rhythms.map(({ id: _rhythmId, ...rhythm }) => rhythm),
+      })),
+    },
+  };
 }
 
 test("the default Configuration contains one active 4/4 Rhythm layer", () => {
@@ -82,6 +98,229 @@ test("applying a Preset replaces the complete Configuration", () => {
   );
   assert.equal(result.consequence, "restart-transport-run");
   assert.equal(describeConfiguration(result.configuration).selectedPreset, "4/4 + 3/4");
+});
+
+test("saving and loading a named Preset preserves the complete Configuration", () => {
+  const configuration = createConfiguration({
+    bpm: 173,
+    masterVolume: 0.43,
+    sequence: {
+      cycles: [
+        {
+          repetitions: 2,
+          rhythms: [{
+            signature: { count: 5, unit: 8 },
+            subdivision: 3,
+            steps: ["full", "off", "quarter", "half", "full"],
+            sound: "wood",
+            volume: 0.31,
+            pan: -0.62,
+            muted: true,
+          }],
+        },
+        {
+          repetitions: 1,
+          rhythms: [{
+            signature: { count: 7, unit: 4 },
+            subdivision: 2,
+            sound: "low",
+            volume: 0.91,
+            pan: 0.77,
+          }],
+        },
+      ],
+    },
+  });
+
+  const saved = savePreset([], "  Clave practice  ", configuration);
+  assert.equal(saved.reason, null);
+  assert.equal(saved.preset.name, "Clave practice");
+  assert.deepEqual(saved.preset.configuration, configuration);
+
+  const loaded = createSavedPresets(JSON.parse(JSON.stringify(saved.presets)));
+  assert.deepEqual(loaded, saved.presets);
+});
+
+test("saving an existing Preset name replaces its snapshot case-insensitively", () => {
+  const first = savePreset([], "Warmup", createConfiguration({ bpm: 80 }));
+  const replacement = savePreset(
+    first.presets,
+    "WARMUP",
+    createConfiguration({ bpm: 140 }),
+  );
+
+  assert.equal(replacement.reason, null);
+  assert.equal(replacement.presets.length, 1);
+  assert.equal(replacement.preset.id, first.preset.id);
+  assert.equal(replacement.preset.name, "WARMUP");
+  assert.equal(replacement.preset.configuration.bpm, 140);
+});
+
+test("saved Preset names cannot be empty, oversized, or collide with built-ins", () => {
+  const configuration = createConfiguration();
+  for (const [name, reason] of [
+    ["   ", "invalid-preset-name"],
+    ["x".repeat(81), "invalid-preset-name"],
+    ["4/4", "preset-name-reserved"],
+    ["  4/4 + 3/4  ", "preset-name-reserved"],
+  ]) {
+    const result = savePreset([], name, configuration);
+    assert.deepEqual(result.presets, []);
+    assert.equal(result.reason, reason);
+  }
+
+  // The longest accepted name, checked beside the shortest rejected one: a limit
+  // is only pinned from both sides.
+  const longest = savePreset([], "x".repeat(80), configuration);
+  assert.equal(longest.reason, null);
+  assert.equal(longest.preset.name, "x".repeat(80));
+});
+
+/**
+ * Preset names fold to compare them, and the store travels: the single-file
+ * distribution opens anywhere, and `createSavedPresets` drops an entry whose
+ * folded name already exists. Locale-sensitive folding would make that dedup
+ * disagree between hosts — under `tr`, `I` lowercases to `ı` — so one browser
+ * would silently discard a Preset another browser considers distinct.
+ */
+test("Preset name folding does not depend on the host locale", () => {
+  const configuration = createConfiguration();
+  const first = savePreset([], "Ionian", configuration);
+  const second = savePreset(first.presets, "IONIAN", configuration);
+
+  assert.equal(second.presets.length, 1);
+  assert.equal(second.preset.id, first.preset.id);
+  assert.equal(
+    createSavedPresets([
+      { id: "preset-abc-1", name: "Ionian", configuration: {} },
+      { id: "preset-def-2", name: "ıonian", configuration: {} },
+    ]).length,
+    2,
+    "Expected a dotless ı to be a different name from an ASCII I",
+  );
+});
+
+test("malformed saved Presets are discarded or repaired on load", () => {
+  const loaded = createSavedPresets([
+    null,
+    { name: "" },
+    { name: "4/4", configuration: { bpm: 140 } },
+    {
+      id: '"><script>bad()</script>',
+      name: "Stored",
+      configuration: { bpm: 9999, sequence: { cycles: [] } },
+    },
+  ]);
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].name, "Stored");
+  assert.match(loaded[0].id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
+  assert.equal(loaded[0].configuration.bpm, 300);
+  assert.equal(loaded[0].configuration.sequence.cycles.length, 1);
+});
+
+/**
+ * Storage can hold two entries under one name, and the later snapshot replaces
+ * the earlier one. Replacing a Preset is not a collision with it, so the
+ * survivor keeps the identity the interface is already addressing it by; a
+ * regenerated one would move on every load, none of which is a write.
+ */
+test("a repeated Preset name keeps the identity of the entry it replaces", () => {
+  const stored = [
+    { id: "preset-abc-1", name: "Warmup", configuration: { bpm: 100 } },
+    { id: "preset-abc-1", name: "Warmup", configuration: { bpm: 140 } },
+  ];
+
+  const loaded = createSavedPresets(stored);
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].id, "preset-abc-1");
+  assert.equal(loaded[0].configuration.bpm, 140);
+  assert.equal(createSavedPresets(stored)[0].id, "preset-abc-1");
+});
+
+test("Presets sharing an identifier under different names are given separate ones", () => {
+  const loaded = createSavedPresets([
+    { id: "preset-abc-1", name: "One", configuration: {} },
+    { id: "preset-abc-1", name: "Two", configuration: {} },
+  ]);
+
+  assert.equal(loaded.length, 2);
+  assert.equal(loaded[0].id, "preset-abc-1");
+  assert.match(loaded[1].id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
+  assert.notEqual(loaded[0].id, loaded[1].id);
+});
+
+test("describing Presets identifies exact snapshots without comparing identifiers", () => {
+  const original = createConfiguration({ bpm: 137 });
+  const saved = savePreset([], "Odd IDs", original);
+  const reidentified = createConfiguration(withoutIds(original));
+  const descriptions = describePresets(reidentified, saved.presets);
+
+  assert.equal(descriptions.length, 3);
+  assert.equal(descriptions.find(({ name }) => name === "Odd IDs").selected, true);
+  assert.equal(descriptions.find(({ name }) => name === "4/4").selected, false);
+});
+
+/**
+ * Repair belongs at the door. `describePresets` runs on every render, so
+ * repeating it there rebuilt every stored Configuration to reach the answer it
+ * had already been given.
+ */
+test("describing Presets trusts the Presets createSavedPresets has repaired", () => {
+  const presets = createSavedPresets([{ name: "Stored", configuration: { bpm: 5000 } }]);
+  assert.equal(presets[0].configuration.bpm, 300);
+
+  const described = describePresets(createConfiguration(), presets);
+
+  assert.equal(described.at(-1).name, "Stored");
+  assert.equal(described.at(-1).configuration, presets[0].configuration);
+});
+
+test("built-in Preset descriptions are the same Configurations every time", () => {
+  const first = describePresets(createConfiguration(), []);
+  const second = describePresets(createConfiguration({ bpm: 200 }), []);
+
+  assert.equal(first[0].configuration, second[0].configuration);
+  assert.equal(first[0].selected, true);
+  assert.equal(second[0].selected, false);
+});
+
+test("applying a saved Preset restores its snapshot with fresh identifiers", () => {
+  const snapshot = createConfiguration({
+    bpm: 137,
+    sequence: { cycles: [{ rhythms: [{ sound: "wood", pan: -1 }] }] },
+  });
+  const current = createConfiguration({ bpm: 88 });
+  const result = changeConfiguration(current, {
+    type: "apply-preset",
+    configuration: snapshot,
+  });
+
+  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.reason, null);
+  assert.deepEqual(withoutIds(result.configuration), withoutIds(snapshot));
+  assert.notEqual(
+    result.configuration.sequence.cycles[0].id,
+    snapshot.sequence.cycles[0].id,
+  );
+  assert.notEqual(
+    result.configuration.sequence.cycles[0].rhythms[0].id,
+    snapshot.sequence.cycles[0].rhythms[0].id,
+  );
+});
+
+test("deleting a saved Preset leaves the current Configuration alone", () => {
+  const configuration = createConfiguration({ bpm: 101 });
+  const saved = savePreset([], "Delete me", configuration);
+  const result = removeSavedPreset(saved.presets, saved.preset.id);
+
+  assert.deepEqual(result, { presets: [], reason: null });
+  assert.equal(configuration.bpm, 101);
+  assert.deepEqual(
+    removeSavedPreset(result.presets, saved.preset.id),
+    { presets: [], reason: "preset-not-found" },
+  );
 });
 
 test("adding a Cycle appends one active 4/4 Rhythm layer", () => {
@@ -613,6 +852,9 @@ test("known edits with structurally malformed payloads expose programmer errors"
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const malformedEdits = [
+    { type: "apply-preset" },
+    { type: "apply-preset", name: "4/4", configuration },
+    { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-master-volume", masterVolume: {} },
     { type: "set-cycle-repetitions", cycleId: cycle.id },

@@ -18,7 +18,7 @@ const artifact = new URL("../dist/polynome.html", import.meta.url);
  * needs, and it keeps this test about the artifact rather than about how
  * faithfully a hand-written DOM behaves.
  */
-function browserStub() {
+function browserStub(onSet = () => {}) {
   return new Proxy(function stub() {}, {
     get(_target, property) {
       if (property === Symbol.toPrimitive) return () => "";
@@ -27,7 +27,10 @@ function browserStub() {
       if (property === "then") return undefined;
       return browserStub();
     },
-    set: () => true,
+    set(_target, property, value) {
+      onSet(property, value);
+      return true;
+    },
     has: () => true,
     apply: () => browserStub(),
     construct: () => browserStub(),
@@ -36,22 +39,53 @@ function browserStub() {
 
 // The browser surface the application reaches for. Storage is real because the
 // application reads it back and parses what it gets.
-function browserContext() {
+function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) {
   const storage = new Map();
-  return vm.createContext({
-    document: browserStub(),
-    window: browserStub(),
-    localStorage: {
-      getItem: (key) => (storage.has(key) ? storage.get(key) : null),
-      setItem: (key, value) => storage.set(key, String(value)),
-      removeItem: (key) => storage.delete(key),
+  const bpmInput = browserStub((property, value) => {
+    if (property === "value") onBpmRendered(value);
+  });
+  const document = new Proxy(browserStub(), {
+    get(target, property, receiver) {
+      if (property === "querySelector") {
+        return (selector) => (
+          selector === "#bpm-input" ? bpmInput : browserStub()
+        );
+      }
+      return Reflect.get(target, property, receiver);
     },
+  });
+  const globals = {
+    document,
+    window: browserStub(),
     CSS: { escape: String },
     requestAnimationFrame: () => 0,
     cancelAnimationFrame: () => {},
     EventTarget,
     CustomEvent,
-  });
+    resolveStorage() {
+      if (denyStorage) throw new DOMException("Access denied", "SecurityError");
+      return {
+        getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+        setItem: (key, value) => storage.set(key, String(value)),
+        removeItem: (key) => storage.delete(key),
+      };
+    },
+  };
+  const context = vm.createContext(globals);
+  /**
+   * The accessor has to be installed on the context's own global rather than on
+   * the contextified object. An accessor reached through vm's global proxy has
+   * its exception swallowed and the name reported as undeclared, so a denied
+   * store would raise `ReferenceError` here and `SecurityError` in a browser —
+   * the same guard would pass the test while simulating the wrong failure.
+   */
+  new vm.Script(`
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get: () => resolveStorage(),
+    });
+  `).runInContext(context);
+  return context;
 }
 
 /**
@@ -70,6 +104,29 @@ test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts",
   assert.doesNotMatch(html, /url\(["']?\.\/fonts\//);
   assert.doesNotThrow(() => new vm.Script(script));
   assert.doesNotThrow(() => new vm.Script(script).runInContext(browserContext()));
+});
+
+/**
+ * A browser that refuses storage throws on the `localStorage` property itself,
+ * before any method is called, so this is the one storage failure the
+ * application cannot notice by checking what it read back. Starting anyway, on
+ * defaults, is the behaviour under test.
+ */
+test("single-file distribution starts with defaults when storage access is denied", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const html = await readFile(artifact, "utf8");
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const renderedBpms = [];
+  const context = browserContext({
+    denyStorage: true,
+    onBpmRendered: (value) => renderedBpms.push(value),
+  });
+
+  assert.ok(script, "Expected an inline classic script");
+  assert.doesNotThrow(() => new vm.Script(script).runInContext(context));
+  // Written out rather than read back from `configuration.js`: an expected value
+  // the code under test computes agrees with itself no matter what it renders.
+  assert.equal(renderedBpms.at(-1), "96", "Expected the default 96 BPM to reach the interface");
 });
 
 test("single-file distribution discovers transitive modules and preserves their scopes", async (t) => {

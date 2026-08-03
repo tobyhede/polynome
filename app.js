@@ -2,12 +2,17 @@ import { MetronomeEngine } from "./metronome.js";
 import {
   changeConfiguration,
   createConfiguration,
+  createSavedPresets,
   describeConfiguration,
+  describePresets,
+  removeSavedPreset,
+  savePreset,
 } from "./configuration.js";
 import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
+const PRESET_STORAGE_KEY = "polynome-presets";
 const PERSIST_DELAY_MS = 400;
 // Holds the current shape under the name used while the redesign was in
 // progress; adopted once, then cleared.
@@ -34,6 +39,8 @@ const elements = {
   presetList: document.querySelector("#preset-list"),
   presetCount: document.querySelector("#preset-count"),
   presetCountNoun: document.querySelector("#preset-count-noun"),
+  presetSave: document.querySelector("#preset-save"),
+  presetName: document.querySelector("#preset-name"),
   helpToggle: document.querySelector("#help-toggle"),
   helpPanel: document.querySelector("#help-panel"),
   cycles: document.querySelector("#cycles"),
@@ -44,27 +51,33 @@ const elements = {
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
 let state = loadState();
+let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
   meterUnits: NOTE_UNITS,
-  presetNames: PRESET_NAMES,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
 } = description.choices;
 let presetsOpen = false;
 let helpOpen = false;
+let pendingDeletePresetId = null;
 let openSubdivisionMenu = null;
 let animationFrame = null;
 let runBpm = null;
 
 function loadState() {
-  const raw = readStoredValue({
-    storage: localStorage,
-    key: STORAGE_KEY,
-    supersededKeys: SUPERSEDED_STORAGE_KEYS,
-    retiredKeys: RETIRED_STORAGE_KEYS,
-  });
+  let raw = null;
+  try {
+    raw = readStoredValue({
+      storage: localStorage,
+      key: STORAGE_KEY,
+      supersededKeys: SUPERSEDED_STORAGE_KEYS,
+      retiredKeys: RETIRED_STORAGE_KEYS,
+    });
+  } catch {
+    // Accessing the browser's storage property can itself be forbidden.
+  }
   try {
     return createConfiguration(raw ? JSON.parse(raw) : undefined);
   } catch {
@@ -74,6 +87,40 @@ function loadState() {
 
 function writeState(configuration) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
+}
+
+/**
+ * Every tab rewrites the whole preset key, so a write built from the list this
+ * tab read at startup reinstates whatever another tab has since removed. Each
+ * write reads first, and this reports a refusal as null rather than as an empty
+ * list: storage this tab cannot read is not storage holding nothing, and the
+ * caller keeps what it has instead of adopting an emptiness it cannot verify.
+ */
+function readSavedPresets() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(PRESET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  try {
+    return createSavedPresets(raw ? JSON.parse(raw) : undefined);
+  } catch {
+    return createSavedPresets();
+  }
+}
+
+function storedSavedPresets() {
+  return readSavedPresets() ?? savedPresets;
+}
+
+function writeSavedPresets(presets) {
+  try {
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const persistence = createPersistence({
@@ -98,7 +145,9 @@ function applyEdit(edit, options = {}) {
 function render() {
   renderPanels();
   renderTransport();
-  renderPresets();
+  // An edit never adds, removes or renames a Preset, so the list itself cannot
+  // have changed; save, delete and the panel toggle rebuild it.
+  renderPresetSelection();
   renderCycles();
   renderFooter();
 }
@@ -138,31 +187,119 @@ function renderTransport() {
   updatePlayButton();
 }
 
+/**
+ * Tempo and master level changes re-render on every pointer move, and this list
+ * costs a repair pass over every stored Configuration plus a full rebuild of the
+ * grid — on the same thread as the scheduler. The panel is closed for almost all
+ * of that, so the toggle renders it on the way open and nothing here runs for a
+ * panel nobody can see.
+ */
 function renderPresets() {
-  const count = PRESET_NAMES.length;
+  if (!presetsOpen) return;
+  const presets = describePresets(state, savedPresets);
+  const count = presets.length;
   elements.presetCount.textContent = String(count);
   // The heading shows the bare number; the noun is carried as visually hidden
   // text because `aria-label` on a generic span never reaches the accessibility
   // tree.
   elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
-  // Applying a preset re-renders this list, so the button the user just
-  // activated is destroyed under their focus; see focusSelector for what
-  // losing it costs a keyboard user. The name is the whole identity here, so
-  // it needs none of focusSelector's structural description.
-  const focusedPreset = elements.presetList.contains(document.activeElement)
-    ? document.activeElement.closest("[data-preset]")?.dataset.preset
+  // Saving, deleting, arming a deletion and adopting another tab's write all
+  // rebuild this list under whatever the user had focused; applying a Preset no
+  // longer does, because it only changes selection. Restore by stable Preset
+  // identifier rather than by name, which a duplicate save can change, and cover
+  // both buttons, because an armed delete keeps focus on the delete one.
+  const focused = elements.presetList.contains(document.activeElement)
+    ? document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
     : null;
-  elements.presetList.innerHTML = PRESET_NAMES.map((name) => `
-    <button
-      type="button"
-      class="preset-button${description.selectedPreset === name ? " is-selected" : ""}"
-      data-preset="${escapeHtml(name)}"
-      aria-pressed="${description.selectedPreset === name}"
-    >${escapeHtml(name)}</button>
+  const focusedSelector = focused?.dataset.deletePresetId
+    ? `[data-delete-preset-id="${CSS.escape(focused.dataset.deletePresetId)}"]`
+    : focused?.dataset.presetId
+      ? `[data-preset-id="${CSS.escape(focused.dataset.presetId)}"]`
+      : null;
+  // Identifiers reach the markup unescaped, which is safe only because every one
+  // of them is either derived from the frozen built-in names or has passed
+  // `safeIdentifier`'s pattern on the way out of storage.
+  elements.presetList.innerHTML = presets.map((preset) => `
+    <div class="preset-card${preset.builtIn ? " is-built-in" : ""}">
+      <button
+        type="button"
+        class="preset-button${preset.selected ? " is-selected" : ""}"
+        data-preset-id="${preset.id}"
+        aria-pressed="${preset.selected}"
+      >
+        <strong>${escapeHtml(preset.name)}</strong>
+        ${presetNotationTemplate(preset.configuration)}
+      </button>
+      ${preset.builtIn ? "" : `
+        <button
+          type="button"
+          class="preset-delete${preset.id === pendingDeletePresetId ? " is-armed" : ""}"
+          data-delete-preset-id="${preset.id}"
+          aria-label="${preset.id === pendingDeletePresetId ? "Confirm deleting" : "Delete"} ${escapeHtml(preset.name)} preset"
+          title="${preset.id === pendingDeletePresetId ? "Select again to delete" : "Delete preset"}"
+        >×</button>
+      `}
+    </div>
   `).join("");
-  if (focusedPreset) {
-    elements.presetList.querySelector(`[data-preset="${CSS.escape(focusedPreset)}"]`)?.focus();
+  if (focusedSelector) {
+    // The Preset that had focus can be the one that just stopped existing, which
+    // is exactly when losing focus to the document costs the most.
+    const restored = elements.presetList.querySelector(focusedSelector);
+    if (restored) restored.focus();
+    else elements.presetName.focus();
   }
+}
+
+/**
+ * Deletion is confirmed on the button itself rather than through `confirm`,
+ * which blocks the renderer — and with it the scheduler feeding the metronome —
+ * for as long as the dialog is open. Dismissal mirrors the subdivision menu:
+ * Escape, or a click that lands anywhere else.
+ */
+function dismissPendingDelete() {
+  if (pendingDeletePresetId === null) return;
+  pendingDeletePresetId = null;
+  renderPresets();
+}
+
+/**
+ * Tempo, master level and mix changes move the current Configuration, and the
+ * only thing that can change about this list is which Presets it now matches:
+ * every card describes a stored Configuration and cannot have changed. Setting
+ * the two attributes that carry selection leaves the grid untouched, which is
+ * what keeps a drag from rebuilding identical markup on every pointer move.
+ */
+function renderPresetSelection() {
+  if (!presetsOpen) return;
+  const selected = new Set(describePresets(state, savedPresets)
+    .filter((preset) => preset.selected)
+    .map((preset) => preset.id));
+  for (const button of elements.presetList.querySelectorAll("[data-preset-id]")) {
+    const isSelected = selected.has(button.dataset.presetId);
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  }
+}
+
+function presetNotationTemplate(configuration) {
+  const accessible = configuration.sequence.cycles.map((cycle) => {
+    const rhythms = cycle.rhythms.map((rhythm) => (
+      `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`
+    )).join(" plus ");
+    return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
+  }).join(", then ");
+  const visual = configuration.sequence.cycles.map((cycle) => `
+    <span class="preset-cycle">
+      ${cycle.repetitions === 1 ? "" : `<span class="preset-repetitions">${cycle.repetitions}×</span>`}
+      ${cycle.rhythms.map((rhythm) => `
+        <span class="preset-rhythm">
+          <span>${rhythmLabel(rhythm)}</span>
+          ${noteIcon(rhythm.subdivision, 15)}
+        </span>
+      `).join('<span aria-hidden="true"> + </span>')}
+    </span>
+  `).join('<span class="preset-sequence-arrow" aria-hidden="true"> → </span>');
+  return `<span class="preset-notation" aria-hidden="true">${visual}</span><span class="sr-only">${escapeHtml(accessible)}</span>`;
 }
 
 function renderCycles() {
@@ -557,7 +694,10 @@ function dismissSubdivisionMenu() {
 elements.play.addEventListener("click", togglePlayback);
 elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
-  if (presetsOpen) helpOpen = false;
+  if (presetsOpen) {
+    helpOpen = false;
+    renderPresets();
+  }
   renderPanels();
 });
 elements.helpToggle.addEventListener("click", () => {
@@ -572,7 +712,7 @@ elements.bpmSlider.addEventListener("input", (event) => {
     { deferConsequence: true, render: false },
   );
   renderTransport();
-  renderPresets();
+  renderPresetSelection();
 });
 /**
  * Dragging the slider defers the transport consequence, so on release the run
@@ -591,12 +731,80 @@ elements.masterVolume.addEventListener("input", (event) => {
     { type: "set-master-volume", masterVolume: event.target.value },
     { render: false },
   );
-  renderPresets();
+  renderPresetSelection();
 });
 elements.presetList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-preset]");
+  const deleteButton = event.target.closest("[data-delete-preset-id]");
+  if (deleteButton) {
+    const presetId = deleteButton.dataset.deletePresetId;
+    const preset = savedPresets.find(({ id }) => id === presetId);
+    if (!preset) return;
+    if (pendingDeletePresetId !== presetId) {
+      pendingDeletePresetId = presetId;
+      renderPresets();
+      elements.presetList
+        .querySelector(`[data-delete-preset-id="${CSS.escape(presetId)}"]`)
+        ?.focus();
+      elements.status.textContent = `Delete ${preset.name} preset? Select again to confirm`;
+      return;
+    }
+    pendingDeletePresetId = null;
+    const result = removeSavedPreset(storedSavedPresets(), presetId);
+    // Another tab can remove a preset between this list being rendered and the
+    // deletion being confirmed. Nothing is left to delete, but the button the
+    // user just pressed is still on screen and owes them an answer.
+    if (result.reason) {
+      savedPresets = result.presets;
+      renderPresets();
+      elements.presetName.focus();
+      elements.status.textContent = `${preset.name} preset was already deleted`;
+      return;
+    }
+    savedPresets = result.presets;
+    const persisted = writeSavedPresets(savedPresets);
+    renderPresets();
+    elements.presetName.focus();
+    elements.status.textContent = persisted
+      ? `${preset.name} preset deleted`
+      : "Preset deletion could not be saved in this browser";
+    return;
+  }
+
+  const button = event.target.closest("[data-preset-id]");
   if (!button) return;
-  applyEdit({ type: "apply-preset", name: button.dataset.preset });
+  const preset = describePresets(state, savedPresets).find(({ id }) => (
+    id === button.dataset.presetId
+  ));
+  if (!preset) return;
+  openRhythms.clear();
+  applyEdit(preset.builtIn
+    ? { type: "apply-preset", name: preset.name }
+    : { type: "apply-preset", configuration: preset.configuration });
+});
+elements.presetName.addEventListener("input", () => {
+  elements.presetName.setCustomValidity("");
+});
+elements.presetSave.addEventListener("submit", (event) => {
+  event.preventDefault();
+  elements.presetName.setCustomValidity("");
+  const result = savePreset(storedSavedPresets(), elements.presetName.value, state);
+  if (result.reason) {
+    elements.presetName.setCustomValidity(result.reason === "preset-name-reserved"
+      ? "Choose a name different from a built-in preset."
+      : "Enter a preset name between 1 and 80 characters.");
+    elements.presetName.reportValidity();
+    return;
+  }
+  savedPresets = result.presets;
+  const persisted = writeSavedPresets(savedPresets);
+  elements.presetName.value = "";
+  renderPresets();
+  elements.presetList
+    .querySelector(`[data-preset-id="${CSS.escape(result.preset.id)}"]`)
+    ?.focus();
+  elements.status.textContent = persisted
+    ? `${result.preset.name} preset saved`
+    : "Preset could not be saved in this browser";
 });
 elements.addCycle.addEventListener("click", () => {
   applyEdit({ type: "add-cycle" });
@@ -744,6 +952,15 @@ document.addEventListener("click", (event) => {
   renderCycles();
 });
 
+// The arming click reaches here too, so a delete button is what keeps it armed.
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-delete-preset-id]")) return;
+  dismissPendingDelete();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") dismissPendingDelete();
+});
+
 elements.cycles.addEventListener("input", (event) => {
   const field = event.target.dataset.field;
   if (!field || !["volume", "pan"].includes(field)) return;
@@ -773,7 +990,7 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === rhythm.id).pan;
     rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(pan);
   }
-  renderPresets();
+  renderPresetSelection();
 });
 
 elements.cycles.addEventListener("change", (event) => {
@@ -817,6 +1034,24 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("pagehide", () => {
   persistence.flush();
   engine.stop();
+});
+/**
+ * Another tab saving or deleting leaves this one showing a list that no longer
+ * exists, and a null key is storage cleared wholesale. The configuration key is
+ * deliberately not adopted: two tabs each hold their own tempo and sequence, and
+ * taking over an edit in progress is not a reconciliation the user asked for.
+ */
+window.addEventListener("storage", (event) => {
+  if (event.key !== null && event.key !== PRESET_STORAGE_KEY) return;
+  const presets = readSavedPresets();
+  if (presets === null) return;
+  savedPresets = presets;
+  // An armed deletion whose Preset another tab has already removed has nothing
+  // left to confirm, and leaving it armed would keep state pointing at nothing.
+  if (!presets.some(({ id }) => id === pendingDeletePresetId)) {
+    pendingDeletePresetId = null;
+  }
+  renderPresets();
 });
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,
 // and hiding is the last moment a mobile browser reliably hands over.

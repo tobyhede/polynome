@@ -24,8 +24,9 @@ const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
 const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
+const MAX_PRESET_NAME_LENGTH = 80;
 const MAX_RHYTHMS = 12;
-const GENERATED_IDENTIFIER = /^(cycle|layer)-[0-9a-z]+-[0-9a-z]+$/;
+const GENERATED_IDENTIFIER = /^(cycle|layer|preset)-[0-9a-z]+-[0-9a-z]+$/;
 let identifierSequence = 0;
 
 function makeIdentifier(prefix) {
@@ -187,6 +188,19 @@ function createPresetConfiguration(name) {
   return createConfiguration();
 }
 
+function freshPresetConfiguration(configuration) {
+  const repaired = createConfiguration(configuration);
+  return createConfiguration({
+    ...repaired,
+    sequence: {
+      cycles: repaired.sequence.cycles.map(({ id: _cycleId, ...cycle }) => ({
+        ...cycle,
+        rhythms: cycle.rhythms.map(({ id: _rhythmId, ...rhythm }) => rhythm),
+      })),
+    },
+  });
+}
+
 /**
  * Configurations are compared value by value rather than serialised, because key
  * insertion order is an accident of how an updater spread its objects and must
@@ -248,6 +262,138 @@ function selectedPreset(configuration) {
     createPresetConfiguration(name),
     configuration,
   )) || null;
+}
+
+function presetName(candidate) {
+  if (typeof candidate !== "string") return null;
+  const name = candidate.trim();
+  return name && name.length <= MAX_PRESET_NAME_LENGTH ? name : null;
+}
+
+/**
+ * Deliberately not `toLocaleLowerCase`: a saved store opens on any host, and
+ * folding that follows the host's locale would have one browser treat two names
+ * as the same Preset and another treat them as two — under `tr`, `I` lowercases
+ * to a dotless `ı`. Loading discards an entry whose folded name already exists,
+ * so that disagreement loses a Preset rather than merely displaying one oddly.
+ */
+function normalisedPresetName(candidate) {
+  return candidate.toLowerCase();
+}
+
+function reservedPresetName(name) {
+  return PRESETS.some((builtIn) => (
+    normalisedPresetName(builtIn) === normalisedPresetName(name)
+  ));
+}
+
+function findPresetNamed(presets, name) {
+  return presets.findIndex((stored) => (
+    normalisedPresetName(stored.name) === normalisedPresetName(name)
+  ));
+}
+
+/**
+ * Saved Presets are storage input, so malformed entries are discarded and
+ * malformed Configurations are repaired. Repeated names follow save semantics:
+ * the later snapshot replaces the earlier one.
+ */
+export function createSavedPresets(input) {
+  const candidates = Array.isArray(input) ? input : [];
+  return candidates.reduce((presets, candidate) => {
+    if (!candidate || typeof candidate !== "object") return presets;
+    const name = presetName(candidate.name);
+    if (!name || reservedPresetName(name)) return presets;
+
+    const candidateId = safeIdentifier(candidate.id, "preset");
+    const duplicate = findPresetNamed(presets, name);
+    // Sharing an identifier with the entry this one replaces is not a
+    // collision: that entry is about to stop existing, and regenerating here
+    // would move the surviving Preset's identity on every load.
+    const collides = presets.some(({ id }, index) => (
+      id === candidateId && index !== duplicate
+    ));
+    const preset = {
+      id: collides ? makeIdentifier("preset") : candidateId,
+      name,
+      configuration: createConfiguration(candidate.configuration),
+    };
+    if (duplicate < 0) return [...presets, preset];
+    return presets.map((stored, index) => index === duplicate ? preset : stored);
+  }, []);
+}
+
+export function savePreset(savedPresets, nameCandidate, configuration) {
+  if (typeof nameCandidate !== "string") {
+    throw new TypeError("Preset name must be a string");
+  }
+  const presets = createSavedPresets(savedPresets);
+  const name = presetName(nameCandidate);
+  if (!name) return { presets, preset: null, reason: "invalid-preset-name" };
+  if (reservedPresetName(name)) {
+    return { presets, preset: null, reason: "preset-name-reserved" };
+  }
+
+  const duplicate = presets[findPresetNamed(presets, name)];
+  const preset = {
+    id: duplicate?.id || makeIdentifier("preset"),
+    name,
+    configuration: createConfiguration(configuration),
+  };
+  return {
+    presets: duplicate
+      ? presets.map((stored) => stored.id === duplicate.id ? preset : stored)
+      : [...presets, preset],
+    preset,
+    reason: null,
+  };
+}
+
+export function removeSavedPreset(savedPresets, presetId) {
+  if (typeof presetId !== "string") {
+    throw new TypeError("Preset identifier must be a string");
+  }
+  const presets = createSavedPresets(savedPresets);
+  if (!presets.some(({ id }) => id === presetId)) {
+    return { presets, reason: "preset-not-found" };
+  }
+  return {
+    presets: presets.filter(({ id }) => id !== presetId),
+    reason: null,
+  };
+}
+
+/**
+ * Built-in Presets never change, so their Configurations are built once. The
+ * identifier is derived from the name rather than generated, because it has to
+ * survive a reload to be worth addressing a button by.
+ */
+const BUILT_IN_PRESETS = Object.freeze(PRESETS.map((name) => Object.freeze({
+  id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
+  name,
+  configuration: createPresetConfiguration(name),
+})));
+
+/**
+ * Runs on every render, so it repairs nothing: `createSavedPresets` is the only
+ * door in from storage, and `configuration` is a repaired Configuration the
+ * caller is already holding. Repeating either pass here would rebuild every
+ * stored Configuration to reach an answer it was handed.
+ */
+export function describePresets(configuration, savedPresets) {
+  const presets = Array.isArray(savedPresets) ? savedPresets : [];
+  return [
+    ...BUILT_IN_PRESETS.map((preset) => ({
+      ...preset,
+      builtIn: true,
+      selected: sameConfiguration(configuration, preset.configuration),
+    })),
+    ...presets.map((preset) => ({
+      ...preset,
+      builtIn: false,
+      selected: sameConfiguration(configuration, preset.configuration),
+    })),
+  ];
 }
 
 function availability(available, reason = null) {
@@ -494,14 +640,26 @@ const COMMANDS = Object.freeze({
     },
   },
   "apply-preset": {
-    validPayload: (edit) => hasString(edit, "name"),
-    leavesUnchanged: (current, edit) => selectedPreset(current) === edit.name,
+    validPayload: (edit) => (
+      (hasString(edit, "name") && !Object.hasOwn(edit, "configuration"))
+      || (!Object.hasOwn(edit, "name")
+        && edit.configuration
+        && typeof edit.configuration === "object")
+    ),
+    leavesUnchanged: (current, edit) => {
+      const preset = hasString(edit, "name")
+        ? PRESETS.includes(edit.name) && createPresetConfiguration(edit.name)
+        : createConfiguration(edit.configuration);
+      return Boolean(preset) && sameConfiguration(current, preset);
+    },
     apply(current, edit) {
-      if (!PRESETS.includes(edit.name)) {
+      if (hasString(edit, "name") && !PRESETS.includes(edit.name)) {
         return unchanged(current, "preset-not-found");
       }
       return changed(
-        createPresetConfiguration(edit.name),
+        hasString(edit, "name")
+          ? createPresetConfiguration(edit.name)
+          : freshPresetConfiguration(edit.configuration),
         "restart-transport-run",
       );
     },
