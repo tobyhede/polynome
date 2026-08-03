@@ -18,7 +18,7 @@ function choiceRange({ minimum, maximum }) {
   );
 }
 
-const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
+const STEP_VOICE_CHOICES = Object.freeze(Object.values(STEP));
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
@@ -47,14 +47,17 @@ function safeIdentifier(candidate, prefix) {
 }
 
 function normaliseStep(step) {
-  return STEP_LEVEL_CHOICES.includes(step) ? step : STEP.HALF;
+  if (step === "full") return STEP.PRIMARY;
+  if (step === "half") return STEP.SECONDARY;
+  if (step === "quarter") return STEP.TERTIARY;
+  return STEP_VOICE_CHOICES.includes(step) ? step : STEP.SECONDARY;
 }
 
 function resizeSteps(steps, length) {
   const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
   return Array.from(
     { length },
-    (_, index) => source[index] || (index === 0 ? STEP.FULL : STEP.HALF),
+    (_, index) => source[index] || (index === 0 ? STEP.PRIMARY : STEP.SECONDARY),
   );
 }
 
@@ -450,7 +453,7 @@ export function describeConfiguration(configuration) {
       meterUnits: [...METER_UNITS],
       subdivisions: [...SUBDIVISIONS],
       sounds: [...SOUNDS],
-      stepLevels: [...STEP_LEVEL_CHOICES],
+      stepVoices: [...STEP_VOICE_CHOICES],
       repetitions: [...REPETITIONS],
     },
     availability: {
@@ -511,14 +514,14 @@ function editRhythm(current, cycleId, rhythmId, updater) {
   };
 }
 
-function nextStepLevel(level) {
+function nextStepVoice(voice) {
   return (
     {
-      [STEP.FULL]: STEP.HALF,
-      [STEP.HALF]: STEP.QUARTER,
-      [STEP.QUARTER]: STEP.OFF,
-      [STEP.OFF]: STEP.FULL,
-    }[level] || STEP.FULL
+      [STEP.PRIMARY]: STEP.SECONDARY,
+      [STEP.SECONDARY]: STEP.TERTIARY,
+      [STEP.TERTIARY]: STEP.OFF,
+      [STEP.OFF]: STEP.PRIMARY,
+    }[voice] || STEP.PRIMARY
   );
 }
 
@@ -622,7 +625,7 @@ const COMMANDS = Object.freeze({
       );
     },
   },
-  "advance-step-level": {
+  "advance-step-voice": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "position"),
     validValue: (edit) => numberInRange(edit, "position", 0, Number.MAX_SAFE_INTEGER, true),
     apply(current, edit) {
@@ -634,10 +637,10 @@ const COMMANDS = Object.freeze({
       if (targetPosition >= rhythm.steps.length) {
         return unchanged(current, "pattern-position-not-found");
       }
-      return changeRhythm(current, edit, "update-step-levels", (candidate) => ({
+      return changeRhythm(current, edit, "update-step-voices", (candidate) => ({
         ...candidate,
-        steps: candidate.steps.map((level, position) =>
-          position === targetPosition ? nextStepLevel(level) : level,
+        steps: candidate.steps.map((voice, position) =>
+          position === targetPosition ? nextStepVoice(voice) : voice,
         ),
       }));
     },

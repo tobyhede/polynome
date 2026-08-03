@@ -646,7 +646,8 @@ function rhythmTemplate(rhythm, cycle) {
              interpolated comment rather than an HTML one so it stays in the
              source and out of every rhythm card's markup. */
       }
-      <div class="steps" role="group" aria-label="${label} step levels" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
+      <div class="steps" role="group" aria-label="${label} step voices" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
+
         ${beatsTemplate(rhythm)}
       </div>
 
@@ -759,7 +760,7 @@ function stepTemplate(step, index) {
       class="step step-${step}"
       data-action="step"
       data-step-index="${index}"
-      aria-label="Step ${index + 1}: ${step} level"
+      aria-label="Step ${index + 1}: ${step} voice"
       title="Step ${index + 1}: ${step}"
     ></button>
   `;
@@ -1122,7 +1123,7 @@ elements.cycles.addEventListener("click", (event) => {
       if (!rhythm) return;
       const index = Number(actionElement.dataset.stepIndex);
       applyEdit({
-        type: "advance-step-level",
+        type: "advance-step-voice",
         cycleId: cycle.id,
         rhythmId: rhythm.id,
         position: index,

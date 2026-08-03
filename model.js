@@ -1,8 +1,8 @@
 export const STEP = Object.freeze({
   OFF: "off",
-  QUARTER: "quarter",
-  HALF: "half",
-  FULL: "full",
+  TERTIARY: "tertiary",
+  SECONDARY: "secondary",
+  PRIMARY: "primary",
 });
 
 /**
@@ -13,13 +13,6 @@ export const STEP = Object.freeze({
 function lookup(entries) {
   return Object.freeze(Object.assign(Object.create(null), entries));
 }
-
-const STEP_LEVELS = lookup({
-  [STEP.OFF]: 0,
-  [STEP.QUARTER]: 0.25,
-  [STEP.HALF]: 0.5,
-  [STEP.FULL]: 1,
-});
 
 /**
  * The shared musical vocabulary. `model.js` is the single definition; every
@@ -34,10 +27,6 @@ export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 16 });
 export const METER_UNITS = Object.freeze([1, 2, 4, 8]);
 
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
-
-export function stepLevel(step) {
-  return STEP_LEVELS[step] ?? 0;
-}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));

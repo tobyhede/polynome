@@ -2,7 +2,13 @@ import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
 import { createConfiguration } from "../configuration.js";
-import { MetronomeEngine } from "../metronome.js";
+import {
+  CLICK_ENVELOPE,
+  SOUND_PROFILES,
+  STEP_PITCH_RATIOS,
+  MetronomeEngine,
+  scheduleClickVoice,
+} from "../metronome.js";
 
 /**
  * A hand-written AudioContext test double.
@@ -384,6 +390,33 @@ const clickStarts = (context) => context.audibleClicks().map((click) => roundSec
 /** The spacing a listener actually hears between consecutive clicks. */
 const gapsBetween = (starts) =>
   starts.slice(1).map((start, index) => roundSeconds(start - starts[index]));
+
+test("audible Step voices share one gain envelope and use distinct pitches", () => {
+  const secondaryContext = new FakeAudioContext();
+  const primaryContext = new FakeAudioContext();
+
+  const secondary = scheduleClickVoice(secondaryContext, secondaryContext.destination, {
+    sound: "high",
+    voice: "secondary",
+    when: 1,
+  });
+  const primary = scheduleClickVoice(primaryContext, primaryContext.destination, {
+    sound: "high",
+    voice: "primary",
+    when: 1,
+  });
+
+  assert.deepEqual(
+    secondaryContext.gains[0].gain.automation,
+    primaryContext.gains[0].gain.automation,
+  );
+  assert.equal(secondaryContext.gains[0].gain.automation[1].value, CLICK_ENVELOPE.peakGain);
+  assert.equal(
+    secondary.frequency.value,
+    SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS.secondary,
+  );
+  assert.equal(primary.frequency.value, SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS.primary);
+});
 
 test("an injected audio context factory supplies the whole audio graph", async () => {
   let created = 0;

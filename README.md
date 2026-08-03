@@ -5,7 +5,7 @@ A deliberately small browser metronome with:
 - ordered cycles of one or more simultaneous rhythm layers
 - polyrhythm and polymeter presets
 - editable meter and subdivision per signature unit for every layer
-- four step levels: off, quarter, half, and full
+- four Step voices: primary, secondary, tertiary, and off
 - independent volume and stereo pan for each rhythm
 - sample-accurate Web Audio scheduling from one shared transport clock
 - no runtime dependencies, accounts, analytics, or framework build step
@@ -65,9 +65,9 @@ npm run check
 Either suite can be run on its own with `npm test` or `npm run test:browser`.
 
 `npm test` covers the pure timing and state model. The Chromium suite covers
-browser focus, accessibility state, persistence, playback controls, step-level
+browser focus, accessibility state, persistence, playback controls, Step-voice
 cycling, the mobile layout, and deterministic offline rendering of click timing,
-step levels, muted layers, and stereo panning. It also opens the generated
+Step voices, muted layers, and stereo panning. It also opens the generated
 `dist/polynome.html` over `file://` to confirm the single-file bundle boots and
 plays, so `npm run test:browser` regenerates the bundle before running.
 Physical output latency and subjective sound quality still require manual
@@ -85,7 +85,8 @@ Each layer has:
 - a meter with a numerator from 1–16 and denominator of 1, 2, 4, or 8
 - a subdivision of 1–5 equal pulses within each signature unit
 - exactly `signature count × subdivision` editable pattern positions
-- a pattern whose steps control click amplitude at 0, 0.25, 0.5, or 1
+- a pattern whose steps select primary, secondary, or tertiary pitched voices,
+  or silence; audible voices have equal gain and sit four semitones apart
 - its own sound, volume, mute state, and stereo position
 
 Examples:
@@ -131,6 +132,6 @@ e2e/                  Playwright browser interaction tests
 ## Current limitations
 
 - Meter denominators describe the written beat unit but do not alter its audible rate.
-- Changes to sequence timing or structure restart the shared transport when playing; step-level and mix edits do not.
+- Changes to sequence timing or structure restart the shared transport when playing; Step-voice and mix edits do not.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.

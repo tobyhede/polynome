@@ -15,7 +15,7 @@ test("a high click renders inside its scheduled frame window", async ({ page }) 
 
       scheduleClickVoice(context, context.destination, {
         sound: "high",
-        level: 1,
+        voice: "primary",
         when,
       });
       const buffer = await context.startRendering();
@@ -43,42 +43,55 @@ test("a high click renders inside its scheduled frame window", async ({ page }) 
   expect(rendered.last).toBeGreaterThan(rendered.stopFrame - 4);
 });
 
-test("step levels scale the click amplitude and off stays silent", async ({ page }) => {
+test("Step voices change pitch without changing gain and off stays silent", async ({ page }) => {
   const rendered = await page.evaluate(
     async ({ sampleRate, when }) => {
-      const { CLICK_ENVELOPE, scheduleClickVoice } = await import("/metronome.js");
-      const attackFrame = Math.round((when + CLICK_ENVELOPE.attackSeconds) * sampleRate);
+      const { CLICK_ENVELOPE, SOUND_PROFILES, STEP_PITCH_RATIOS, scheduleClickVoice } =
+        await import("/metronome.js");
 
-      async function render(level) {
+      async function render(voice) {
         const context = new OfflineAudioContext(1, sampleRate / 10, sampleRate);
         const source = scheduleClickVoice(context, context.destination, {
           sound: "high",
-          level,
+          voice,
           when,
         });
         const buffer = await context.startRendering();
         const samples = buffer.getChannelData(0);
 
         return {
-          atAttackPeak: Math.abs(samples[attackFrame]),
+          frequency: source?.frequency.value ?? null,
           peak: samples.reduce((maximum, sample) => Math.max(maximum, Math.abs(sample)), 0),
-          ceiling: CLICK_ENVELOPE.peakGain * level,
+          ceiling: CLICK_ENVELOPE.peakGain,
           scheduled: source !== null,
         };
       }
 
-      return Promise.all([0, 0.25, 0.5, 1].map(render));
+      return {
+        clicks: await Promise.all(["off", "tertiary", "secondary", "primary"].map(render)),
+        expectedFrequencies: [
+          STEP_PITCH_RATIOS.tertiary,
+          STEP_PITCH_RATIOS.secondary,
+          STEP_PITCH_RATIOS.primary,
+        ].map((ratio) => SOUND_PROFILES.high.frequency * ratio),
+      };
     },
     { sampleRate: SAMPLE_RATE, when: WHEN },
   );
 
-  const [off, quarter, half, full] = rendered;
+  const [off, tertiary, secondary, primary] = rendered.clicks;
   expect(off).toMatchObject({ peak: 0, scheduled: false });
-  expect(full.scheduled).toBe(true);
-  expect(quarter.atAttackPeak / full.atAttackPeak).toBeCloseTo(0.25, 4);
-  expect(half.atAttackPeak / full.atAttackPeak).toBeCloseTo(0.5, 4);
+  expect(primary.scheduled).toBe(true);
+  for (const [click, expected] of [tertiary, secondary, primary].map((click, index) => [
+    click,
+    rendered.expectedFrequencies[index],
+  ])) {
+    expect(click.frequency).toBeCloseTo(expected, 3);
+  }
+  expect(tertiary.frequency).toBeLessThan(secondary.frequency);
+  expect(secondary.frequency).toBeLessThan(primary.frequency);
 
-  for (const step of [quarter, half, full]) {
+  for (const step of [tertiary, secondary, primary]) {
     expect(step.peak).toBeGreaterThan(0);
     expect(step.peak).toBeLessThanOrEqual(step.ceiling);
   }
@@ -96,7 +109,7 @@ test("a muted layer output renders silence from its first frame", async ({ page 
           pan: 0,
           muted,
         });
-        scheduleClickVoice(context, gain, { sound: "high", level: 1, when });
+        scheduleClickVoice(context, gain, { sound: "high", voice: "primary", when });
         const buffer = await context.startRendering();
 
         return buffer
@@ -126,7 +139,7 @@ test("layer panning separates the rendered stereo channels", async ({ page }) =>
           pan,
           muted: false,
         });
-        scheduleClickVoice(context, gain, { sound: "high", level: 1, when });
+        scheduleClickVoice(context, gain, { sound: "high", voice: "primary", when });
         const buffer = await context.startRendering();
 
         return [0, 1].map((channel) =>
