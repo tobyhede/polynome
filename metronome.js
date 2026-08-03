@@ -379,10 +379,17 @@ export class MetronomeEngine extends EventTarget {
   #schedule() {
     if (!this.#playing || !this.#context || !this.#state) return;
 
+    // Syncing the graph is the engine's own overhead and it costs render time,
+    // which on a phone waking from an interruption is not a rounding error.
+    // Reading the clock first would charge that cost to the events about to be
+    // planned: they would be planned against a clock that had already moved on,
+    // committed late through no fault of their own, and the stale horizon would
+    // be written back as the transport's scheduling position, shortening the
+    // look-ahead by the same amount. Sync first, then take the snapshot.
+    this.#syncNodes();
+
     const now = this.#context.currentTime;
     const horizon = now + LOOK_AHEAD_SECONDS;
-
-    this.#syncNodes();
 
     const layersById = new Map(
       this.#state.sequence.cycles

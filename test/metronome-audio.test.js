@@ -521,6 +521,33 @@ test("the same absolute lateness is nudged forward on a slow grid", async () => 
   engine.stop();
 });
 
+/**
+ * Syncing the audio graph is real work on a real render thread, and on a phone
+ * waking from an interruption it is not cheap. Whatever it costs is the
+ * engine's own overhead, not lateness in the events it is about to plan, so a
+ * tick has to plan against the clock the sync leaves behind rather than the one
+ * it started with.
+ */
+test("a tick whose graph sync burns clock time still schedules on the grid", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(fiftyMillisecondGrid());
+  assert.deepEqual(clickStarts(context), [0.06, 0.11]);
+
+  // The sync costs more than the entire look-ahead window.
+  context.currentTime = 0.12;
+  context.advanceDuringNextGraphSync(0.14);
+  tick();
+
+  // Nothing is clamped and nothing is abandoned: the events the tick can still
+  // reach are the ones from 0.26 on, and each lands exactly on its grid time.
+  const starts = clickStarts(context);
+  assert.deepEqual(starts, [0.06, 0.11, 0.26, 0.31, 0.36]);
+  assert.deepEqual(gapsBetween(starts), [0.05, 0.15, 0.05, 0.05]);
+
+  engine.stop();
+});
+
 test("a hopelessly stale rhythm event is skipped rather than dragged forward", async () => {
   const { context, engine } = harness({ state: "running", currentTime: 0 });
 
