@@ -194,6 +194,93 @@ test("a rejected Meter field is marked invalid and describes the requirement", a
 });
 
 /**
+ * `#status` is `sr-only`, so a rejection announced only there reaches nobody
+ * watching the screen: the field appears to swallow the entry and put the old
+ * value back for no stated reason. Free text is where this bites — the
+ * denominator was a `<select>`, which could not hold an invalid value at all.
+ *
+ * Both halves are asserted because either alone is unreadable: the message
+ * says what is wrong, and marking the field says which of the two holds it.
+ */
+test("a rejected Meter is visible, not only announced", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  const valid = await denominator.evaluate((element) => getComputedStyle(element).borderColor);
+
+  await denominator.fill("0");
+  await denominator.press("Enter");
+
+  // Reached through the field's own description rather than by text: `#status`
+  // holds the same sentence, and the point of this test is which of the two a
+  // reader can see.
+  const rejected = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  const message = page.locator(`#${await rejected.getAttribute("aria-describedby")}`);
+  await expect(message).toBeVisible();
+  await expect(message).toHaveText("Meter denominator must be a whole number from 1 to 32");
+
+  await expect(rejected).not.toHaveCSS("border-color", valid);
+  // The numerator holds a valid value and must not be marked alongside it.
+  await expect(page.getByRole("textbox", { name: "4/4 meter numerator" })).toHaveCSS(
+    "border-color",
+    valid,
+  );
+
+  expect(await contrastRatio(message)).toBeGreaterThanOrEqual(4.5);
+});
+
+/**
+ * The marking describes one rejected entry, so it lives exactly as long as that
+ * entry is the last thing the musician did. Editing anything else moves on from
+ * it, and leaving the mark up would keep asserting that a field holding `4` is
+ * invalid — to a screen reader, on every later visit to the drawer.
+ */
+test("an unrelated edit clears a Meter rejection", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await denominator.fill("0");
+  await denominator.press("Enter");
+  await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+
+  await setSubdivision(page, 2);
+
+  const settled = page.getByRole("textbox", { name: "4/4 meter denominator" });
+  await expect(settled).toHaveValue("4");
+  await expect(settled).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator(".field-message")).toHaveCount(0);
+});
+
+/**
+ * Shared with the delete-glyph test below: text the interface only shows to
+ * report a problem is exactly the text that must not be the hardest to read.
+ */
+async function contrastRatio(locator) {
+  return locator.evaluate((element) => {
+    const channel = (value) =>
+      value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    const luminance = (colour) => {
+      const [red, green, blue] = colour
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map((value) => channel(Number(value) / 255));
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const style = getComputedStyle(element);
+    // Walk out to whatever actually paints behind the text: the message sits on
+    // the rhythm card, not on a background of its own.
+    let behind = element;
+    while (behind && getComputedStyle(behind).backgroundColor === "rgba(0, 0, 0, 0)") {
+      behind = behind.parentElement;
+    }
+    const text = luminance(style.color);
+    const card = luminance(getComputedStyle(behind).backgroundColor);
+    return (Math.max(text, card) + 0.05) / (Math.min(text, card) + 0.05);
+  });
+}
+
+/**
  * The widest grid the interface can produce, and the sequence the screenshot
  * workflow drives to reach it. That workflow is deliberately outside
  * `npm run check`, so entering a Meter and a Subdivision has to be covered
@@ -245,6 +332,27 @@ test("Tab through an unedited Meter field commits nothing", async ({ page }) => 
   await page.getByRole("textbox", { name: "4/4 meter numerator" }).press("Tab");
 
   await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).toBeFocused();
+  await expect(status).toHaveText("Stopped");
+});
+
+/**
+ * The same rule one step further in: an entry the musician did retype can still
+ * name the Meter already in force, and `04` over `4` is the ordinary way it
+ * happens. Nothing changed, so nothing is announced — `#status` is shared with
+ * the transport, and replacing "Playing" with a Meter that did not move is the
+ * cost of announcing a commit rather than a change.
+ */
+test("re-entering the Meter already in force announces nothing", async ({ page }) => {
+  const status = page.locator("#status");
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await expect(status).toHaveText("Stopped");
+
+  const numerator = page.getByRole("textbox", { name: "4/4 meter numerator" });
+  await numerator.fill("04");
+  await numerator.press("Enter");
+
+  // Re-rendered from the Configuration, so the field shows what it holds.
+  await expect(page.getByRole("textbox", { name: "4/4 meter numerator" })).toHaveValue("4");
   await expect(status).toHaveText("Stopped");
 });
 

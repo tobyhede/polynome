@@ -161,6 +161,11 @@ const persistence = createPersistence({
 });
 
 function applyEdit(edit, options = {}) {
+  // The marking outlives one edit and no more: it describes the entry the
+  // musician last committed, and this is that commit. The Meter handler is the
+  // only thing that sets it, and it does so after this returns, so clearing
+  // here leaves a rejection standing and retires every other kind of edit's.
+  invalidMeter = null;
   const result = changeConfiguration(state, edit);
   state = result.configuration;
   description = describeConfiguration(state);
@@ -682,21 +687,27 @@ function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
+  // Visible, not `sr-only`: `#status` announces the rejection once and to a
+  // screen reader alone, so this is the whole of what a musician watching the
+  // screen has to go on. It carries the description the marked field points at,
+  // which is why the two are rendered from the same state.
   const meterMessage =
     invalidMeter?.rhythmId === rhythm.id
-      ? `<span id="${meterMessageId(rhythm)}" class="sr-only">${meterLimitMessage(invalidMeter.field)}</span>`
+      ? `<span id="${meterMessageId(rhythm)}" class="field-message">${meterLimitMessage(invalidMeter.field)}</span>`
       : "";
   return `
     <div class="timing-settings">
-      <label class="control-label">
-        <span>Signature</span>
-        <span class="signature-input">
-          ${meterFieldTemplate(rhythm, "signature-count", rhythm.signature.count, `${label} meter numerator`)}
-          <span aria-hidden="true">/</span>
-          ${meterFieldTemplate(rhythm, "signature-unit", rhythm.signature.unit, `${label} meter denominator`)}
-        </span>
-      </label>
-      ${meterMessage}
+      <div class="meter-control">
+        <label class="control-label">
+          <span>Signature</span>
+          <span class="signature-input">
+            ${meterFieldTemplate(rhythm, "signature-count", rhythm.signature.count, `${label} meter numerator`)}
+            <span aria-hidden="true">/</span>
+            ${meterFieldTemplate(rhythm, "signature-unit", rhythm.signature.unit, `${label} meter denominator`)}
+          </span>
+        </label>
+        ${meterMessage}
+      </div>
 
       <div class="control-label subdivision-control">
         <span>Subdivision</span>
@@ -1308,6 +1319,10 @@ elements.cycles.addEventListener("change", (event) => {
     elements.status.textContent = meterLimitMessage(field);
     return;
   }
+  // A commit that names the Meter already in force is not an edit, and the
+  // region it would write into is the transport's. `04` over `4` reaches here
+  // like any other retyped entry; only a Configuration that moved is news.
+  if (result.consequence === "none") return;
   const committed = result.configuration.sequence.cycles
     .find(({ id }) => id === cycle.id)
     ?.rhythms.find(({ id }) => id === rhythm.id);
