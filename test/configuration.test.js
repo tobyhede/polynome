@@ -471,6 +471,39 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   assert.equal(simpler.consequence, "restart-transport-run");
 });
 
+test("a non-dyadic Meter denominator preserves the meter-relative grid", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 2,
+              steps: ["full", "off", "quarter", "half"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    unit: 3,
+  });
+
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0], {
+    ...rhythm,
+    signature: { count: 2, unit: 3 },
+  });
+  assert.equal(result.consequence, "restart-transport-run");
+});
+
 test("advancing a Step level cycles the levels and preserves the transport run", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
@@ -538,7 +571,6 @@ test("Configuration description exposes domain choices and unavailable final rem
 
   assert.deepEqual(description.choices, {
     presetNames: ["4/4", "4/4 + 3/4"],
-    meterUnits: [1, 2, 4, 8, 16, 32],
     subdivisions: [1, 2, 3, 4, 5],
     sounds: ["high", "low", "wood"],
     stepLevels: ["off", "quarter", "half", "full"],
@@ -768,6 +800,17 @@ test("generated identifiers survive repeated Configuration repair", () => {
   assert.equal(repaired.sequence.cycles[0].rhythms[0].id, "layer-abc123-8");
 });
 
+test("stored Meter denominators accept integers in range and repair other values", () => {
+  const units = [3, 0, 2.5, "nope", 33].map(
+    (unit) =>
+      createConfiguration({
+        sequence: { cycles: [{ rhythms: [{ signature: { count: 4, unit } }] }] },
+      }).sequence.cycles[0].rhythms[0].signature.unit,
+  );
+
+  assert.deepEqual(units, [3, 4, 4, 4, 4]);
+});
+
 test("duplicate generated identifiers are still de-duplicated", () => {
   const configuration = createConfiguration({
     sequence: {
@@ -890,7 +933,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
-    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 3 },
+    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 0 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 2 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "clap" },
@@ -902,6 +945,30 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     assert.deepEqual(result.configuration, configuration);
     assert.equal(result.consequence, "none");
     assert.equal(result.reason, "invalid-value");
+  }
+});
+
+test("both Meter components reject invalid committed values consistently", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  for (const [type, property] of [
+    ["set-meter-count", "count"],
+    ["set-meter-unit", "unit"],
+  ]) {
+    for (const value of ["", "2.5", "not-a-number", "0", "-1", "33"]) {
+      const result = changeConfiguration(configuration, {
+        type,
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        [property]: value,
+      });
+
+      assert.deepEqual(result.configuration, configuration);
+      assert.equal(result.consequence, "none");
+      assert.equal(result.reason, "invalid-value");
+    }
   }
 });
 

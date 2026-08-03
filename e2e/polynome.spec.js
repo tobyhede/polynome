@@ -127,6 +127,39 @@ test("a newly added rhythm opens its settings", async ({ page }) => {
   await expect(addRhythm).toBeFocused();
 });
 
+test("Meter fields accept direct entry and recover accessibly from invalid input", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const numerator = page.getByRole("textbox", { name: "4/4 meter numerator" });
+  const denominator = page.getByRole("textbox", { name: "4/4 meter denominator" });
+
+  await expect(numerator).toHaveAttribute("inputmode", "numeric");
+  await expect(denominator).toHaveAttribute("inputmode", "numeric");
+  await denominator.fill("3");
+  await denominator.press("Enter");
+
+  await expect(page.getByRole("button", { name: "4/3 Edit 4/3 rhythm" })).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "4/3 step levels" }).getByRole("button"),
+  ).toHaveCount(4);
+  const updatedDenominator = page.getByRole("textbox", { name: "4/3 meter denominator" });
+  await expect(updatedDenominator).toHaveValue("3");
+  await expect(updatedDenominator).toBeFocused();
+
+  await updatedDenominator.press("ControlOrMeta+A");
+  await updatedDenominator.press("Backspace");
+  await expect(updatedDenominator).toHaveValue("");
+  await updatedDenominator.press("Enter");
+
+  const restoredDenominator = page.getByRole("textbox", { name: "4/3 meter denominator" });
+  await expect(restoredDenominator).toHaveValue("3");
+  await expect(restoredDenominator).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "Meter denominator" })).toHaveText(
+    "Meter denominator must be a whole number from 1 to 32",
+  );
+});
+
 test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step levels" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });
@@ -683,6 +716,8 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
   await expect(page.getByRole("spinbutton", { name: "BPM" })).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Cycle", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "4/4 meter denominator" })).toBeVisible();
 
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

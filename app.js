@@ -8,7 +8,7 @@ import {
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
-import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
+import { METER_COUNT_LIMIT, METER_UNIT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
@@ -78,7 +78,6 @@ let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
-  meterUnits: NOTE_UNITS,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
@@ -649,10 +648,6 @@ function rhythmTemplate(rhythm, cycle) {
 
 function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
-  const unitOptions = NOTE_UNITS.map(
-    (unit) =>
-      `<option value="${unit}"${unit === rhythm.signature.unit ? " selected" : ""}>${unit}</option>`,
-  ).join("");
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
   return `
@@ -660,9 +655,9 @@ function rhythmSettingsTemplate(rhythm) {
       <label class="control-label">
         <span>Signature</span>
         <span class="signature-input">
-          <input type="number" min="${METER_COUNT_LIMIT.minimum}" max="${METER_COUNT_LIMIT.maximum}" inputmode="numeric" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
+          <input type="text" inputmode="numeric" pattern="[0-9]*" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
           <span aria-hidden="true">/</span>
-          <select data-field="signature-unit" aria-label="${label} meter denominator">${unitOptions}</select>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" value="${rhythm.signature.unit}" data-field="signature-unit" aria-label="${label} meter denominator" />
         </span>
       </label>
 
@@ -1238,21 +1233,39 @@ elements.cycles.addEventListener("change", (event) => {
   const context = findContext(target);
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
+  let result = null;
+  let component = null;
   if (field === "signature-count") {
-    applyEdit({
+    component = "numerator";
+    result = applyEdit({
       type: "set-meter-count",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       count: target.value,
     });
   } else if (field === "signature-unit") {
-    applyEdit({
+    component = "denominator";
+    result = applyEdit({
       type: "set-meter-unit",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       unit: target.value,
     });
   }
+  if (result?.reason === "invalid-value") {
+    const limit = component === "numerator" ? METER_COUNT_LIMIT : METER_UNIT_LIMIT;
+    elements.status.textContent = `Meter ${component} must be a whole number from ${limit.minimum} to ${limit.maximum}`;
+  }
+});
+
+elements.cycles.addEventListener("keydown", (event) => {
+  if (
+    event.key !== "Enter" ||
+    !event.target.matches('[data-field="signature-count"], [data-field="signature-unit"]')
+  )
+    return;
+  event.preventDefault();
+  event.target.dispatchEvent(new Event("change", { bubbles: true }));
 });
 
 engine.addEventListener("playstate", () => {

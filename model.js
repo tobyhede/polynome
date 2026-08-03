@@ -32,6 +32,8 @@ export const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
 
 export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
 
+export const METER_UNIT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
+
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
 
 export function stepLevel(step) {
@@ -55,20 +57,28 @@ export function normaliseNumber(value, fallback, min, max) {
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
-function normaliseUnit(value, fallback = 4) {
-  const parsed = Number(value);
-  return NOTE_UNITS.includes(parsed) ? parsed : fallback;
+export function normaliseMeterUnit(value, fallback = 4) {
+  const parsed =
+    typeof value === "number" || (typeof value === "string" && value.trim() !== "")
+      ? Number(value)
+      : Number.NaN;
+  return Number.isInteger(parsed) &&
+    parsed >= METER_UNIT_LIMIT.minimum &&
+    parsed <= METER_UNIT_LIMIT.maximum
+    ? parsed
+    : fallback;
 }
 
 function greatestCommonDivisor(left, right) {
-  let a = Math.abs(left);
-  let b = Math.abs(right);
+  let a = left < 0n ? -left : left;
+  let b = right < 0n ? -right : right;
   while (b) [a, b] = [b, a % b];
-  return a || 1;
+  return a || 1n;
 }
 
 function leastCommonMultiple(left, right) {
-  return Math.abs(left * right) / greatestCommonDivisor(left, right);
+  const product = left * right;
+  return (product < 0n ? -product : product) / greatestCommonDivisor(left, right);
 }
 
 export function cycleSpanSeconds(bpm, cycle) {
@@ -76,27 +86,37 @@ export function cycleSpanSeconds(bpm, cycle) {
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  const spanInThirtySecondNotes = rhythms
-    .map((rhythm) => {
-      const count = Math.round(
-        normaliseNumber(
-          rhythm.signature?.count,
-          4,
-          METER_COUNT_LIMIT.minimum,
-          METER_COUNT_LIMIT.maximum,
-        ),
-      );
-      const unit = normaliseUnit(rhythm.signature?.unit, 4);
-      return count * (32 / unit);
-    })
+  const meterDurations = rhythms.map((rhythm) => {
+    const count = Math.round(
+      normaliseNumber(
+        rhythm.signature?.count,
+        4,
+        METER_COUNT_LIMIT.minimum,
+        METER_COUNT_LIMIT.maximum,
+      ),
+    );
+    const unit = normaliseMeterUnit(rhythm.signature?.unit, 4);
+    const numerator = BigInt(count * 4);
+    const denominator = BigInt(unit);
+    const divisor = greatestCommonDivisor(numerator, denominator);
+    return {
+      numerator: numerator / divisor,
+      denominator: denominator / divisor,
+    };
+  });
+  const spanNumerator = meterDurations
+    .map(({ numerator }) => numerator)
     .reduce(leastCommonMultiple);
+  const spanDenominator = meterDurations
+    .map(({ denominator }) => denominator)
+    .reduce(greatestCommonDivisor);
   const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
-  return (spanInThirtySecondNotes * quarterSeconds) / 8;
+  return (Number(spanNumerator) / Number(spanDenominator)) * quarterSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
-  const unit = normaliseUnit(rhythm?.signature?.unit, 4);
+  const unit = normaliseMeterUnit(rhythm?.signature?.unit, 4);
   const subdivision = Math.round(
     normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
   );

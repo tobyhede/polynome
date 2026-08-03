@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   METER_COUNT_LIMIT,
+  METER_UNIT_LIMIT,
   NOTE_UNITS,
   STEP,
   cycleSpanSeconds,
@@ -56,6 +57,8 @@ test("the shared vocabulary has one definition", () => {
   assert.deepEqual(Object.values(STEP), ["off", "quarter", "half", "full"]);
   assert.ok(Object.isFrozen(NOTE_UNITS));
   assert.ok(Object.isFrozen(METER_COUNT_LIMIT));
+  assert.deepEqual(METER_UNIT_LIMIT, { minimum: 1, maximum: 32 });
+  assert.ok(Object.isFrozen(METER_UNIT_LIMIT));
 });
 
 test("Subdivision labels name the signature unit and the grouping", () => {
@@ -96,4 +99,24 @@ test("step duration follows Subdivision within each signature unit", () => {
   };
 
   closeTo(stepDurationSeconds(120, rhythm), 1 / 6);
+});
+
+test("step duration supports a non-dyadic signature unit", () => {
+  const rhythm = {
+    signature: { count: 4, unit: 3 },
+    subdivision: 2,
+  };
+
+  closeTo(stepDurationSeconds(120, rhythm), 1 / 3);
+});
+
+test("a Cycle span exactly completes dyadic and non-dyadic Meters", () => {
+  const cycle = {
+    rhythms: [
+      { signature: { count: 4, unit: 3 }, subdivision: 5 },
+      { signature: { count: 3, unit: 4 }, subdivision: 2 },
+    ],
+  };
+
+  closeTo(cycleSpanSeconds(120, cycle), 24);
 });

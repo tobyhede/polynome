@@ -1,6 +1,7 @@
 import {
   METER_COUNT_LIMIT,
-  NOTE_UNITS as METER_UNITS,
+  METER_UNIT_LIMIT,
+  normaliseMeterUnit,
   normaliseNumber,
   STEP,
   SUBDIVISION_LIMIT,
@@ -66,9 +67,7 @@ function createRhythm(overrides = {}) {
         METER_COUNT_LIMIT.maximum,
       ),
     ),
-    unit: METER_UNITS.includes(Number(overrides.signature?.unit))
-      ? Number(overrides.signature.unit)
-      : 4,
+    unit: normaliseMeterUnit(overrides.signature?.unit),
   };
   const subdivision = Math.round(
     normaliseNumber(overrides.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
@@ -446,7 +445,6 @@ export function describeConfiguration(configuration) {
     selectedPreset: selectedPreset(valid),
     choices: {
       presetNames: [...PRESETS],
-      meterUnits: [...METER_UNITS],
       subdivisions: [...SUBDIVISIONS],
       sounds: [...SOUNDS],
       stepLevels: [...STEP_LEVEL_CHOICES],
@@ -752,7 +750,8 @@ const COMMANDS = Object.freeze({
   },
   "set-meter-unit": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "unit"),
-    validValue: (edit) => METER_UNITS.includes(formNumber(edit.unit)),
+    validValue: (edit) =>
+      numberInRange(edit, "unit", METER_UNIT_LIMIT.minimum, METER_UNIT_LIMIT.maximum, true),
     leavesUnchanged: (current, edit) =>
       findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
     apply(current, edit) {
