@@ -30,7 +30,7 @@ test("a high click renders inside its scheduled frame window", async ({ page }) 
         last,
         startFrame: Math.round(when * sampleRate),
         stopFrame: Math.round(
-          (when + SOUND_PROFILES.high.length + CLICK_ENVELOPE.releaseSeconds) * sampleRate,
+          (when + SOUND_PROFILES.high.durationSeconds + CLICK_ENVELOPE.releaseSeconds) * sampleRate,
         ),
       };
     },

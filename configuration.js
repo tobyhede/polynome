@@ -4,6 +4,7 @@ import {
   METER_UNITS,
   normaliseMeterUnit,
   normaliseNumber,
+  SOUND,
   STEP,
   SUBDIVISION_LIMIT,
 } from "./model.js";
@@ -20,7 +21,7 @@ function choiceRange({ minimum, maximum }) {
 }
 
 const STEP_VOICE_CHOICES = Object.freeze(Object.values(STEP));
-const SOUNDS = Object.freeze(["high", "low", "wood"]);
+const SOUNDS = Object.freeze(Object.values(SOUND));
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
@@ -84,7 +85,7 @@ function createRhythm(overrides = {}) {
     steps: resizeSteps(overrides.steps, signature.count * subdivision),
     volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
-    sound: SOUNDS.includes(overrides.sound) ? overrides.sound : "high",
+    sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,
     muted: Boolean(overrides.muted),
   };
 }

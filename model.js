@@ -6,6 +6,21 @@ export const STEP = Object.freeze({
 });
 
 /**
+ * Which click a rhythm layer plays. The name is the vocabulary and lives here;
+ * what each one is tuned to — frequency, waveform, duration — is `metronome.js`
+ * and its `SOUND_PROFILES`, keyed by these values.
+ *
+ * The split is the same one `STEP` and `STEP_PITCH_RATIOS` make: a name a
+ * listener chose and a stored Configuration carries has to survive being read
+ * by a module that knows nothing about oscillators.
+ */
+export const SOUND = Object.freeze({
+  HIGH: "high",
+  LOW: "low",
+  WOOD: "wood",
+});
+
+/**
  * A table keyed by a value a caller supplies. The null prototype keeps an
  * inherited name such as `constructor` or `toString` from answering as though
  * it were a mapping this module wrote, and it makes a miss `undefined` rather
