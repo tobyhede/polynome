@@ -471,6 +471,33 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
   expect(ratio).toBeGreaterThanOrEqual(4.5);
 });
 
+test("beats wrap into equal rows at every width", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
+  await page.locator('.subdivision-option[data-subdivision="4"]').click();
+  await expect(page.locator(".rhythm-card .step")).toHaveCount(16);
+
+  // 3+1 is the shape this guards against: four beats have to wrap 4, 2, or 1 to
+  // a row, and 768 is a width where packing by available space would not.
+  for (const width of [375, 540, 700, 768, 800, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+
+    const rows = await page.evaluate(() => {
+      const tops = [...document.querySelectorAll(".rhythm-card .beat")]
+        .map((beat) => Math.round(beat.getBoundingClientRect().top));
+      const perRow = new Map();
+      for (const top of tops) perRow.set(top, (perRow.get(top) ?? 0) + 1);
+      return [...perRow.values()];
+    });
+
+    expect(rows.length, `${width}px produced no rows`).toBeGreaterThan(0);
+    expect(new Set(rows).size, `${width}px wrapped as ${rows.join("+")}`).toBe(1);
+  }
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 

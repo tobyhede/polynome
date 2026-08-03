@@ -422,11 +422,15 @@ h1 {
   background: rgb(12 12 13 / 14%);
 }
 
+/* One stacked layout at every width. The card still spans the shell so it lines
+   up with the rhythm cards, while its contents sit in a single centred column
+   that stops widening once there is more room than the controls can use. */
 .transport {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 216px;
+  grid-template-columns: minmax(0, 500px);
   gap: 28px;
-  align-items: center;
+  justify-content: center;
+  justify-items: center;
   padding: 20px 18px;
   border: 1px solid var(--line);
   border-radius: 2px;
@@ -436,8 +440,8 @@ h1 {
 .play-button {
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 60%;
+  height: 60px;
   padding: 0 0 0 4px;
   border: 0;
   border-radius: 2px;
@@ -459,8 +463,11 @@ h1 {
   display: grid;
   gap: 7px;
   justify-items: stretch;
+  width: 100%;
   min-width: 0;
-  padding: 0 76px 0 42px;
+  /* Half the readout's width, which is what it needs to avoid clipping at either
+     end of the track, and symmetric so the slider centres under the button. */
+  padding-inline: 54px;
 }
 
 .bpm-track {
@@ -558,29 +565,13 @@ h1.is-glitching {
   font-weight: 640;
 }
 
-.master-volume {
-  display: grid;
-  gap: 7px;
-  width: 216px;
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
-.master-volume input {
-  width: 100%;
-  height: 26px;
-  margin: 0;
-}
-
 .cycle-list {
   display: grid;
   gap: 0;
 }
 
 .cycle-group {
+  min-width: 0;
   display: grid;
   gap: 14px;
   margin-top: 22px;
@@ -687,11 +678,13 @@ h1.is-glitching {
 }
 
 .rhythm-list {
+  min-width: 0;
   display: grid;
   gap: 14px;
 }
 
 .rhythm-card {
+  min-width: 0;
   overflow: visible;
 }
 
@@ -758,12 +751,39 @@ h1.is-glitching {
   font-weight: 400;
 }
 
+/* Step size stays with the breakpoints below; layoutSteps() in app.js only
+   decides how the beats are grouped, by setting `--beats-per-row`. An explicit
+   column count is what makes the rows equal: beats cannot pack greedily into a
+   fixed number of columns. */
 .steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  /* Grid and flex items are min-content wide by default, which would let a wide
+     beat push the card past the shell and hand layoutSteps() a width the screen
+     does not have. */
+  min-width: 0;
+
+  display: grid;
+  grid-template-columns: repeat(var(--beats-per-row, 1), max-content);
+  /* Beats are set apart more than the steps inside them, so a wrapped row still
+     reads as whole beats. The clamp leaves an unsubdivided rhythm — where a beat
+     is a single step — spaced exactly as it was. */
+  gap: 10px clamp(10px, calc(var(--subdivision, 1) * 10px), 20px);
   align-items: center;
+  justify-content: start;
   padding: 14px 16px 18px;
+}
+
+/* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
+   that one case scrolls. Sequencer apps do the same rather than resize a step. */
+.steps.is-scrolling {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+/* A beat is atomic: a row break can only fall between beats, never inside one. */
+.beat {
+  display: flex;
+  gap: 10px;
 }
 
 .step {
@@ -1076,17 +1096,6 @@ h1.is-glitching {
     grid-template-columns: 1fr;
   }
 
-  .transport {
-    grid-template-columns: 96px minmax(0, 1fr);
-  }
-
-  .master-volume {
-    grid-column: 1 / -1;
-    width: 100%;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-  }
-
   .rhythm-settings {
     grid-template-columns: 1fr;
   }
@@ -1113,25 +1122,6 @@ h1.is-glitching {
 
   h1 {
     font-size: clamp(1.85rem, 11vw, 2.6rem);
-  }
-
-  .transport {
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
-  .play-button {
-    width: 82px;
-    height: 82px;
-  }
-
-  .tempo,
-  .master-volume {
-    width: 100%;
-  }
-
-  .master-volume {
-    grid-column: auto;
   }
 
   .card-heading {

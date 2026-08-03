@@ -164,7 +164,6 @@ export function createConfiguration(input) {
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
-    masterVolume: normaliseNumber(source.masterVolume, 0.8, 0, 1),
     sequence: { cycles: validCycles },
   };
 }
@@ -173,7 +172,6 @@ function createPresetConfiguration(name) {
   if (name === "4/4 + 3/4") {
     return createConfiguration({
       bpm: 112,
-      masterVolume: 0.8,
       sequence: {
         cycles: [{
           repetitions: 1,
@@ -247,7 +245,6 @@ function sameCycle(cycle, candidate) {
 function sameConfiguration(configuration, candidate) {
   return sameFields(configuration, candidate)
     && configuration.bpm === candidate.bpm
-    && configuration.masterVolume === candidate.masterVolume
     && sameFields(configuration.sequence, candidate.sequence)
     && Array.isArray(candidate.sequence.cycles)
     && configuration.sequence.cycles.length === candidate.sequence.cycles.length
@@ -738,19 +735,6 @@ const COMMANDS = Object.freeze({
           )),
         },
       }, "restart-transport-run");
-    },
-  },
-  "set-master-volume": {
-    validPayload: (edit) => hasFormNumber(edit, "masterVolume"),
-    validValue: (edit) => numberInRange(edit, "masterVolume", 0, 1),
-    leavesUnchanged: (current, edit) => (
-      current.masterVolume === formNumber(edit.masterVolume)
-    ),
-    apply(current, edit) {
-      return changed({
-        ...current,
-        masterVolume: formNumber(edit.masterVolume),
-      }, "update-mix");
     },
   },
   "set-meter-count": {

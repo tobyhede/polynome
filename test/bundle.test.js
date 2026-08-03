@@ -58,6 +58,7 @@ function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) 
     document,
     window: browserStub(),
     CSS: { escape: String },
+    ResizeObserver: browserStub(),
     requestAnimationFrame: () => 0,
     cancelAnimationFrame: () => {},
     EventTarget,

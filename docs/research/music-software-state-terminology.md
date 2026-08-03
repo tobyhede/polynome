@@ -32,7 +32,7 @@ There is strong prior art for the concept, but no universal term.
 
 ## Recommendation
 
-For the current product, use **Configuration** as internal implementation terminology and `configuration.js` as the dedicated deep module covering tempo, master level, Sequence construction and editing, normalization of persisted input, edit availability, transitions, and their transport consequences. Continue to use **Sequence** for the musical structure; Configuration is not a new user-facing domain term.
+For the current product, use **Configuration** as internal implementation terminology and `configuration.js` as the dedicated deep module covering tempo, Sequence construction and editing, normalization of persisted input, edit availability, transitions, and their transport consequences. Continue to use **Sequence** for the musical structure; Configuration is not a new user-facing domain term.
 
 This fits Polynome's present interaction model: the application auto-persists one unnamed value and has no project, file, or library management. Although **Project** has the strongest broad music-software precedent, adopting it now would imply a user-visible artifact and management model that the product does not provide.
 

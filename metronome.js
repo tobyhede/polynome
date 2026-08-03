@@ -4,6 +4,9 @@ import { SharedTransport } from "./shared-transport.js";
 const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
+// The output stage is fixed: loudness is the device's to control. The node
+// remains because stopping silences the graph through it.
+const MASTER_GAIN = 0.8;
 
 /**
  * How long a run may report `playing` while its context has never once been
@@ -420,15 +423,17 @@ export class MetronomeEngine extends EventTarget {
     this.#context = this.#createContext();
     this.#context.addEventListener("statechange", this.#handleStateChange);
     this.#master = this.#context.createGain();
-    this.#master.gain.value = 0.8;
+    this.#master.gain.value = MASTER_GAIN;
     this.#master.connect(this.#context.destination);
   }
 
   #syncNodes() {
     if (!this.#context || !this.#master || !this.#state) return;
 
+    // Stopping leaves the master at zero, so restore it whenever the graph is
+    // resynced against a preserved context.
     this.#master.gain.setTargetAtTime(
-      this.#state.masterVolume,
+      MASTER_GAIN,
       this.#context.currentTime,
       0.01,
     );

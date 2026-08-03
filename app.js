@@ -34,7 +34,6 @@ const elements = {
   bpmReadout: document.querySelector("#bpm-readout"),
   bpmTicks: document.querySelector("#bpm-ticks"),
   bpmMarks: document.querySelector("#bpm-marks"),
-  masterVolume: document.querySelector("#master-volume"),
   presetsToggle: document.querySelector("#presets-toggle"),
   presetPanel: document.querySelector("#preset-panel"),
   presetList: document.querySelector("#preset-list"),
@@ -165,7 +164,6 @@ function renderPanels() {
 function renderTransport() {
   elements.bpm.value = String(state.bpm);
   elements.bpmSlider.value = String(state.bpm);
-  elements.masterVolume.value = String(state.masterVolume);
   const progress = (state.bpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
@@ -318,7 +316,74 @@ function renderCycles() {
     .map((cycle, index) => cycleTemplate(cycle, index))
     .join("");
   if (focusKey) elements.cycles.querySelector(focusKey)?.focus();
+  layoutSteps();
 }
+
+/**
+ * One bar of sixteenths on one row is the step-sequencer convention the TR-800
+ * lineage settled on, and it is the longest row that still reads at a glance.
+ */
+const STEPS_PER_ROW_LIMIT = 16;
+
+function descendingDivisors(count) {
+  const divisors = [];
+  for (let candidate = count; candidate >= 1; candidate -= 1) {
+    if (count % candidate === 0) divisors.push(candidate);
+  }
+  return divisors;
+}
+
+/**
+ * Grouping only: this chooses how many beats share a row and changes nothing
+ * else. Step size and spacing belong to the stylesheet and are measured here
+ * rather than set.
+ *
+ * A beat is indivisible — engraving beams a beat's divisions together in every
+ * meter — so a row holds a whole number of beats, and equal rows mean that
+ * number must divide the beat count. Taking the divisors largest-first under a
+ * sixteen-step ceiling lands on the conventions by itself: 4/4 sixteenths give
+ * one row of sixteen, and an irregular meter like 7/8 is prime, so its only
+ * options are the whole bar or a beat per row, never a false even split.
+ *
+ * Width can only narrow that choice further, never make it. When even a single
+ * beat is wider than the row, the pattern scrolls rather than shrinking.
+ */
+function layoutSteps() {
+  for (const steps of elements.cycles.querySelectorAll(".steps")) {
+    const beats = Number(steps.dataset.beats);
+    const subdivision = Number(steps.dataset.subdivision);
+    const beat = steps.querySelector(".beat");
+    const style = getComputedStyle(steps);
+    const available = steps.clientWidth
+      - parseFloat(style.paddingLeft)
+      - parseFloat(style.paddingRight);
+    if (!beat || !(available > 0)) continue;
+
+    // A beat is a flex row of fixed-size steps, so its width does not depend on
+    // the grouping being chosen and can be measured before choosing it.
+    const beatWidth = beat.getBoundingClientRect().width;
+    const beatGap = parseFloat(style.columnGap) || 0;
+    const perRow = descendingDivisors(beats).find((candidate) => (
+      candidate * subdivision <= STEPS_PER_ROW_LIMIT
+      && candidate * beatWidth + (candidate - 1) * beatGap <= available
+    )) ?? 1;
+
+    steps.style.setProperty("--beats-per-row", String(perRow));
+    steps.classList.toggle("is-scrolling", beatWidth > available);
+  }
+}
+
+/**
+ * Only width changes the answer. Watching height as well would re-enter this on
+ * the layout it just produced.
+ */
+let laidOutWidth = 0;
+new ResizeObserver((entries) => {
+  const { width } = entries[0].contentRect;
+  if (width === laidOutWidth) return;
+  laidOutWidth = width;
+  layoutSteps();
+}).observe(elements.cycles);
 
 /**
  * Rebuilding the cycles markup discards the focused control, which drops focus
@@ -465,8 +530,8 @@ function rhythmTemplate(rhythm, cycle) {
         </div>
       </div>
 
-      <div class="steps" role="group" aria-label="${label} step levels">
-        ${rhythm.steps.map((step, index) => stepTemplate(step, index)).join("")}
+      <div class="steps" role="group" aria-label="${label} step levels" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
+        ${beatsTemplate(rhythm)}
       </div>
 
       <div id="${drawerId}" class="rhythm-settings" ${open ? "" : "hidden"}>
@@ -545,6 +610,21 @@ function rhythmSettingsTemplate(rhythm) {
       </label>
     </div>
   `;
+}
+
+// Steps are grouped a beat at a time so a narrow screen can only ever break
+// between beats. `steps.length` is always `signature.count * subdivision`, so
+// every group is full and no row is left ragged.
+function beatsTemplate(rhythm) {
+  const beats = [];
+  for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
+    const group = rhythm.steps
+      .slice(start, start + rhythm.subdivision)
+      .map((step, offset) => stepTemplate(step, start + offset))
+      .join("");
+    beats.push(`<div class="beat">${group}</div>`);
+  }
+  return beats.join("");
 }
 
 function stepTemplate(step, index) {
@@ -735,13 +815,6 @@ elements.bpmSlider.addEventListener("change", () => {
   if (engine.playing && state.bpm !== runBpm) {
     engine.restart(state).catch(showError);
   }
-});
-elements.masterVolume.addEventListener("input", (event) => {
-  applyEdit(
-    { type: "set-master-volume", masterVolume: event.target.value },
-    { render: false },
-  );
-  renderPresetSelection();
 });
 elements.presetList.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-delete-preset-id]");

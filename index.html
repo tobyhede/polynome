@@ -51,10 +51,6 @@
       </section>
 
       <section class="transport" aria-label="Transport and tempo">
-        <button id="play-button" class="play-button" type="button" aria-pressed="false" aria-label="Play metronome">
-          <span id="play-icon" aria-hidden="true">▶</span>
-        </button>
-
         <div class="tempo">
           <div class="bpm-track">
             <div id="bpm-readout" class="bpm-readout">
@@ -77,10 +73,10 @@
           <div class="tempo-scale" aria-hidden="true"><span>30</span><span>120</span><span>210</span><span>300</span></div>
         </div>
 
-        <label class="master-volume">
-          <span>Master</span>
-          <input id="master-volume" type="range" min="0" max="1" step="0.01" />
-        </label>
+        <button id="play-button" class="play-button" type="button" aria-pressed="false" aria-label="Play metronome">
+          <span id="play-icon" aria-hidden="true">▶</span>
+        </button>
+
       </section>
 
       <section id="cycles" class="cycle-list" aria-label="Cycles"></section>
