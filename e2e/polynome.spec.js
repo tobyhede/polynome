@@ -63,6 +63,25 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
 });
 
+test("storage from the wider meter domain is retired instead of repaired", async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem("polynome-configuration", JSON.stringify({ bpm: 132 }));
+    localStorage.setItem("polynome-presets", JSON.stringify([]));
+  });
+
+  await page.reload();
+
+  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("96");
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        configuration: localStorage.getItem("polynome-configuration"),
+        presets: localStorage.getItem("polynome-presets"),
+      })),
+    )
+    .toEqual({ configuration: null, presets: null });
+});
+
 for (const [name, accessibleName] of [
   ["identity", "4/4 Edit 4/4 rhythm"],
   ["edit button", "Edit 4/4"],
@@ -285,7 +304,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Shared");
 
-  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
   await savePreset(page, "Later");
 
   await expect(presetButton(page, "Later")).toBeVisible();
@@ -304,9 +323,9 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("polynome-presets"));
+    const stored = JSON.parse(localStorage.getItem("polynome-presets-v2"));
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
-    localStorage.setItem("polynome-presets", JSON.stringify(stored));
+    localStorage.setItem("polynome-presets-v2", JSON.stringify(stored));
   });
   await deletePreset(page, "Doomed");
 
@@ -413,7 +432,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Ghost");
-  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
 
   await deletePreset(page, "Ghost");
 

@@ -11,19 +11,21 @@ import {
 import { panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
-const STORAGE_KEY = "polynome-configuration";
-const PRESET_STORAGE_KEY = "polynome-presets";
+const STORAGE_KEY = "polynome-configuration-v2";
+const PRESET_STORAGE_KEY = "polynome-presets-v2";
 const PERSIST_DELAY_MS = 400;
-// Holds the current shape under the name used while the redesign was in
-// progress; adopted once, then cleared.
-const SUPERSEDED_STORAGE_KEYS = ["polynome-redesign"];
+// The meter domain narrowed in v2. Values from earlier releases are retired
+// instead of repaired into different rhythms without the listener's consent.
 const RETIRED_STORAGE_KEYS = [
+  "polynome-configuration",
+  "polynome-redesign",
   "polynome-sequence",
   "polynome-meter",
   "polynome",
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
+const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets"];
 
 /**
  * `querySelector` is typed as returning the base `Element`, which carries none
@@ -97,7 +99,6 @@ function loadState() {
     raw = readStoredValue({
       storage: localStorage,
       key: STORAGE_KEY,
-      supersededKeys: SUPERSEDED_STORAGE_KEYS,
       retiredKeys: RETIRED_STORAGE_KEYS,
     });
   } catch {
@@ -124,7 +125,11 @@ function writeState(configuration) {
 function readSavedPresets() {
   let raw = null;
   try {
-    raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    raw = readStoredValue({
+      storage: localStorage,
+      key: PRESET_STORAGE_KEY,
+      retiredKeys: RETIRED_PRESET_STORAGE_KEYS,
+    });
   } catch {
     return null;
   }
