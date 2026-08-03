@@ -19,6 +19,31 @@ const STUCK_CONTEXT_TICKS = Math.ceil(
 );
 
 /**
+ * How often a run that has lost `running` asks for its context back.
+ *
+ * The `statechange` handler asks once on the way out of `running`, but a
+ * refused `resume()` fires no `statechange` at all, so that one request is also
+ * the last one the handler will ever make. The gate it was refused on is
+ * transient user activation, which the page can regain at any moment from a tap
+ * that has nothing to do with the metronome — and no event tells the engine
+ * that it has. Asking again on a slow cadence is the only way to take that
+ * chance up.
+ *
+ * A second a part is far longer than a user notices against an interruption
+ * they are already living through, and rare enough that a permanently refused
+ * context costs one parked promise a second rather than one per tick.
+ *
+ * Deliberately not guarded by a "resume already pending" flag. WebKit parks the
+ * promise and settles it neither way for exactly the refusals this retry exists
+ * to survive, so such a flag would latch on the first refusal and disable every
+ * later attempt — the failure it was added to prevent.
+ */
+const RESUME_RETRY_TIMEOUT_MS = 1000;
+const RESUME_RETRY_TICKS = Math.ceil(
+  RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS,
+);
+
+/**
  * How late a planned click may be and still be worth sounding: the committing
  * side of the two lateness policies this metronome runs.
  *
@@ -126,6 +151,7 @@ export class MetronomeEngine extends EventTarget {
   #scheduledSources = new Set();
   #unstartedTicks = 0;
   #reportedStuckContext = false;
+  #ticksSinceResumeRequest = 0;
   #holdsAudioSession = false;
 
   /**
@@ -227,6 +253,7 @@ export class MetronomeEngine extends EventTarget {
     this.#anchored = false;
     this.#unstartedTicks = 0;
     this.#reportedStuckContext = false;
+    this.#ticksSinceResumeRequest = 0;
 
     for (const source of this.#scheduledSources) {
       try {
@@ -465,6 +492,20 @@ export class MetronomeEngine extends EventTarget {
   }
 
   /**
+   * Asks for an interrupted run's context back, no more than once every
+   * `RESUME_RETRY_TICKS`. The counter is reset by any tick that observes
+   * `running` and by `stop()`, so a recovered run starts the next interruption
+   * with a full interval rather than part-way through one.
+   */
+  #retryResume() {
+    this.#ticksSinceResumeRequest += 1;
+    if (this.#ticksSinceResumeRequest < RESUME_RETRY_TICKS) return;
+
+    this.#ticksSinceResumeRequest = 0;
+    this.#requestResume();
+  }
+
+  /**
    * One scheduler tick. `currentTime` is frozen at zero while a context is
    * suspended or interrupted and never catches up, so the transport origin is
    * anchored from the first tick at which the context is genuinely running.
@@ -472,9 +513,16 @@ export class MetronomeEngine extends EventTarget {
   #tick() {
     if (!this.#playing || !this.#context || !this.#state) return;
     if (this.#context.state !== "running") {
-      if (!this.#anchored) this.#countUnstartedTick();
+      // A run that has never sounded is reported rather than retried: it is
+      // told to tap play again, and that tap is itself the activation a resume
+      // needs. A run that was sounding is told nothing, so asking again is the
+      // only way back.
+      if (this.#anchored) this.#retryResume();
+      else this.#countUnstartedTick();
       return;
     }
+
+    this.#ticksSinceResumeRequest = 0;
 
     if (!this.#anchored) {
       this.#transport.start(

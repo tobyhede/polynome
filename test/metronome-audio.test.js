@@ -302,6 +302,10 @@ const SCHEDULER_INTERVAL_MS = 25;
 const STUCK_CONTEXT_TIMEOUT_MS = 2000;
 const STUCK_CONTEXT_TICKS = Math.ceil(STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
 
+/** The interval at which an interrupted run re-asks for its context, restated. */
+const RESUME_RETRY_TIMEOUT_MS = 1000;
+const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
+
 const tick = (times = 1) => {
   for (let count = 0; count < times; count += 1) {
     for (const timer of [...timers.callbacks.values()]) timer.callback();
@@ -518,6 +522,50 @@ test("a transport run recovers from an interruption without replaying past event
   engine.stop();
 });
 
+test("an interrupted run keeps asking for its context back", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(pulsePerSecond());
+  context.setState("interrupted");
+
+  // The `statechange` handler asks once. A refused `resume()` fires no
+  // `statechange` of its own, so without the scheduler asking again this is the
+  // last request the run would ever make, and a run that recovers its
+  // activation later would stay silent with nothing left to notice.
+  assert.equal(context.resumeCalls, 1);
+
+  tick(RESUME_RETRY_TICKS - 1);
+  assert.equal(context.resumeCalls, 1);
+
+  tick();
+  assert.equal(context.resumeCalls, 2);
+
+  tick(RESUME_RETRY_TICKS);
+  assert.equal(context.resumeCalls, 3);
+
+  engine.stop();
+});
+
+test("a run that gets its context back stops asking", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(pulsePerSecond());
+  context.setState("interrupted");
+  tick(RESUME_RETRY_TICKS);
+  assert.equal(context.resumeCalls, 2);
+
+  context.currentTime = 0.95;
+  context.setState("running");
+  tick(RESUME_RETRY_TICKS * 3);
+
+  // Running again: nothing further is asked for, and the retry counter that
+  // was part-way through must not carry over into the next interruption.
+  assert.equal(context.resumeCalls, 2);
+  assert.equal(context.audibleClicks().length > 0, true);
+
+  engine.stop();
+});
+
 /**
  * A context that never reaches `running` is the silent failure with no symptom:
  * `playing` reports true, the scheduler ticks on, and nothing is ever heard.
@@ -541,6 +589,23 @@ test("a context that never starts reports itself once the threshold passes", asy
   assert.equal(errors[0] instanceof Error, true);
   assert.match(errors[0].message, /audio/i);
   assert.deepEqual(context.audibleClicks(), []);
+
+  engine.stop();
+});
+
+test("a run that never started is reported rather than retried", async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
+
+  await engine.start(pulsePerSecond());
+  assert.equal(context.resumeCalls, 1);
+
+  // The retry belongs to a run that was interrupted, not one that never began.
+  // This run is told to tap play again, and that tap carries the activation a
+  // resume needs; asking on a timer instead would spend requests on the one
+  // gate that a timer can never open.
+  tick(RESUME_RETRY_TICKS * 4);
+
+  assert.equal(context.resumeCalls, 1);
 
   engine.stop();
 });
