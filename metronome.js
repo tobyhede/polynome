@@ -6,6 +6,19 @@ const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
 
 /**
+ * How long a run may report `playing` while its context has never once been
+ * running before the engine says so out loud.
+ *
+ * Long enough that an ordinary start — a context that takes a few hundred
+ * milliseconds to be granted — never trips it, and short enough that a user
+ * staring at a silent metronome is told why before deciding the app is broken.
+ */
+const STUCK_CONTEXT_TIMEOUT_MS = 2000;
+const STUCK_CONTEXT_TICKS = Math.ceil(
+  STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS,
+);
+
+/**
  * How late a planned click may be and still be worth sounding: the committing
  * side of the two lateness policies this metronome runs.
  *
@@ -111,6 +124,8 @@ export class MetronomeEngine extends EventTarget {
   #timer = null;
   #anchored = false;
   #scheduledSources = new Set();
+  #unstartedTicks = 0;
+  #reportedStuckContext = false;
 
   /**
    * WebKit fires `statechange` on every transition. Losing `"running"` during
@@ -188,6 +203,8 @@ export class MetronomeEngine extends EventTarget {
 
     this.#playing = false;
     this.#anchored = false;
+    this.#unstartedTicks = 0;
+    this.#reportedStuckContext = false;
 
     for (const source of this.#scheduledSources) {
       try {
@@ -367,13 +384,42 @@ export class MetronomeEngine extends EventTarget {
   }
 
   /**
+   * Counts a tick of a run whose context has never once been running, and says
+   * so when the count reaches the threshold.
+   *
+   * A context that is never granted produces no sound and no exception: the
+   * scheduler ticks on, `playing` keeps reporting true, and the silence is
+   * indistinguishable to the user from a metronome that is simply broken. This
+   * is the one place the engine can notice.
+   *
+   * Reporting deliberately changes nothing else. The run is left playing and
+   * the scheduler installed, because the context may still be granted later —
+   * a user who answers a call and comes back must still get their metronome,
+   * and stopping here is what would take it away. Once per run is enough: the
+   * condition is continuous, so repeating it every tick would be noise.
+   */
+  #countUnstartedTick() {
+    if (this.#reportedStuckContext) return;
+    this.#unstartedTicks += 1;
+    if (this.#unstartedTicks < STUCK_CONTEXT_TICKS) return;
+
+    this.#reportedStuckContext = true;
+    this.dispatchEvent(new CustomEvent("audioerror", {
+      detail: new Error("Audio has not started. Try tapping play again."),
+    }));
+  }
+
+  /**
    * One scheduler tick. `currentTime` is frozen at zero while a context is
    * suspended or interrupted and never catches up, so the transport origin is
    * anchored from the first tick at which the context is genuinely running.
    */
   #tick() {
     if (!this.#playing || !this.#context || !this.#state) return;
-    if (this.#context.state !== "running") return;
+    if (this.#context.state !== "running") {
+      if (!this.#anchored) this.#countUnstartedTick();
+      return;
+    }
 
     if (!this.#anchored) {
       this.#transport.start(

@@ -290,6 +290,18 @@ after(() => {
   restoreWindow = null;
 });
 
+/**
+ * The engine's stuck-context threshold, restated.
+ *
+ * `SCHEDULER_INTERVAL_MS` is private to `metronome.js`, so the boundary these
+ * tests aim at is derived here exactly as the engine derives it. The mirror is
+ * self-checking: a test that reports one tick early and one that reports on
+ * time cannot both hold if the two derivations ever disagree.
+ */
+const SCHEDULER_INTERVAL_MS = 25;
+const STUCK_CONTEXT_TIMEOUT_MS = 2000;
+const STUCK_CONTEXT_TICKS = Math.ceil(STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
+
 const tick = (times = 1) => {
   for (let count = 0; count < times; count += 1) {
     for (const timer of [...timers.callbacks.values()]) timer.callback();
@@ -303,6 +315,13 @@ const harness = (contextOptions = {}) => {
   const context = new FakeAudioContext(contextOptions);
   const engine = new MetronomeEngine({ createContext: () => context });
   return { context, engine };
+};
+
+/** Everything the engine reported through `audioerror`, in order. */
+const audioErrorsOf = (engine) => {
+  const errors = [];
+  engine.addEventListener("audioerror", (event) => errors.push(event.detail));
+  return errors;
 };
 
 /**
@@ -469,6 +488,109 @@ test("a transport run recovers from an interruption without replaying past event
     context.clicks.every((click) => click.when >= click.effectiveStart),
     true,
   );
+
+  engine.stop();
+});
+
+/**
+ * A context that never reaches `running` is the silent failure with no symptom:
+ * `playing` reports true, the scheduler ticks on, and nothing is ever heard.
+ * The five tests below fix when the engine is allowed to say so, how often, and
+ * what it must not give up in order to say it.
+ */
+
+test("a context that never starts reports itself once the threshold passes", async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
+  const errors = audioErrorsOf(engine);
+
+  // `start()` runs the run's first tick itself, so the run is one tick in.
+  await engine.start(pulsePerSecond());
+  tick(STUCK_CONTEXT_TICKS - 2);
+
+  assert.deepEqual(errors, []);
+
+  tick();
+
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0] instanceof Error, true);
+  assert.match(errors[0].message, /audio/i);
+  assert.deepEqual(context.audibleClicks(), []);
+
+  engine.stop();
+});
+
+test("reporting a stuck context does not abandon the run", async () => {
+  const { engine } = harness({ state: "suspended", resume: "hang" });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  tick(STUCK_CONTEXT_TICKS - 1);
+  assert.equal(errors.length, 1);
+
+  // Recovery is still the point: a user who answers a phone call and comes back
+  // must still get their metronome, which needs the scheduler still installed.
+  assert.equal(engine.playing, true);
+  assert.equal(schedulerRunning(), true);
+
+  tick(STUCK_CONTEXT_TICKS * 3);
+
+  assert.equal(errors.length, 1);
+
+  engine.stop();
+});
+
+test("a context that starts before the threshold never reports", async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  tick(2);
+  context.setState("running");
+  tick(STUCK_CONTEXT_TICKS * 2);
+
+  assert.deepEqual(errors, []);
+  assert.equal(context.audibleClicks().length > 0, true);
+
+  engine.stop();
+});
+
+test("a run that reported a stuck context still plays once it starts", async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  tick(STUCK_CONTEXT_TICKS - 1);
+  assert.equal(errors.length, 1);
+
+  context.currentTime = 0.95;
+  context.setState("running");
+  tick();
+
+  assert.equal(engine.origin, 1.01);
+  assert.deepEqual(
+    context.audibleClicks().map((click) => click.when),
+    [1.01],
+  );
+
+  engine.stop();
+});
+
+test("a later run reports its own silence", async () => {
+  const { engine } = harness({ state: "suspended", resume: "hang" });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  tick(STUCK_CONTEXT_TICKS - 1);
+  assert.equal(errors.length, 1);
+
+  engine.stop();
+
+  await engine.start(pulsePerSecond());
+  tick(STUCK_CONTEXT_TICKS - 2);
+  assert.equal(errors.length, 1);
+
+  tick();
+  assert.equal(errors.length, 2);
 
   engine.stop();
 });
