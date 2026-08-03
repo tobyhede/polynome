@@ -6,10 +6,11 @@
   "description": "A tiny, zero-runtime-dependency polyrhythm and polymeter metronome for the browser.",
   "scripts": {
     "start": "node server.mjs",
+    "lint": "biome lint .",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='e2e/**' --test-coverage-lines=95 --test-coverage-branches=87 --test-coverage-functions=94",
     "test:browser": "npm run bundle && playwright test",
-    "check": "npm run test:coverage && npm run test:browser && npm run site",
+    "check": "npm run lint && npm run test:coverage && npm run test:browser && npm run site",
     "bundle": "node scripts/bundle.mjs",
     "shots": "node scripts/shots.mjs",
     "site": "node scripts/site.mjs"
@@ -18,7 +19,10 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@biomejs/biome": "^2.5.6",
     "@playwright/test": "^1.62.1",
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "typescript": "^7.0.2"
   }
 }

@@ -736,7 +736,9 @@ function updatePlayButton() {
 
 function updateActiveSteps() {
   if (!engine.playing) {
-    elements.cycles.querySelectorAll(".is-current").forEach((element) => element.classList.remove("is-current"));
+    elements.cycles.querySelectorAll(".is-current").forEach((element) => {
+      element.classList.remove("is-current");
+    });
     animationFrame = null;
     return;
   }

@@ -481,7 +481,7 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
     .evaluate((element) => {
       const channel = (value) => (value <= 0.03928
         ? value / 12.92
-        : Math.pow((value + 0.055) / 1.055, 2.4));
+        : ((value + 0.055) / 1.055) ** 2.4);
       const luminance = (colour) => {
         const [red, green, blue] = colour.match(/[\d.]+/g).slice(0, 3)
           .map((value) => channel(Number(value) / 255));

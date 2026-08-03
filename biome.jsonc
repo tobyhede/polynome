@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!package-lock.json", "!skills-lock.json", "!fonts"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "complexity": {
+        // Every `!important` in this stylesheet is one of the two patterns that
+        // require it: the `[hidden]` reset, which must beat any component
+        // `display`, and the `prefers-reduced-motion` block, which must beat
+        // every animation it is there to stop. Both are the documented way to
+        // write those rules, so the rule only ever fires on correct code here —
+        // and obeying it in the second case would remove an accessibility
+        // guarantee this project calls non-negotiable.
+        "noImportantStyles": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": false
+  }
+}

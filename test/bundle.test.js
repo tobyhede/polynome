@@ -136,6 +136,10 @@ test("single-file distribution discovers transitive modules and preserves their 
   await Promise.all([
     writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
     writeFile(join(fixture, "styles.css"), "body { color: white; }"),
+    // This string is not a template that lost its backticks. It is the source
+    // of a fixture module written to disk and then bundled, so the placeholder
+    // has to survive as text for the build under test to resolve it.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source, not a template
     writeFile(join(fixture, "app.js"), 'import { left } from "./left.js"; import { right } from "./right.js"; globalThis.fixtureResult = `${left}:${right}`;'),
     writeFile(join(fixture, "left.js"), 'import { suffix } from "./nested.js"; const label = "left"; export const left = label + suffix;'),
     writeFile(join(fixture, "right.js"), 'const label = "right"; export const right = label;'),

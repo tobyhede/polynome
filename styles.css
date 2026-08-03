@@ -966,6 +966,10 @@ h1.is-glitching {
   place-items: center;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: the more specific selector
+   this is measured against is `.cycle-heading h2 span:last-child`, which
+   matches inside a cycle heading. No element is ever inside both, so neither
+   rule can win the cascade from the other and the order carries no meaning. */
 .notation-select > span:last-child {
   color: var(--muted);
   font-size: 0.55rem;

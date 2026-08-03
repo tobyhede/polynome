@@ -315,6 +315,12 @@ export function createSavedPresets(input) {
       name,
       configuration: createConfiguration(candidate.configuration),
     };
+    // The spread is not what makes this quadratic. Every candidate already
+    // scans the accumulator to find a duplicate and rebuilds it through `map`
+    // on the line below, so removing the spread alone would leave the
+    // complexity exactly where it is while making the immutable style harder
+    // to read. A saved-preset list is a person's own, measured in dozens.
+    // biome-ignore lint/performance/noAccumulatingSpread: the map below is already O(n)
     if (duplicate < 0) return [...presets, preset];
     return presets.map((stored, index) => index === duplicate ? preset : stored);
   }, []);
