@@ -1,49 +1,86 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+import { buildDistribution } from "../scripts/build.mjs";
 
-// Resolving against this file rather than the working directory lets the test
-// run from anywhere, not only from the repository root.
-const builder = fileURLToPath(new URL("../scripts/site.mjs", import.meta.url));
-const output = fileURLToPath(new URL("../site", import.meta.url));
+const projectRoot = new URL("..", import.meta.url);
+const output = new URL("../site/", import.meta.url);
 
-/**
- * The site build renames every module to a cache-safe versioned filename and
- * rewrites import specifiers to match by hand. A module that gains an import
- * without a matching rewrite still bundles and still passes `node --test`, and
- * only fails once a browser requests the unversioned name from the deployed
- * site. Resolve every emitted specifier against the emitted files instead.
- *
- * Running the real build writes real output into the gitignored `site/`, which
- * is deliberate: only the deployed filenames can show what a browser requests.
- * The directory is cleared first so a file left by an earlier build under a
- * different version cannot resolve a specifier this build never emitted.
- */
-test("every site import specifier resolves to an emitted file", async () => {
-  await rm(output, { recursive: true, force: true });
-  await execFileAsync(process.execPath, [builder]);
+test("site distribution versions every emitted asset and its references", async () => {
+  await buildDistribution({ target: "site", version: "deadbeefcafebab", projectRoot });
   const emitted = await readdir(output);
-  const scripts = emitted.filter((name) => name.endsWith(".js"));
+  const html = await readFile(new URL("index.html", output), "utf8");
+  const cssName = "styles-deadbeefcafe.css";
+  const appName = "app-deadbeefcafe.js";
+  const css = await readFile(new URL(cssName, output), "utf8");
 
-  assert.ok(scripts.length, "Expected the site build to emit modules");
+  assert.ok(emitted.includes(appName));
+  assert.ok(emitted.includes(cssName));
+  assert.ok(emitted.includes("jetbrains-mono-latin-deadbeefcafe.woff2"));
+  assert.ok(emitted.includes("major-mono-display-latin-deadbeefcafe.woff2"));
+  assert.match(html, new RegExp(`href="\\./${cssName}"`));
+  assert.match(html, new RegExp(`src="\\./${appName}"`));
+  assert.match(css, /url\(["']?\.\/jetbrains-mono-latin-deadbeefcafe\.woff2["']?\)/);
+  assert.match(css, /url\(["']?\.\/major-mono-display-latin-deadbeefcafe\.woff2["']?\)/);
+  assert.ok(emitted.includes(".nojekyll"));
+});
 
-  for (const name of scripts) {
-    const source = await readFile(join(output, name), "utf8");
-    const specifiers = Array.from(
-      source.matchAll(/(?:from|import)\s*\(?\s*["'](\.\/.+?)["']/g),
-      (match) => match[1].slice(2),
-    );
-    for (const specifier of specifiers) {
-      assert.ok(
-        emitted.includes(specifier),
-        `${name} imports "./${specifier}", which the site build does not emit`,
-      );
-    }
+test("site distribution versions transitive chunks without manual rewrites", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-site-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.js"), 'globalThis.loadFeature = () => import("./feature.js");'),
+    writeFile(join(fixture, "feature.js"), 'export const feature = "discovered";'),
+  ]);
+
+  await buildDistribution({ target: "site", version: "fixture1234567", projectRoot: fixture });
+  const directory = join(fixture, "site");
+  const emitted = await readdir(directory);
+  const appName = "app-fixture12345.js";
+  const app = await readFile(join(directory, appName), "utf8");
+  const imported = app.match(/import\(["']\.\/(.+?)["']\)/)?.[1];
+
+  assert.ok(imported, "Expected a transitive chunk import");
+  assert.match(imported, /^feature-fixture12345-[A-Z0-9]+\.js$/);
+  assert.ok(emitted.includes(imported));
+});
+
+test("site distribution defaults to the local version", async () => {
+  const previousSha = process.env.GITHUB_SHA;
+  delete process.env.GITHUB_SHA;
+  try {
+    await buildDistribution({ target: "site", projectRoot });
+    const emitted = await readdir(output);
+    assert.ok(emitted.includes("app-local.js"));
+    assert.ok(emitted.includes("styles-local.css"));
+  } finally {
+    if (previousSha === undefined) delete process.env.GITHUB_SHA;
+    else process.env.GITHUB_SHA = previousSha;
   }
+});
+
+test("site distribution uses the GitHub revision prefix", async () => {
+  const previousSha = process.env.GITHUB_SHA;
+  process.env.GITHUB_SHA = "0123456789abcdef";
+  try {
+    const result = await buildDistribution({ target: "site", projectRoot });
+    const emitted = await readdir(output);
+    assert.equal(result.version, "0123456789ab");
+    assert.ok(emitted.includes("app-0123456789ab.js"));
+  } finally {
+    if (previousSha === undefined) delete process.env.GITHUB_SHA;
+    else process.env.GITHUB_SHA = previousSha;
+  }
+});
+
+test("unknown distribution target fails with a useful diagnostic", async () => {
+  await assert.rejects(
+    buildDistribution({ target: "archive", projectRoot }),
+    /Unknown distribution target: archive/,
+  );
 });

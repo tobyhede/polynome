@@ -42,7 +42,7 @@ Every outcome, including both no-ops above, returns a freshly repaired Configura
 
 ## Dependencies
 
-The application intentionally has zero runtime dependencies. Playwright is the sole development dependency and exists only for browser interaction tests. Prefer browser and Node standard APIs. Do not introduce a framework, bundler, or another dependency unless a concrete requirement justifies the cost.
+The application intentionally has zero runtime dependencies. It has two development dependencies, each earning its place: Playwright, which exists only for browser interaction tests, and esbuild, justified by the two browser distribution targets — it discovers and bundles the native-module graph without hand-written module lists or JavaScript rewriting. Prefer browser and Node standard APIs, and do not introduce a framework, plugin ecosystem, development server, or general task runner without a concrete requirement.
 
 ## Verification
 
