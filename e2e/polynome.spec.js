@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
 
 test("playback toggles from the button and Space key", async ({ page }) => {
   const playButton = page.getByRole("button", { name: "Play metronome" });
-  const status = page.locator("#status");
+  const status = page.getByRole("status");
 
   await expect(playButton).toHaveAttribute("aria-pressed", "false");
   await playButton.click();
@@ -26,13 +26,18 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
-for (const [name, selector] of [
-  ["identity", ".rhythm-identity"],
-  ["edit button", ".edit-button"],
+for (const [name, accessibleName] of [
+  ["identity", "4/4 Edit 4/4 rhythm"],
+  ["edit button", "Edit 4/4"],
 ]) {
   test(`rhythm settings preserve focus on the ${name}`, async ({ page }) => {
-    const toggle = page.locator(selector);
-    const settings = page.locator(".rhythm-settings");
+    const toggle = page.getByRole("button", {
+      name: accessibleName,
+      exact: true,
+    });
+    const settings = page.locator(
+      `#${await toggle.getAttribute("aria-controls")}`,
+    );
 
     await toggle.click();
     await expect(toggle).toBeFocused();
@@ -45,6 +50,21 @@ for (const [name, selector] of [
     await expect(settings).toBeHidden();
   });
 }
+
+test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
+  const steps = page.getByRole("group", { name: "4/4 step levels" });
+  const first = steps.getByRole("button", { name: /^Step 1:/ });
+  const second = steps.getByRole("button", { name: /^Step 2:/ });
+
+  await expect(first).toHaveAttribute("aria-label", "Step 1: full level");
+  await expect(second).toHaveAttribute("aria-label", "Step 2: half level");
+
+  for (const level of ["half", "quarter", "off", "full"]) {
+    await first.click();
+    await expect(first).toHaveAttribute("aria-label", `Step 1: ${level} level`);
+    await expect(second).toHaveAttribute("aria-label", "Step 2: half level");
+  }
+});
 
 test("disabling a cycle preserves focus and the sole active cycle indicator", async ({ page }) => {
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
