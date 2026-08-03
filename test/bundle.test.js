@@ -1,42 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import vm from "node:vm";
 
-import { bundleOrder, bundledModule } from "../scripts/bundle.mjs";
+import { buildDistribution } from "../scripts/build.mjs";
 
-const execFileAsync = promisify(execFile);
-
-// Resolving against this file rather than the working directory lets the tests
-// run from anywhere, not only from the repository root.
-const builder = fileURLToPath(new URL("../scripts/bundle.mjs", import.meta.url));
-const artifact = fileURLToPath(new URL("../dist/polynome.html", import.meta.url));
-
-/**
- * Running the real build writes real output into the gitignored `dist/`, which
- * is deliberate: only the shipped artifact shows what a browser would load.
- * Build once and share it, because the build rereads and rewrites every module.
- */
-let inlineScript = null;
-async function bundledInlineScript() {
-  if (inlineScript === null) {
-    await execFileAsync(process.execPath, [builder]);
-    const html = await readFile(artifact, "utf8");
-    inlineScript = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
-  }
-  assert.ok(inlineScript, "Expected the bundle to contain an inline script");
-  return inlineScript;
-}
+const projectRoot = new URL("..", import.meta.url);
+const artifact = new URL("../dist/polynome.html", import.meta.url);
 
 /**
  * `app.js` reads the document, wires listeners, and renders the whole interface
- * while its module body evaluates, so the bundle cannot be executed at all
+ * while its module body evaluates, so the artifact cannot be executed at all
  * without something document-shaped. A recursive proxy answers every property
  * and every call with another proxy, which is all that markup-building code
- * needs, and it keeps this test about the bundle rather than about how
+ * needs, and it keeps this test about the artifact rather than about how
  * faithfully a hand-written DOM behaves.
  */
 function browserStub() {
@@ -76,116 +55,135 @@ function browserContext() {
 }
 
 /**
- * The modules arrive entry first, which is the one order they cannot be
- * evaluated in, so an order that works can only have been derived from the
- * imports. `left` and `right` share `base` to keep a repeated dependency from
- * being emitted twice or, worse, only the second time.
+ * Running the real build writes real output into the gitignored `dist/`, which
+ * is deliberate: only the shipped artifact shows what a browser would load.
  */
-const diamond = new Map([
-  ["./app.js", 'import { right } from "./right.js";\nimport { left } from "./left.js";\nexport const pair = left + right;\n'],
-  ["./right.js", 'import { base } from "./base.js";\nexport const right = base + 1;\n'],
-  ["./left.js", 'import { base } from "./base.js";\nexport const left = base - 1;\n'],
-  ["./base.js", "export const base = 21;\n"],
-]);
+test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const html = await readFile(artifact, "utf8");
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
 
-test("the single-file bundle contains valid classic JavaScript", async () => {
-  const script = await bundledInlineScript();
+  assert.ok(script, "Expected an inline classic script");
+  assert.match(html, /<style>/);
+  assert.match(html, /data:font\/woff2;base64,/);
+  assert.doesNotMatch(html, /(?:src|href)="\.\/(?:app\.js|styles\.css|fonts\/)/);
+  assert.doesNotMatch(html, /url\(["']?\.\/fonts\//);
   assert.doesNotThrow(() => new vm.Script(script));
-});
-
-/**
- * Every rewritten import destructures `modules["./x"]` as its wrapping IIFE is
- * defined, so an emission order that contradicts the import graph throws on the
- * first line a browser reaches. Parsing the bundle cannot see that, so execute
- * it: this is the closest a test gets to opening the file.
- */
-test("the bundled application evaluates in a browser-shaped context", async () => {
-  const script = await bundledInlineScript();
   assert.doesNotThrow(() => new vm.Script(script).runInContext(browserContext()));
 });
 
-test("every module is emitted after the modules it imports", () => {
-  const order = bundleOrder(diamond, "./app.js");
+test("single-file distribution discovers transitive modules and preserves their scopes", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body { color: white; }"),
+    writeFile(join(fixture, "app.js"), 'import { left } from "./left.js"; import { right } from "./right.js"; globalThis.fixtureResult = `${left}:${right}`;'),
+    writeFile(join(fixture, "left.js"), 'import { suffix } from "./nested.js"; const label = "left"; export const left = label + suffix;'),
+    writeFile(join(fixture, "right.js"), 'const label = "right"; export const right = label;'),
+    writeFile(join(fixture, "nested.js"), 'export const suffix = "-nested";'),
+  ]);
 
-  assert.deepEqual(new Set(order), new Set(diamond.keys()));
-  assert.equal(order.length, diamond.size);
-  for (const [specifier, source] of diamond) {
-    for (const [, dependency] of source.matchAll(/from "(.+?)"/g)) {
-      assert.ok(
-        order.indexOf(dependency) < order.indexOf(specifier),
-        `${specifier} is emitted before ${dependency}, which it imports`,
-      );
-    }
-  }
+  await buildDistribution({ target: "single-file", projectRoot: fixture });
+  const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const context = vm.createContext({});
+  new vm.Script(script).runInContext(context);
+
+  assert.equal(context.fixtureResult, "left-nested:right");
+});
+
+test("single-file distribution preserves String.replace tokens in bundled source", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-token-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), 'body::before { content: "$&"; }'),
+    writeFile(join(fixture, "app.js"), 'globalThis.fixtureToken = "$&";'),
+  ]);
+
+  await buildDistribution({ target: "single-file", projectRoot: fixture });
+  const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const context = vm.createContext({});
+  new vm.Script(script).runInContext(context);
+
+  assert.equal(context.fixtureToken, "$&");
+  assert.match(html, /content: "\$&"/);
 });
 
 /**
- * Both refusals stand where the alternative is a bundle that looks built. A
- * cycle has no order to emit, and a specifier that was never read would be
- * emitted as an empty module whose importers read `undefined`.
+ * Esbuild's warnings are the only static analysis this project has beyond
+ * `node --check`, and every one of them describes source that parses but does
+ * not do what it says. Refusing the artifact is the difference between finding
+ * a duplicate key at build time and finding it in a browser.
  */
-test("a cyclic import graph cannot be ordered", () => {
-  const cyclic = new Map([
-    ["./app.js", 'import { loop } from "./loop.js";\nexport const app = loop;\n'],
-    ["./loop.js", 'import { app } from "./app.js";\nexport const loop = app;\n'],
+test("single-file distribution refuses JavaScript esbuild warns about", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-warning-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.js"), 'globalThis.fixture = { rate: 1, rate: 2 };'),
   ]);
 
-  assert.throws(() => bundleOrder(cyclic, "./app.js"), /cycle/);
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /Duplicate key "rate" in object literal/,
+  );
 });
 
-test("an import of a module that was never read cannot be ordered", () => {
-  const absent = new Map([
-    ["./app.js", 'import { gone } from "./gone.js";\nexport const app = gone;\n'],
+test("single-file distribution refuses CSS esbuild warns about", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-css-warning-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body { colr: red; }"),
+    writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
   ]);
 
-  assert.throws(() => bundleOrder(absent, "./app.js"), /never read/);
-});
-
-/**
- * Keeps the execution test above from becoming a formality. A bundle that emits
- * a module ahead of one it imports is perfectly valid JavaScript, so parsing it
- * reports nothing and only running it finds the fault.
- */
-test("a module emitted before the module it imports parses but cannot run", () => {
-  const misordered = [
-    "'use strict';",
-    "(() => {",
-    "const modules = Object.create(null);",
-    ...["./app.js", "./left.js", "./right.js", "./base.js"]
-      .map((specifier) => bundledModule(specifier, diamond.get(specifier))),
-    "})();",
-  ].join("\n\n");
-
-  assert.doesNotThrow(() => new vm.Script(misordered));
-  // A context has its own realm, so match the fault rather than its constructor.
-  assert.throws(
-    () => new vm.Script(misordered).runInContext(vm.createContext({})),
-    /Cannot destructure property 'right'/,
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /"colr" is not a known CSS property/,
   );
 });
 
 /**
- * Nothing in the application writes `export` outside a declaration today, which
- * is exactly why this needs a test: stripping the word from a string or a
- * comment leaves valid JavaScript behind, so the syntax check above would pass
- * a bundle whose content had quietly changed.
+ * The document is the one input esbuild does not read, so a tag that moved or
+ * lost an attribute is only ever noticed here. Refusing beats emitting an
+ * artifact with a live `./app.js` request in it, which loads nothing from a
+ * file opened straight off disk.
  */
-test("bundling leaves the word export alone outside a declaration", () => {
-  const source = [
-    'const hint = "Press export to save";',
-    "// Bundling removes the export keyword from a declaration.",
-    'const markup = `<button data-action="export cycle"></button>`;',
-    "export const label = hint;",
-    "export function describe() {",
-    "  return markup;",
-    "}",
-  ].join("\n");
+test("single-file distribution refuses a document it cannot rewrite", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-document-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await writeFile(join(fixture, "styles.css"), "body {}");
+  await writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;");
 
-  const bundled = bundledModule("./decoy.js", source);
+  await writeFile(join(fixture, "index.html"), '<script type="module" src="./app.js"></script>');
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /index\.html has no \.\/styles\.css stylesheet/,
+  );
 
-  assert.match(bundled, /"Press export to save"/);
-  assert.match(bundled, /\/\/ Bundling removes the export keyword from a declaration\./);
-  assert.match(bundled, /data-action="export cycle"/);
-  assert.doesNotMatch(bundled, /^export\s/m);
-  assert.match(bundled, /return \{ label, describe \};/);
+  await writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" />');
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /index\.html has no \.\/app\.js module script/,
+  );
+});
+
+test("build diagnostics identify an unresolved transitive module", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-error-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>'),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.js"), 'import "./missing.js";'),
+  ]);
+
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /Could not resolve ["']\.\/missing\.js["']/,
+  );
 });

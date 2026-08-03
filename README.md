@@ -15,11 +15,20 @@ A deliberately small browser metronome with:
 With Node.js 22 or newer, run the bundle command, then double-click the generated file:
 
 ```bash
+npm ci
 npm run bundle
-open dist/polynome.html
 ```
 
-The generated `dist/polynome.html` contains the complete application, including its fonts, in one file and needs no server. Generated output is intentionally not committed.
+Then double-click `dist/polynome.html`. On macOS, `open dist/polynome.html` does the same. The generated file contains the complete application, including its fonts, and needs no server. Generated output is intentionally not committed.
+
+To build the deployable static site with cache-safe assets:
+
+```bash
+npm ci
+npm run site
+```
+
+The deployable output is written to `site/`.
 
 ## Run the source version
 
@@ -110,7 +119,7 @@ metronome.js          Web Audio graph and look-ahead scheduler
 persistence.js        Deferred storage writes and storage-key migration
 server.mjs            Zero-dependency local static server
 playwright.config.js  Managed Chromium and local test server
-scripts/              Single-file bundler
+scripts/              Esbuild-backed single-file and static-site distributions
 fonts/                Self-hosted interface fonts and licenses
 dist/                 Browser-ready one-file application
 test/                 Node built-in tests
