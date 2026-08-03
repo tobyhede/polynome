@@ -86,6 +86,14 @@ Require explicit product justification before adding:
 - recording
 - tempo automation
 
+## Decision records
+
+Decisions live in `docs/adr/`, numbered `NNNN-kebab-title.md`.
+
+A number is claimed when the branch merges, not when the file is written. Three branches open at once will each read `0004` as the highest and each write `0005`, which is exactly how this repository ended up with three of them: the number a branch picks is only a proposal, and it is stale the moment another branch merges. Before merging, renumber to one above the highest on `main` and update the references.
+
+Cite a decision as `ADR-NNNN`. Number alone, in prose, is the one form that goes wrong silently when a collision is resolved: it survives the rename and points at whatever now holds the number. Prefer a Markdown link carrying the path when the reference crosses out of `docs/adr/`.
+
 ## Agent skills
 
 ### Issue tracker

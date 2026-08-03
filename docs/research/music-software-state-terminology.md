@@ -1,5 +1,9 @@
 # Music-software state terminology
 
+> Point-in-time record. It is left as written, including the master level that
+> was in scope when the question was asked. [ADR-0007](../adr/0007-remove-master-volume.md)
+> later removed that control and is the authority on what Configuration holds.
+
 ## Question
 
 What prior-art term best names Polynome's complete editable and persisted musical state: global tempo, master level, and the ordered Sequence of Cycles?

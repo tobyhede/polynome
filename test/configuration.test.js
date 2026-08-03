@@ -42,7 +42,6 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
   const configuration = createConfiguration();
 
   assert.equal(configuration.bpm, 96);
-  assert.equal(configuration.masterVolume, 0.8);
   assert.equal(configuration.sequence.cycles.length, 1);
   assert.equal(configuration.sequence.cycles[0].repetitions, 1);
   assert.deepEqual(
@@ -84,7 +83,6 @@ test("applying a Preset replaces the complete Configuration", () => {
   });
 
   assert.equal(result.configuration.bpm, 112);
-  assert.equal(result.configuration.masterVolume, 0.8);
   assert.deepEqual(
     result.configuration.sequence.cycles[0].rhythms.map((rhythm) => ({
       signature: rhythm.signature,
@@ -504,7 +502,6 @@ test("sound and mix edits preserve transport position and all affect Preset iden
   const cycle = base.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const edits = [
-    { type: "set-master-volume", masterVolume: 0.4 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "wood" },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 0.4 },
     { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: -1 },
@@ -670,7 +667,6 @@ test("Cycle-repetition availability agrees with every offered edit", () => {
 test("loaded Configuration is repaired into the valid nested shape", () => {
   const configuration = createConfiguration({
     bpm: 9999,
-    masterVolume: -2,
     sequence: {
       cycles: [
         { repetitions: 99, rhythms: Array.from({ length: 8 }, () => ({})) },
@@ -680,7 +676,6 @@ test("loaded Configuration is repaired into the valid nested shape", () => {
   });
 
   assert.equal(configuration.bpm, 300);
-  assert.equal(configuration.masterVolume, 0);
   assert.deepEqual(
     configuration.sequence.cycles.map((cycle) => cycle.repetitions),
     [8, 0],
@@ -784,7 +779,6 @@ test("duplicate generated identifiers are still de-duplicated", () => {
 test("every edit outcome returns a repaired Configuration", () => {
   const stored = {
     bpm: 9999,
-    masterVolume: 0.8,
     sequence: {
       cycles: [{
         id: "cycle-stored-1",
@@ -856,7 +850,6 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "apply-preset", name: "4/4", configuration },
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
-    { type: "set-master-volume", masterVolume: {} },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: [] },
@@ -886,7 +879,6 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
   const invalidEdits = [
     { type: "set-tempo", bpm: "not-a-number" },
     { type: "set-tempo", bpm: 301 },
-    { type: "set-master-volume", masterVolume: -0.01 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 3 },
@@ -911,7 +903,6 @@ test("valid edits that leave every user-editable value unchanged are no-ops", ()
   const sameValueEdits = [
     { type: "apply-preset", name: "4/4" },
     { type: "set-tempo", bpm: "96" },
-    { type: "set-master-volume", masterVolume: "0.8" },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: "1" },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: "4" },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: "4" },

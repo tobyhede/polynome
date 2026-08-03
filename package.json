@@ -10,6 +10,7 @@
     "test:browser": "npm run bundle && playwright test",
     "check": "node --check app.js && node --check configuration.js && node --check metronome.js && node --check model.js && node --check persistence.js && node --check shared-transport.js && node --check scripts/build.mjs && node --test && npm run test:browser && npm run site",
     "bundle": "node scripts/bundle.mjs",
+    "shots": "node scripts/shots.mjs",
     "site": "node scripts/site.mjs"
   },
   "engines": {

@@ -243,14 +243,15 @@ h1 {
 
 .help-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px 28px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 40px;
   padding: 6px 26px 20px;
 }
 
 .help-grid p {
   display: grid;
-  gap: 3px;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
   align-content: start;
   font-size: 0.82rem;
   line-height: 1.45;
@@ -421,29 +422,49 @@ h1 {
   background: rgb(12 12 13 / 14%);
 }
 
+/* One stacked layout at every width — the arrangement never reflows, it only
+   scales. The card still spans the shell so it lines up with the rhythm cards,
+   while its contents sit in a single centred column that stops widening once
+   there is more room than the controls can use. The card is the size container
+   every `cqw` in the rules below resolves against: under a 500px column those
+   units track the column exactly, and above it the `min()`/`clamp()` ceilings
+   take over so nothing keeps growing with the empty space beside the column.
+
+   The card's own gap and padding are the exception, and are written in `vw` to
+   say so. A container cannot query itself — the size it would resolve against
+   is the size those declarations set — so `cqw` here would silently mean the
+   nearest ancestor container, or the viewport when there is none. Since the
+   card tracks the shell up to its cap and both reach the 20px ceiling above it,
+   the viewport is the honest spelling of what these already do. */
 .transport {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 216px;
-  gap: 28px;
-  align-items: center;
-  padding: 20px 18px;
+  grid-template-columns: minmax(0, 500px);
+  gap: clamp(14px, 4vw, 20px);
+  justify-content: center;
+  justify-items: stretch;
+  padding: clamp(14px, 4vw, 20px);
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--card);
+  container-type: inline-size;
 }
 
+/* A full-width bar rather than a share of a shrinking cap, so the tap target
+   keeps its height as the card narrows. */
 .play-button {
-  display: grid;
-  place-items: center;
-  width: 96px;
-  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: clamp(48px, 13cqw, 60px);
   padding: 0 0 0 4px;
   border: 0;
   border-radius: 2px;
   background: var(--ink);
   color: #0c0c0d;
   cursor: pointer;
-  font-size: 1.9rem;
+  font-size: clamp(1rem, 4.4cqw, 1.9rem);
   transition: background-color 140ms ease, transform 120ms ease;
 }
 
@@ -451,27 +472,33 @@ h1 {
   padding-left: 0;
   background: var(--accent);
   box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 40%, transparent);
-  font-size: 1.4rem;
+  font-size: clamp(0.95rem, 3.4cqw, 1.4rem);
 }
 
+/* No inline padding: reserving half the readout's width here is what collapsed
+   the track at narrow widths. The readout's travel is clamped in `.bpm-readout`
+   instead, which costs nothing when there is room. */
 .tempo {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   justify-items: stretch;
+  width: 100%;
   min-width: 0;
-  padding: 0 76px 0 42px;
 }
 
 .bpm-track {
   position: relative;
   width: 100%;
-  height: 88px;
+  height: clamp(56px, 17cqw, 80px);
 }
 
+/* --bpm-left / --bpm-width / --bpm-half / --bpm-size are set in renderTransport().
+   The clamp keeps the travelling number half its own width inside either end of
+   the track, so it can never overhang the card. */
 .bpm-readout {
   position: absolute;
   bottom: 0;
-  left: var(--bpm-left, 24%);
+  left: clamp(var(--bpm-half, 54px), var(--bpm-left, 24%), calc(100% - var(--bpm-half, 54px)));
   display: block;
   width: var(--bpm-width, 108px);
   transform: translateX(-50%);
@@ -484,9 +511,9 @@ h1 {
   margin-bottom: var(--bpm-label-margin, -4px);
   transform: translateX(-50%);
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: clamp(0.55rem, 1.9cqw, 0.6rem);
   font-weight: 700;
-  letter-spacing: 0.26em;
+  letter-spacing: 0.22em;
   text-align: center;
   text-transform: uppercase;
   white-space: nowrap;
@@ -511,20 +538,37 @@ h1 {
   overflow: visible;
 }
 
-.bpm-readout input.is-glitching {
+.bpm-readout input.is-glitching,
+h1.is-glitching {
   animation: bpm-glitch var(--glitch-duration) steps(2, jump-none) infinite;
   will-change: transform;
 }
 
+.tempo-slider {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+}
+
+/* The ticks carry the scale: the major ones label themselves from `data-label`,
+   which is what the separate `.tempo-scale` row used to do. Ticks hang from a
+   common top edge so every label sits on one baseline regardless of tick
+   height. */
 .bpm-ticks {
   display: flex;
-  height: 9px;
-  margin: 0 10px 2px;
-  align-items: flex-end;
+  height: auto;
+  /* The thumb's centre stops half a thumb short of either end of the slider, so
+     the row is inset to match. Without it the last tick sits ~9px past the
+     thumb at 300bpm, which reads as a misalignment now that the row sits
+     directly beneath the track. */
+  margin-inline: 9px;
+  padding-bottom: 16px;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
 .bpm-ticks span {
+  position: relative;
   width: 1px;
   height: 5px;
   background: var(--line-strong);
@@ -540,37 +584,24 @@ h1 {
   opacity: 0.9;
 }
 
-.tempo-slider {
-  width: 100%;
-  height: 26px;
-  margin: 0;
-}
-
-.tempo-scale {
-  display: flex;
-  justify-content: space-between;
-  margin: 0 6px;
+.bpm-ticks span::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* The tick mark itself can be a hairline, but its label is text: --line-strong
+     reads as 2.2:1 on the card and fails WCAG 1.4.3. The scale row this replaced
+     used --muted, and a passed label takes the accent its tick already wears. */
   color: var(--muted);
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.55rem, 1.9cqw, 0.6rem);
   font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
-.master-volume {
-  display: grid;
-  gap: 7px;
-  width: 216px;
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
-.master-volume input {
-  width: 100%;
-  height: 26px;
-  margin: 0;
+.bpm-ticks span.is-passed::after {
+  color: var(--accent);
 }
 
 .cycle-list {
@@ -579,6 +610,7 @@ h1 {
 }
 
 .cycle-group {
+  min-width: 0;
   display: grid;
   gap: 14px;
   margin-top: 22px;
@@ -685,11 +717,13 @@ h1 {
 }
 
 .rhythm-list {
+  min-width: 0;
   display: grid;
   gap: 14px;
 }
 
 .rhythm-card {
+  min-width: 0;
   overflow: visible;
 }
 
@@ -756,12 +790,48 @@ h1 {
   font-weight: 400;
 }
 
+/* Step size stays with the breakpoints below; layoutSteps() in app.js only
+   decides how the beats are grouped, by setting `--beats-per-row`. An explicit
+   column count is what makes the rows equal: beats cannot pack greedily into a
+   fixed number of columns. */
 .steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  /* Grid and flex items are min-content wide by default, which would let a wide
+     beat push the card past the shell and hand layoutSteps() a width the screen
+     does not have. */
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--beats-per-row, 1), max-content);
+  /* Beats are set apart more than the steps inside them, so a wrapped row still
+     reads as whole beats. The clamp leaves an unsubdivided rhythm — where a beat
+     is a single step — spaced exactly as it was. */
+  gap: 10px clamp(10px, calc(var(--subdivision, 1) * 10px), 20px);
   align-items: center;
+  justify-content: start;
   padding: 14px 16px 18px;
+}
+
+/* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
+   that one case scrolls. Sequencer apps do the same rather than resize a step. */
+.steps.is-scrolling {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+/* Overlay scrollbars draw nothing until a scroll is already under way, and iOS
+   is both where they are unavoidable and where this row is most likely to
+   appear. Without a cue the clipped step reads as a step drawn wrong rather than
+   as more to come, so the trailing edge fades out. It lifts while focus is
+   inside: a keyboard user reaching the last step must see its focus ring at full
+   strength, and by then the affordance has done its job. */
+.steps.is-scrolling:not(:focus-within) {
+  mask-image: linear-gradient(to right, #000 calc(100% - 34px), transparent);
+}
+
+/* A beat is atomic: a row break can only fall between beats, never inside one. */
+.beat {
+  display: flex;
+  gap: 10px;
 }
 
 .step {
@@ -1070,15 +1140,8 @@ h1 {
 }
 
 @media (max-width: 800px) {
-  .transport {
-    grid-template-columns: 96px minmax(0, 1fr);
-  }
-
-  .master-volume {
-    grid-column: 1 / -1;
-    width: 100%;
-    grid-template-columns: auto 1fr;
-    align-items: center;
+  .help-grid {
+    grid-template-columns: 1fr;
   }
 
   .rhythm-settings {
@@ -1107,25 +1170,6 @@ h1 {
 
   h1 {
     font-size: clamp(1.85rem, 11vw, 2.6rem);
-  }
-
-  .transport {
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
-  .play-button {
-    width: 82px;
-    height: 82px;
-  }
-
-  .tempo,
-  .master-volume {
-    width: 100%;
-  }
-
-  .master-volume {
-    grid-column: auto;
   }
 
   .card-heading {

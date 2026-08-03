@@ -5,3 +5,7 @@ dist/
 *.log
 playwright-report/
 test-results/
+shots/
+# Serena's local state: a per-developer override file and a regenerable cache.
+.serena/project.local.yml
+.serena/cache/
