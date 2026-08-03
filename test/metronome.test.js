@@ -5,7 +5,7 @@ import { MetronomeEngine } from "../metronome.js";
 
 /**
  * ADR-0003 claims that only a structural edit interrupts the transport run:
- * changing a step level or a mix value has to be audible without restarting
+ * changing a Step voice or a mix value has to be audible without restarting
  * the pattern. That promise is kept by the routing from an edit's consequence
  * to an engine method, so these tests drive the routing directly and leave the
  * audio graph alone.
@@ -28,8 +28,8 @@ class RoutingEngine extends MetronomeEngine {
     this.calls.push(["restart", configuration]);
   }
 
-  updateStepLevels(configuration) {
-    this.calls.push(["updateStepLevels", configuration]);
+  updateStepVoices(configuration) {
+    this.calls.push(["updateStepVoices", configuration]);
   }
 
   updateConfiguration(configuration) {
@@ -64,13 +64,13 @@ test("a structural consequence re-syncs a stopped transport instead", async () =
   assert.deepEqual(engine.calls, [["updateMix", configuration]]);
 });
 
-test("a step-level consequence never restarts the transport", async () => {
+test("a step-voice consequence never restarts the transport", async () => {
   for (const playing of [true, false]) {
     const engine = new RoutingEngine(playing);
 
-    await engine.applyConsequence("update-step-levels", configuration);
+    await engine.applyConsequence("update-step-voices", configuration);
 
-    assert.deepEqual(engine.calls, [["updateStepLevels", configuration]]);
+    assert.deepEqual(engine.calls, [["updateStepVoices", configuration]]);
   }
 });
 
@@ -114,7 +114,7 @@ test("only the restart path yields a promise the caller can catch", () => {
 
   const stopped = new RoutingEngine(false);
   assert.equal(stopped.applyConsequence("update-mix", configuration), null);
-  assert.equal(stopped.applyConsequence("update-step-levels", configuration), null);
+  assert.equal(stopped.applyConsequence("update-step-voices", configuration), null);
   assert.equal(stopped.applyConsequence("update-configuration", configuration), null);
   assert.equal(stopped.applyConsequence("none", configuration), null);
 });

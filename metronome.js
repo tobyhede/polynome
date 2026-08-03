@@ -85,6 +85,12 @@ export const CLICK_ENVELOPE = Object.freeze({
   releaseSeconds: 0.002,
 });
 
+export const STEP_PITCH_RATIOS = Object.freeze({
+  tertiary: 2 ** (-8 / 12),
+  secondary: 2 ** (-4 / 12),
+  primary: 1,
+});
+
 /**
  * Nodes come from the context's own factory methods rather than the global
  * constructors, so whatever context is handed in supplies the entire graph.
@@ -92,17 +98,17 @@ export const CLICK_ENVELOPE = Object.freeze({
  * a real context nothing: the factory methods are the same nodes by another
  * name.
  */
-export function scheduleClickVoice(context, output, { sound, level, when }) {
-  if (!(level > 0)) return null;
+export function scheduleClickVoice(context, output, { sound, voice, when }) {
+  if (voice === "off") return null;
 
   const profile = SOUND_PROFILES[sound] || SOUND_PROFILES.high;
   const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
-  const peak = peakGain * level;
+  const pitchRatio = STEP_PITCH_RATIOS[voice] || STEP_PITCH_RATIOS.primary;
   const end = when + profile.length;
 
   const oscillator = context.createOscillator();
   oscillator.type = profile.type;
-  oscillator.frequency.value = profile.frequency;
+  oscillator.frequency.value = profile.frequency * pitchRatio;
   const envelope = context.createGain();
   envelope.gain.value = silenceGain;
 
@@ -110,7 +116,7 @@ export function scheduleClickVoice(context, output, { sound, level, when }) {
   envelope.connect(output);
 
   envelope.gain.setValueAtTime(silenceGain, when);
-  envelope.gain.exponentialRampToValueAtTime(peak, when + attackSeconds);
+  envelope.gain.exponentialRampToValueAtTime(peakGain, when + attackSeconds);
   envelope.gain.exponentialRampToValueAtTime(silenceGain, end);
 
   oscillator.start(when);
@@ -304,8 +310,8 @@ export class MetronomeEngine extends EventTarget {
     if (consequence === "restart-transport-run" && this.playing) {
       return this.restart(state);
     }
-    if (consequence === "update-step-levels") {
-      this.updateStepLevels(state);
+    if (consequence === "update-step-voices") {
+      this.updateStepVoices(state);
       return null;
     }
     if (consequence === "update-configuration") {
@@ -325,9 +331,9 @@ export class MetronomeEngine extends EventTarget {
     if (this.#context) this.#syncNodes();
   }
 
-  updateStepLevels(state) {
+  updateStepVoices(state) {
     this.#state = state;
-    if (this.#playing) this.#transport.updateStepLevels(state);
+    if (this.#playing) this.#transport.updateStepVoices(state);
   }
 
   activeStep(layer) {
@@ -553,12 +559,12 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.level, event.audioTime);
+        this.#scheduleClick(layer, event.voice, event.audioTime);
       }
     }
   }
 
-  #scheduleClick(layer, level, when) {
+  #scheduleClick(layer, voice, when) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
@@ -578,7 +584,7 @@ export class MetronomeEngine extends EventTarget {
 
     const oscillator = scheduleClickVoice(this.#context, output, {
       sound: layer.sound,
-      level,
+      voice,
       when: Math.max(when, now),
     });
     if (!oscillator) return;

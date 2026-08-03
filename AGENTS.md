@@ -93,7 +93,7 @@ Also manually verify the audio-specific behavior Playwright cannot assess:
 
 1. Presets `4/4` and `4/4 + 3/4` sound as configured.
 2. Headphone separation at hard left and hard right through physical output.
-3. Full, half, quarter, and off levels are perceptually distinguishable, not merely correctly scaled.
+3. Primary, secondary, tertiary, and off Step voices are perceptually distinguishable at equal gain.
 4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.
 
 ## Product boundaries

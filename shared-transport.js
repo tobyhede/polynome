@@ -1,4 +1,4 @@
-import { cycleSpanSeconds, stepDurationSeconds, stepLevel } from "./model.js";
+import { STEP, cycleSpanSeconds, stepDurationSeconds } from "./model.js";
 
 /**
  * The planning side of the two lateness policies this metronome runs.
@@ -64,7 +64,7 @@ export class SharedTransport {
     };
   }
 
-  updateStepLevels({ sequence }) {
+  updateStepVoices({ sequence }) {
     if (!this.#timing) return;
     const sourceRhythms = sequence.cycles.flatMap((cycle) => cycle.rhythms || []);
     const stepsByRhythm = new Map(sourceRhythms.map((rhythm) => [rhythm.id, rhythm.steps]));
@@ -116,9 +116,9 @@ export class SharedTransport {
               const audioTime = repetitionOrigin + localStep * duration;
               if (audioTime >= horizon) break;
               const patternPosition = localStep % rhythm.steps.length;
-              const level = stepLevel(rhythm.steps[patternPosition]);
+              const voice = rhythm.steps[patternPosition];
               if (
-                level === 0 ||
+                voice === STEP.OFF ||
                 audioTime < fromTime ||
                 audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
               ) {
@@ -130,7 +130,7 @@ export class SharedTransport {
                 absoluteStep:
                   (sequenceIndex * cycle.repetitions + repetitionIndex) * stepsPerSpan + localStep,
                 patternPosition,
-                level,
+                voice,
                 audioTime,
               });
             }
