@@ -17,6 +17,13 @@ async function savePreset(page, name) {
   await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
 }
 
+// Deletion arms on the first press and runs on the second; see the test that
+// pins that interaction for why it is not a dialog.
+async function deletePreset(page, name) {
+  await page.getByRole("button", { name: `Delete ${name} preset` }).click();
+  await page.getByRole("button", { name: `Confirm deleting ${name} preset` }).click();
+}
+
 test("playback toggles from the button and Space key", async ({ page }) => {
   const playButton = page.getByRole("button", { name: "Play metronome" });
   const status = page.getByRole("status");
@@ -162,7 +169,6 @@ test("saving writes what storage holds now, not what this tab read at startup", 
 });
 
 test("deleting removes one preset without dropping presets this tab never saw", async ({ page }) => {
-  page.on("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Doomed");
 
@@ -171,7 +177,7 @@ test("deleting removes one preset without dropping presets this tab never saw", 
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
     localStorage.setItem("polynome-presets", JSON.stringify(stored));
   });
-  await page.getByRole("button", { name: "Delete Doomed preset" }).click();
+  await deletePreset(page, "Doomed");
 
   await expect(page.getByRole("status")).toHaveText("Doomed preset deleted");
   await expect(presetButton(page, "Doomed")).toHaveCount(0);
@@ -186,7 +192,6 @@ test("deleting removes one preset without dropping presets this tab never saw", 
 test("an open preset panel follows another tab's saves and deletions", async ({ page, context }) => {
   const heading = page.getByRole("heading", { name: /^Presets/ });
   const other = await context.newPage();
-  other.on("dialog", (dialog) => dialog.accept());
   await other.goto("/");
   await page.getByRole("button", { name: "Presets" }).click();
   await other.getByRole("button", { name: "Presets" }).click();
@@ -195,20 +200,19 @@ test("an open preset panel follows another tab's saves and deletions", async ({ 
   await expect(presetButton(page, "Rehearsal")).toBeVisible();
   await expect(heading).toContainText("3");
 
-  await other.getByRole("button", { name: "Delete Rehearsal preset" }).click();
+  await deletePreset(other, "Rehearsal");
   await expect(presetButton(page, "Rehearsal")).toHaveCount(0);
   await expect(heading).toContainText("2");
 });
 
 test("a preset deleted in another tab stays deleted when this tab saves", async ({ page, context }) => {
   const other = await context.newPage();
-  other.on("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Retired");
 
   await other.goto("/");
   await other.getByRole("button", { name: "Presets" }).click();
-  await other.getByRole("button", { name: "Delete Retired preset" }).click();
+  await deletePreset(other, "Retired");
   await expect(presetButton(other, "Retired")).toHaveCount(0);
 
   await savePreset(page, "Current");
@@ -216,6 +220,135 @@ test("a preset deleted in another tab stays deleted when this tab saves", async 
   await page.getByRole("button", { name: "Presets" }).click();
   await expect(presetButton(page, "Current")).toBeVisible();
   await expect(presetButton(page, "Retired")).toHaveCount(0);
+});
+
+/**
+ * A modal blocks the renderer for as long as it is open, and the scheduler that
+ * feeds the metronome is a 25ms interval on that same thread with a 120ms
+ * horizon, so a confirm dialog stops the audio it is asking about. Confirming in
+ * place keeps deletion deliberate without stalling anything.
+ */
+test("deleting a preset confirms in place without a browser dialog", async ({ page }) => {
+  const dialogs = [];
+  page.on("dialog", (dialog) => {
+    dialogs.push(dialog.message());
+    dialog.dismiss();
+  });
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Scratch");
+
+  await page.getByRole("button", { name: "Delete Scratch preset" }).click();
+  const confirm = page.getByRole("button", { name: "Confirm deleting Scratch preset" });
+  await expect(confirm).toBeFocused();
+  await expect(page.getByRole("status")).toHaveText("Delete Scratch preset? Select again to confirm");
+  await expect(presetButton(page, "Scratch")).toBeVisible();
+
+  await confirm.click();
+  await expect(page.getByRole("status")).toHaveText("Scratch preset deleted");
+  await expect(presetButton(page, "Scratch")).toHaveCount(0);
+  expect(dialogs).toEqual([]);
+});
+
+test("an armed delete is dismissed by Escape and by a click elsewhere", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Scratch");
+  const remove = page.getByRole("button", { name: "Delete Scratch preset" });
+  const confirm = page.getByRole("button", { name: "Confirm deleting Scratch preset" });
+
+  await remove.click();
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await expect(remove).toBeVisible();
+
+  await remove.click();
+  await expect(confirm).toBeVisible();
+  await page.getByRole("heading", { name: "Polynome" }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(presetButton(page, "Scratch")).toBeVisible();
+});
+
+test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Ghost");
+  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+
+  await deletePreset(page, "Ghost");
+
+  await expect(page.getByRole("status")).toHaveText("Ghost preset was already deleted");
+  await expect(presetButton(page, "Ghost")).toHaveCount(0);
+});
+
+/**
+ * Every tempo change re-rendered the preset list, which re-repairs each stored
+ * Configuration and rebuilds the whole grid — work that lands on the same thread
+ * as the scheduler, for a panel nobody is looking at. The list is rebuilt when
+ * the panel opens instead.
+ */
+test("a hidden preset panel is not rebuilt while the tempo changes", async ({ page }) => {
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+  await page.getByRole("button", { name: "Presets" }).click();
+  await savePreset(page, "Watched");
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(heading).toBeHidden();
+
+  await page.evaluate(() => {
+    window.presetListRebuilds = 0;
+    new MutationObserver((records) => {
+      window.presetListRebuilds += records.length;
+    }).observe(document.querySelector("#preset-list"), { childList: true });
+  });
+
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  await slider.focus();
+  for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("106");
+
+  expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
+
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(presetButton(page, "Watched")).toBeVisible();
+  await expect(heading).toContainText("3");
+});
+
+/**
+ * Resolving `localStorage` can throw outright, not merely fail per method. The
+ * metronome still works, so saving still has to answer honestly: the preset
+ * stays on screen and the status says it was not persisted. A refused read is
+ * not an empty store, which is why the second save keeps the first.
+ */
+test("saving into refused storage is reported and keeps earlier saves", async ({ browser }) => {
+  const denied = await browser.newContext();
+  await denied.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Access denied", "SecurityError");
+      },
+    });
+  });
+  const page = await denied.newPage();
+  const status = page.getByRole("status");
+  const name = page.getByRole("textbox", { name: "Save current preset" });
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Presets" }).click();
+
+  await name.fill("First");
+  await save.click();
+  await expect(status).toHaveText("Preset could not be saved in this browser");
+  await expect(presetButton(page, "First")).toBeVisible();
+
+  await name.fill("Second");
+  await save.click();
+  await expect(presetButton(page, "Second")).toBeVisible();
+  await expect(presetButton(page, "First")).toBeVisible();
+
+  await deletePreset(page, "First");
+  await expect(status).toHaveText("Preset deletion could not be saved in this browser");
+  await expect(presetButton(page, "First")).toHaveCount(0);
+  await expect(presetButton(page, "Second")).toBeVisible();
+  await denied.close();
 });
 
 test("core controls fit a 375px mobile viewport", async ({ page }) => {

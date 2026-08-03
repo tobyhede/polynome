@@ -389,6 +389,14 @@ h1 {
   color: var(--ink);
 }
 
+/* An armed delete waits for a second press, so it has to read as loaded rather
+   than as the same button it was a moment ago. */
+.preset-delete.is-armed {
+  border-radius: 50%;
+  background: var(--danger);
+  color: #0c0c0d;
+}
+
 .preset-button.is-selected {
   border-color: var(--accent);
   background: var(--accent);

@@ -1,0 +1,13 @@
+# Store Presets in browser local storage
+
+Saved Presets are held in `localStorage` under `polynome-presets`, separately from the current Configuration under `polynome-configuration`. Both are plain JSON written by the page that owns the tab. The application keeps its zero runtime dependencies and adds no account, sync service, or backend.
+
+## Consequences
+
+- Presets are local to one browser profile and origin. Clearing site data removes them, and they do not follow a user to another machine or to the single-file distribution opened from a different path. Export and import are not offered; if Presets ever need to travel, that is the change to make rather than a different store.
+- Storage is synchronous, which is what the startup path requires: `loadState` and the first preset read run while `app.js` evaluates, before the first render. IndexedDB was rejected on that ground alone — the data is a few kilobytes, has nothing to query, and an asynchronous read would mean rendering defaults and swapping them out.
+- Reads treat storage as untrusted input. `createSavedPresets` discards malformed entries, repairs each Configuration, reserves the built-in names, folds duplicate names case-insensitively, and replaces any identifier that does not match the generated pattern. Nothing that arrives from storage is assumed to have been written by this version.
+- Resolving the `localStorage` property can itself throw, not only its methods, in sandboxed and opaque-origin contexts including the single-file distribution opened over `file://`. Every access is guarded, and a refused read is reported as `null` rather than as an empty list, so a browser that blocks storage keeps showing what it cannot persist instead of silently dropping earlier saves.
+- Every tab rewrites the whole preset key, so writes read storage first and reconcile against what it holds now. A `storage` event adopts another tab's saves and deletions into an open panel. Two tabs writing in the same instant still resolve last-write-wins; `localStorage` offers no compare-and-set, and narrowing the window from a whole session to an instant is the available guarantee.
+- The current Configuration is deliberately not adopted across tabs. Two tabs each hold their own tempo and Sequence, and taking over an edit in progress is not a reconciliation the user asked for. The consequence is that the last tab to write owns what the next reload restores.
+- Preset count is not capped. A Preset holds a complete Configuration of a few hundred bytes against a quota of several megabytes, and a refused write is reported rather than swallowed, so a cap would add a limit before it prevented a failure.

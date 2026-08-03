@@ -61,6 +61,7 @@ const {
 } = description.choices;
 let presetsOpen = false;
 let helpOpen = false;
+let pendingDeletePresetId = null;
 let openSubdivisionMenu = null;
 let animationFrame = null;
 let runBpm = null;
@@ -113,9 +114,9 @@ function storedSavedPresets() {
   return readSavedPresets() ?? savedPresets;
 }
 
-function writeSavedPresets() {
+function writeSavedPresets(presets) {
   try {
-    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(savedPresets));
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
     return true;
   } catch {
     return false;
@@ -184,7 +185,15 @@ function renderTransport() {
   updatePlayButton();
 }
 
+/**
+ * Tempo and master level changes re-render on every pointer move, and this list
+ * costs a repair pass over every stored Configuration plus a full rebuild of the
+ * grid — on the same thread as the scheduler. The panel is closed for almost all
+ * of that, so the toggle renders it on the way open and nothing here runs for a
+ * panel nobody can see.
+ */
 function renderPresets() {
+  if (!presetsOpen) return;
   const presets = describePresets(state, savedPresets);
   const count = presets.length;
   elements.presetCount.textContent = String(count);
@@ -193,10 +202,19 @@ function renderPresets() {
   // tree.
   elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
   // Applying a preset re-renders this list, so preserve focus by its stable
-  // Preset identifier. Names can change when a duplicate save replaces one.
-  const focusedPreset = elements.presetList.contains(document.activeElement)
-    ? document.activeElement.closest("[data-preset-id]")?.dataset.presetId
+  // Preset identifier. Names can change when a duplicate save replaces one, and
+  // an armed delete survives a re-render, so both buttons have to be restorable.
+  const focused = elements.presetList.contains(document.activeElement)
+    ? document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
     : null;
+  const focusedSelector = focused?.dataset.deletePresetId
+    ? `[data-delete-preset-id="${CSS.escape(focused.dataset.deletePresetId)}"]`
+    : focused?.dataset.presetId
+      ? `[data-preset-id="${CSS.escape(focused.dataset.presetId)}"]`
+      : null;
+  // Identifiers reach the markup unescaped, which is safe only because every one
+  // of them is either derived from the frozen built-in names or has passed
+  // `safeIdentifier`'s pattern on the way out of storage.
   elements.presetList.innerHTML = presets.map((preset) => `
     <div class="preset-card${preset.builtIn ? " is-built-in" : ""}">
       <button
@@ -211,17 +229,29 @@ function renderPresets() {
       ${preset.builtIn ? "" : `
         <button
           type="button"
-          class="preset-delete"
+          class="preset-delete${preset.id === pendingDeletePresetId ? " is-armed" : ""}"
           data-delete-preset-id="${preset.id}"
-          aria-label="Delete ${escapeHtml(preset.name)} preset"
-          title="Delete preset"
+          aria-label="${preset.id === pendingDeletePresetId ? "Confirm deleting" : "Delete"} ${escapeHtml(preset.name)} preset"
+          title="${preset.id === pendingDeletePresetId ? "Select again to delete" : "Delete preset"}"
         >×</button>
       `}
     </div>
   `).join("");
-  if (focusedPreset) {
-    elements.presetList.querySelector(`[data-preset-id="${CSS.escape(focusedPreset)}"]`)?.focus();
+  if (focusedSelector) {
+    elements.presetList.querySelector(focusedSelector)?.focus();
   }
+}
+
+/**
+ * Deletion is confirmed on the button itself rather than through `confirm`,
+ * which blocks the renderer — and with it the scheduler feeding the metronome —
+ * for as long as the dialog is open. Dismissal mirrors the subdivision menu:
+ * Escape, or a click that lands anywhere else.
+ */
+function dismissPendingDelete() {
+  if (pendingDeletePresetId === null) return;
+  pendingDeletePresetId = null;
+  renderPresets();
 }
 
 function presetNotationTemplate(configuration) {
@@ -637,7 +667,10 @@ function dismissSubdivisionMenu() {
 elements.play.addEventListener("click", togglePlayback);
 elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
-  if (presetsOpen) helpOpen = false;
+  if (presetsOpen) {
+    helpOpen = false;
+    renderPresets();
+  }
   renderPanels();
 });
 elements.helpToggle.addEventListener("click", () => {
@@ -676,14 +709,32 @@ elements.masterVolume.addEventListener("input", (event) => {
 elements.presetList.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-delete-preset-id]");
   if (deleteButton) {
-    const preset = savedPresets.find(({ id }) => (
-      id === deleteButton.dataset.deletePresetId
-    ));
-    if (!preset || !window.confirm(`Delete the “${preset.name}” preset?`)) return;
-    const result = removeSavedPreset(storedSavedPresets(), preset.id);
-    if (result.reason) return;
+    const presetId = deleteButton.dataset.deletePresetId;
+    const preset = savedPresets.find(({ id }) => id === presetId);
+    if (!preset) return;
+    if (pendingDeletePresetId !== presetId) {
+      pendingDeletePresetId = presetId;
+      renderPresets();
+      elements.presetList
+        .querySelector(`[data-delete-preset-id="${CSS.escape(presetId)}"]`)
+        ?.focus();
+      elements.status.textContent = `Delete ${preset.name} preset? Select again to confirm`;
+      return;
+    }
+    pendingDeletePresetId = null;
+    const result = removeSavedPreset(storedSavedPresets(), presetId);
+    // Another tab can remove a preset between this list being rendered and the
+    // deletion being confirmed. Nothing is left to delete, but the button the
+    // user just pressed is still on screen and owes them an answer.
+    if (result.reason) {
+      savedPresets = result.presets;
+      renderPresets();
+      elements.presetName.focus();
+      elements.status.textContent = `${preset.name} preset was already deleted`;
+      return;
+    }
     savedPresets = result.presets;
-    const persisted = writeSavedPresets();
+    const persisted = writeSavedPresets(savedPresets);
     renderPresets();
     elements.presetName.focus();
     elements.status.textContent = persisted
@@ -718,7 +769,7 @@ elements.presetSave.addEventListener("submit", (event) => {
     return;
   }
   savedPresets = result.presets;
-  const persisted = writeSavedPresets();
+  const persisted = writeSavedPresets(savedPresets);
   elements.presetName.value = "";
   renderPresets();
   elements.presetList
@@ -872,6 +923,15 @@ document.addEventListener("click", (event) => {
   if (!openSubdivisionMenu || event.target.closest(".notation-picker")) return;
   openSubdivisionMenu = null;
   renderCycles();
+});
+
+// The arming click reaches here too, so a delete button is what keeps it armed.
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-delete-preset-id]")) return;
+  dismissPendingDelete();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") dismissPendingDelete();
 });
 
 elements.cycles.addEventListener("input", (event) => {
