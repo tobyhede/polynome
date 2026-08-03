@@ -26,6 +26,9 @@ const PROFILES = [
   { name: "boundary-540", viewport: { width: 540, height: 900 }, note: "top of the 540px block" },
   { name: "ipad-mini", device: "iPad Mini", note: "between breakpoints" },
   { name: "boundary-800", viewport: { width: 800, height: 1000 }, note: "top of the 800px block" },
+  // Above every breakpoint. Without it a rule that only ever hides something
+  // inside a media query looks correct everywhere the matrix can see.
+  { name: "desktop-1024", viewport: { width: 1024, height: 900 }, desktop: true, note: "no media query applies" },
 ];
 
 // Each state leaves the page in the shape its name describes. Anything that
@@ -164,8 +167,8 @@ function contextOptions(profile) {
   return {
     viewport: profile.viewport,
     deviceScaleFactor: 2,
-    isMobile: true,
-    hasTouch: true,
+    isMobile: !profile.desktop,
+    hasTouch: !profile.desktop,
   };
 }
 
