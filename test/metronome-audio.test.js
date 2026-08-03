@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
 import { createConfiguration } from "../configuration.js";
@@ -243,7 +243,7 @@ class FakeAudioContext extends EventTarget {
 
 const timers = { nextId: 1, callbacks: new Map() };
 
-globalThis.window = {
+const windowStub = {
   setInterval(callback, delay) {
     const id = timers.nextId;
     timers.nextId += 1;
@@ -254,6 +254,41 @@ globalThis.window = {
     timers.callbacks.delete(id);
   },
 };
+
+/**
+ * Installs a global and hands back its undo.
+ *
+ * Defining rather than assigning, because `globalThis.navigator` is an accessor
+ * property in Node and a module is always strict: assigning to it throws.
+ * Capturing the original descriptor is likewise the only way back out. The
+ * runner isolates test files from each other, but nothing isolates the tests
+ * inside this one, so a fake left installed would silently change how every
+ * test after it reads the audio session.
+ */
+const installGlobal = (name, value) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, name);
+  Object.defineProperty(globalThis, name, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  return () => {
+    if (original) Object.defineProperty(globalThis, name, original);
+    else delete globalThis[name];
+  };
+};
+
+let restoreWindow = null;
+
+before(() => {
+  restoreWindow = installGlobal("window", windowStub);
+});
+
+after(() => {
+  restoreWindow?.();
+  restoreWindow = null;
+});
 
 const tick = (times = 1) => {
   for (let count = 0; count < times; count += 1) {
