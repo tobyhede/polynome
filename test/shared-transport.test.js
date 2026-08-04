@@ -402,6 +402,30 @@ test("rhythm events expose every audible Step voice by name", () => {
   ]);
 });
 
+/**
+ * Only `off` is filtered here, and that is the whole of the planning side's
+ * involvement in audibility. ADR-0008 puts the decision in one place — the
+ * pitch table `scheduleClickVoice` reads — so a voice this module has never
+ * heard of is carried through by name rather than guessed at. Planning is not
+ * where a repair belongs: a second opinion on the vocabulary would be a second
+ * place to change when it moves.
+ */
+test("a voice outside the vocabulary is planned by name, not filtered", () => {
+  const layer = createLayer({
+    id: "stranger",
+    signature: { count: 2, unit: 4 },
+    steps: [STEP.PRIMARY, "full"],
+  });
+  const transport = new SharedTransport();
+
+  transport.start(sequence(60, [layer]), 0);
+
+  assert.deepEqual(
+    transport.plan(0, 2).map((event) => event.voice),
+    [STEP.PRIMARY, "full"],
+  );
+});
+
 test("Step-voice edits preserve transport position and affect future events", () => {
   const layer = createLayer({
     id: "live-voice",
