@@ -129,11 +129,12 @@ function* genericsNamedByAriaLabel(source) {
  * quote encloses, and a scanner that ended the tag there would hand this rule
  * half a tag: every attribute past the comparison disappears, the `aria-label`
  * among them, and the check reports nothing while looking like it ran.
+ *
+ * The fixture below stands in for a line of `app.js` as the scanner reads it,
+ * so its placeholder has to survive as characters rather than be interpolated.
  */
 test("a `>` inside an interpolated attribute value does not end the tag", () => {
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder is the
-  // fixture. This string stands in for a line of `app.js` as the scanner reads
-  // it, so the `${...}` has to survive as characters rather than be interpolated.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder is the fixture
   const source = '<div hidden=${count > 1} aria-label="Levels"></div>';
 
   assert.deepEqual(

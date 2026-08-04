@@ -979,7 +979,9 @@ test("the travelling tempo readout stays inside the transport card", async ({ pa
  * to write a copy of what is already there invites a duplicate under a second
  * name. The rule is the same in both directions, so both are walked here.
  */
-test("saving is offered only while the setup differs from the preset it came from", async ({ page }) => {
+test("saving is offered only while the setup differs from the preset it came from", async ({
+  page,
+}) => {
   const openSave = page.getByRole("button", { name: "+ Save" });
   const tempo = page.getByLabel("Tempo in beats per minute");
   const bpm = page.getByRole("spinbutton", { name: "BPM" });
@@ -1129,7 +1131,9 @@ test("the save chip reads as live for as long as there is something to save", as
  * control's name carries the same distinction where a glyph carries none, and
  * both have to follow the typed name rather than one of them.
  */
-test("the submit shows in a glyph and in its name which of the two acts it will perform", async ({ page }) => {
+test("the submit shows in a glyph and in its name which of the two acts it will perform", async ({
+  page,
+}) => {
   const tempo = page.getByLabel("Tempo in beats per minute");
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
@@ -1161,7 +1165,9 @@ test("the submit shows in a glyph and in its name which of the two acts it will 
  * an icon beside it: one square the height of the field, and the row ends well
  * before the column the close control sits in.
  */
-test("the save row is a bounded field and a square icon clear of the close control", async ({ page }) => {
+test("the save row is a bounded field and a square icon clear of the close control", async ({
+  page,
+}) => {
   const panel = page.getByRole("region", { name: /^Save preset/ });
   await page.getByLabel("Tempo in beats per minute").fill("120");
   await page.getByRole("button", { name: "+ Save" }).click();
@@ -1183,7 +1189,9 @@ test("the save row is a bounded field and a square icon clear of the close contr
  * that, and a disabled button cannot hold it, so both branches have to hand it
  * somewhere live rather than let it fall to the document.
  */
-test("saving hands focus to a live control whether or not the preset panel is open", async ({ page }) => {
+test("saving hands focus to a live control whether or not the preset panel is open", async ({
+  page,
+}) => {
   const tempo = page.getByLabel("Tempo in beats per minute");
   const presets = page.getByRole("button", { name: "Presets", exact: true });
   const openSave = page.getByRole("button", { name: "+ Save" });

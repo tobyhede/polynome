@@ -58,15 +58,11 @@ const elements = {
   presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
   presetSavePanel: /** @type {HTMLElement} */ (document.querySelector("#save-panel")),
   presetSaveOpen: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-open")),
-  presetSaveClose: /** @type {HTMLButtonElement} */ (
-    document.querySelector("#preset-save-close")
-  ),
+  presetSaveClose: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-close")),
   presetSaveSubmit: /** @type {HTMLButtonElement} */ (
     document.querySelector("#preset-save-submit")
   ),
-  presetSaveIconSave: /** @type {SVGElement} */ (
-    document.querySelector("#preset-save-icon-save")
-  ),
+  presetSaveIconSave: /** @type {SVGElement} */ (document.querySelector("#preset-save-icon-save")),
   presetSaveIconReplace: /** @type {SVGElement} */ (
     document.querySelector("#preset-save-icon-replace")
   ),
@@ -227,8 +223,7 @@ function renderInterface() {
  * well want to keep.
  */
 function hasUnsavedChanges() {
-  return presetOrigin === null
-    || !sameConfiguration(state, presetOrigin.configuration);
+  return presetOrigin === null || !sameConfiguration(state, presetOrigin.configuration);
 }
 
 function renderPanels() {
@@ -250,9 +245,7 @@ function renderPanels() {
   // the neighbour that is always live. Something to save is worth saying, so the
   // chip takes the accent for as long as there is.
   elements.presetSaveOpen.classList.toggle("is-live", unsaved);
-  elements.presetSaveOpen.title = unsaved
-    ? "Save this setup as a preset"
-    : "No changes to save";
+  elements.presetSaveOpen.title = unsaved ? "Save this setup as a preset" : "No changes to save";
 }
 
 function renderTransport() {
@@ -1518,7 +1511,8 @@ elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
  * once here costs one pass over the stored Presets at startup and keeps a
  * reload from re-offering a save the user already made.
  */
-presetOrigin = describePresets(state, savedPresets)
-  .filter(({ selected }) => selected)
-  .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
+presetOrigin =
+  describePresets(state, savedPresets)
+    .filter(({ selected }) => selected)
+    .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
 renderInterface();
