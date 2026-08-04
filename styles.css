@@ -1465,4 +1465,14 @@ h1.is-glitching {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /* The rule above is a timing change everywhere but on an animation that
+     fills forwards, where clamping the duration settles the element on the
+     final frame at once — and this animation's final frame is no glow at all,
+     so the current beat would lose the only mark that says it is current.
+     Dropping the pulse leaves the glow `.step.is-current` sets on its own,
+     which is the same indication arriving without the motion. */
+  .steps[data-display-mode="beat"] .step.is-current {
+    animation: none !important;
+  }
 }
