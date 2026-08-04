@@ -530,11 +530,11 @@ function layoutSteps() {
     const beatWidth = beat.getBoundingClientRect().width;
     const beatGap = parseFloat(style.columnGap) || 0;
     const beats = Number(steps.dataset.beats);
-    const subdivision = Number(steps.dataset.subdivision);
+    const stepsPerBeat = Number(steps.dataset.stepsPerBeat);
     const perRow =
       descendingDivisors(beats).find(
         (candidate) =>
-          candidate * subdivision <= STEPS_PER_ROW_LIMIT &&
+          candidate * stepsPerBeat <= STEPS_PER_ROW_LIMIT &&
           candidate * beatWidth + (candidate - 1) * beatGap <= available,
       ) ?? 1;
 
@@ -737,17 +737,20 @@ function RhythmCard({ rhythm, cycle }) {
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
-      <!-- The subdivision is carried for layoutSteps(), which reads it to choose
-           how many beats share a row. It was carried a second time as a custom
-           property the beat-gap clamp calculated with; that gap is now the same
-           one the steps inside a beat use, so nothing in the stylesheet asks
-           what the subdivision is any more. -->
+      <!-- The controls each beat holds are carried for layoutSteps(), which
+           reads the number to choose how many beats share a row. It is the
+           Subdivision in Subdivision Mode and one in Beat Mode, which is why it
+           is not named for the Subdivision: what the row fits is controls. The
+           Subdivision was carried a second time as a custom property the
+           beat-gap clamp calculated with; that gap is now the same one the steps
+           inside a beat use, so nothing in the stylesheet asks for it any
+           more. -->
       <div
         class="steps"
         role="group"
         aria-label=${`${label} ${rhythm.displayMode === "beat" ? "beat" : "step"} voices`}
         data-beats=${rhythm.signature.count}
-        data-subdivision=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
+        data-steps-per-beat=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
         data-display-mode=${rhythm.displayMode}
       >
         <${Beats} rhythm=${rhythm} />
