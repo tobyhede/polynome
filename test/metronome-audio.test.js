@@ -599,7 +599,7 @@ test("a stored master volume does not reach the output stage", async () => {
       cycles: [
         {
           repetitions: 1,
-          rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: ["full"] }],
+          rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: [STEP.PRIMARY] }],
         },
       ],
     },

@@ -49,9 +49,6 @@ function safeIdentifier(candidate, prefix) {
 }
 
 function normaliseStep(step) {
-  if (step === "full") return STEP.PRIMARY;
-  if (step === "half") return STEP.SECONDARY;
-  if (step === "quarter") return STEP.TERTIARY;
   return STEP_VOICE_CHOICES.includes(step) ? step : STEP.SECONDARY;
 }
 
