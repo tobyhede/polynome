@@ -978,6 +978,38 @@ test("both Meter components reject invalid committed values consistently", () =>
   }
 });
 
+/**
+ * Every edit carrying a value from a control parses it the same way, and that
+ * way is `Number`, which reads hex, binary, octal and exponent literals. Meter
+ * Select controls constrain Meter entry, while Configuration remains strict at
+ * its boundary so programmatic callers cannot smuggle alternate numeric syntax
+ * into the same edits. The rule is shared, so tempo is here to say so.
+ *
+ * Surrounding space is not one of these: a pasted value is a plain numeral with
+ * something around it, and refusing it would only puzzle whoever pasted it.
+ */
+test("committed values are plain numerals, not every literal Number reads", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  const unit = (value) =>
+    changeConfiguration(configuration, {
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      unit: value,
+    });
+
+  assert.equal(unit(" 8 ").configuration.sequence.cycles[0].rhythms[0].signature.unit, 8);
+  for (const literal of ["0x10", "0b100", "0o10", "1e1", "8.", "+8"]) {
+    assert.equal(unit(literal).reason, "invalid-value", `${literal} was accepted`);
+  }
+  assert.equal(
+    changeConfiguration(configuration, { type: "set-tempo", bpm: "0x64" }).reason,
+    "invalid-value",
+  );
+});
+
 test("valid edits that leave every user-editable value unchanged are no-ops", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
