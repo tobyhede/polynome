@@ -35,7 +35,7 @@ The core promise is:
 
 Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
 
-An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-levels` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
+An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-voices` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
 
 ### Configuration edit failure modes
 

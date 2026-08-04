@@ -490,6 +490,21 @@ test("one sound vocabulary reaches the profiles, the repair, and the interface",
 
   assert.deepEqual(Object.keys(SOUND_PROFILES).sort(), [...names].sort());
   assert.deepEqual(describeConfiguration(createConfiguration()).choices.sounds, names);
+
+  // The choice list is what the interface offers; repair is what decides
+  // whether choosing it survives being saved and read back. A name the list
+  // offers and repair rejects would silently return every rhythm to `high`.
+  for (const sound of names) {
+    const repaired = createConfiguration({
+      sequence: { cycles: [{ rhythms: [{ sound }] }] },
+    });
+
+    assert.equal(
+      repaired.sequence.cycles[0].rhythms[0].sound,
+      sound,
+      `repair did not preserve the ${sound} sound`,
+    );
+  }
 });
 
 test("every sound profile carries the same tuning shape", () => {
