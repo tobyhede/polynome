@@ -223,22 +223,41 @@ h1 {
   animation: pop-in 140ms ease;
 }
 
-.top-panel h2 {
+/*
+ * Matches the cycle card: same display face, same uppercase title with a
+ * lowercase count after the divider, same heading row with the control pushed
+ * to the right. A panel and a cycle are different things, but they are the same
+ * kind of surface and were reading as two different designs.
+ */
+.panel-heading h2 {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 20px 28px 6px;
+  padding: 6px 12px 6px 10px;
   font-family: var(--display-font);
   font-size: 1.15rem;
   font-weight: 400;
   letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.panel-heading h2 span {
+  font-weight: 400;
   text-transform: lowercase;
 }
 
-.top-panel h2 .panel-divider {
+.panel-heading h2 span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-heading h2 .panel-divider {
   color: var(--line-strong);
   font-size: 1.05rem;
   font-weight: 400;
+}
+
+.panel-heading .remove-button {
+  margin-left: auto;
 }
 
 .help-grid {
@@ -273,25 +292,32 @@ h1 {
   padding: 14px 16px 18px;
 }
 
-.preset-save {
-  display: grid;
-  gap: 8px;
-  padding: 14px 16px 0;
-  border-top: 1px solid var(--line);
+.save-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--card);
+  color: var(--ink);
+  animation: pop-in 140ms ease;
 }
 
-.preset-save label {
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+.save-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
 }
 
-.preset-save > div {
+.preset-save-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 10px;
+  align-items: end;
+  padding: 10px 18px 20px;
+}
+
+/* Holds the wider of the two words the submit can carry, so the field beside it
+   does not resize under the cursor as a name becomes one already in use. */
+.preset-save-body .chip-button {
+  min-width: 92px;
 }
 
 .preset-save input {
@@ -303,12 +329,6 @@ h1 {
   background: var(--card);
   color: var(--ink);
   font: inherit;
-}
-
-.preset-save p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.68rem;
 }
 
 .preset-card {

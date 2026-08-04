@@ -5,6 +5,7 @@ import {
   createSavedPresets,
   describeConfiguration,
   describePresets,
+  presetNameInUse,
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
@@ -52,7 +53,18 @@ const elements = {
   presetList: /** @type {HTMLDivElement} */ (document.querySelector("#preset-list")),
   presetCount: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count")),
   presetCountNoun: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count-noun")),
+  presetsClose: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-close")),
   presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
+  presetSaveDialog: /** @type {HTMLDialogElement} */ (
+    document.querySelector("#preset-save-dialog")
+  ),
+  presetSaveOpen: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-open")),
+  presetSaveCancel: /** @type {HTMLButtonElement} */ (
+    document.querySelector("#preset-save-cancel")
+  ),
+  presetSaveSubmit: /** @type {HTMLButtonElement} */ (
+    document.querySelector("#preset-save-submit")
+  ),
   presetName: /** @type {HTMLInputElement} */ (document.querySelector("#preset-name")),
   helpToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#help-toggle")),
   helpPanel: /** @type {HTMLElement} */ (document.querySelector("#help-panel")),
@@ -302,9 +314,9 @@ function renderPresetPanel() {
   // The one focus case reconciliation cannot answer: a surviving node keeps its
   // focus, but a Preset that stopped existing takes its button with it and the
   // browser drops focus to the document, which is where a keyboard user least
-  // expects to be. The save field is where deleting in this tab already lands.
+  // expects to be. The close control is the nearest thing that is always here.
   if (hadFocus && document.activeElement === document.body) {
-    elements.presetName.focus();
+    elements.presetsClose.focus();
   }
 }
 
@@ -939,6 +951,11 @@ elements.presetsToggle.addEventListener("click", () => {
   }
   renderPanels();
 });
+elements.presetsClose.addEventListener("click", () => {
+  presetsOpen = false;
+  renderPanels();
+  elements.presetsToggle.focus();
+});
 elements.helpToggle.addEventListener("click", () => {
   helpOpen = !helpOpen;
   if (helpOpen) presetsOpen = false;
@@ -992,14 +1009,14 @@ elements.presetList.addEventListener("click", (event) => {
     if (result.reason) {
       savedPresets = result.presets;
       renderPresetPanel();
-      elements.presetName.focus();
+      elements.presetsClose.focus();
       elements.status.textContent = `${preset.name} preset was already deleted`;
       return;
     }
     savedPresets = result.presets;
     const persisted = writeSavedPresets(savedPresets);
     renderPresetPanel();
-    elements.presetName.focus();
+    elements.presetsClose.focus();
     elements.status.textContent = persisted
       ? `${preset.name} preset deleted`
       : "Preset deletion could not be saved in this browser";
@@ -1019,8 +1036,33 @@ elements.presetList.addEventListener("click", (event) => {
       : { type: "apply-preset", configuration: preset.configuration },
   );
 });
+/**
+ * Saving under a name already in use replaces that Preset's snapshot. A
+ * sentence under the field used to say so and nobody read it; the submit button
+ * says it instead, at the moment the typed name makes it true.
+ */
+function describeSaveAction() {
+  elements.presetSaveSubmit.textContent =
+    presetNameInUse(storedSavedPresets(), elements.presetName.value)
+      ? "Replace"
+      : "Save";
+}
+
+elements.presetSaveOpen.addEventListener("click", () => {
+  elements.presetName.value = "";
+  elements.presetName.setCustomValidity("");
+  describeSaveAction();
+  // `showModal` traps focus, answers Escape, and returns focus to this button
+  // on close. It does not block the thread, which `confirm` would, and the
+  // metronome can be playing throughout.
+  elements.presetSaveDialog.showModal();
+});
+elements.presetSaveCancel.addEventListener("click", () => {
+  elements.presetSaveDialog.close();
+});
 elements.presetName.addEventListener("input", () => {
   elements.presetName.setCustomValidity("");
+  describeSaveAction();
 });
 elements.presetSave.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1037,9 +1079,15 @@ elements.presetSave.addEventListener("submit", (event) => {
   }
   savedPresets = result.presets;
   const persisted = writeSavedPresets(savedPresets);
-  elements.presetName.value = "";
+  elements.presetSaveDialog.close();
   renderPresetPanel();
-  focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
+  // Only when the panel is open: closing the dialog returns focus to the button
+  // that opened it, and moving it into a panel the user cannot see would strand
+  // them. Saving deliberately does not open the panel — the status line is the
+  // confirmation, and a panel that opens itself takes over the screen.
+  if (presetsOpen) {
+    focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
+  }
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
     : "Preset could not be saved in this browser";

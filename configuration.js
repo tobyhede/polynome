@@ -348,6 +348,22 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
   };
 }
 
+/**
+ * Whether saving under this name would replace a stored Preset rather than add
+ * one. The interface asks so it can label the action before the user commits to
+ * it; the answer has to come from here, because the trimming and the
+ * case-folding that decide it are the same rules `savePreset` applies and a
+ * second copy of them would drift.
+ *
+ * A built-in name is not in use: `savePreset` refuses it outright rather than
+ * replacing anything, so the honest answer is no.
+ */
+export function presetNameInUse(savedPresets, nameCandidate) {
+  const name = presetName(nameCandidate);
+  if (!name || reservedPresetName(name)) return false;
+  return findPresetNamed(createSavedPresets(savedPresets), name) !== -1;
+}
+
 export function removeSavedPreset(savedPresets, presetId) {
   if (typeof presetId !== "string") {
     throw new TypeError("Preset identifier must be a string");

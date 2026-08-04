@@ -7,6 +7,7 @@ import {
   createSavedPresets,
   describeConfiguration,
   describePresets,
+  presetNameInUse,
   removeSavedPreset,
   savePreset,
 } from "../configuration.js";
@@ -1138,5 +1139,34 @@ test("stored key order does not change an edit outcome", () => {
     const result = changeConfiguration(configuration, edit);
     assert.deepEqual(result.configuration, configuration);
     assert.equal(result.consequence, "none");
+  }
+});
+
+/**
+ * The interface labels its save action from this, so it has to agree with what
+ * `savePreset` then does. Every case is asserted against both: the answer here
+ * and the list that comes back, because a name reported as in use that turns
+ * out to add a Preset is the one way this can be wrong and still look right.
+ */
+test("a name is in use exactly when saving it would replace a preset", () => {
+  const configuration = createConfiguration();
+  const stored = savePreset(createSavedPresets(), "Rehearsal", configuration).presets;
+
+  const cases = [
+    { name: "Rehearsal", inUse: true, because: "the stored name exactly" },
+    { name: "rehearsal", inUse: true, because: "case is folded" },
+    { name: "  Rehearsal  ", inUse: true, because: "surrounding space is trimmed" },
+    { name: "Rehearsal 2", inUse: false, because: "a different name" },
+    { name: "", inUse: false, because: "no name at all" },
+    { name: "   ", inUse: false, because: "space is not a name" },
+    // Refused rather than replaced, so the honest answer is that it is free.
+    { name: "4/4", inUse: false, because: "a built-in name is reserved" },
+  ];
+
+  for (const { name, inUse, because } of cases) {
+    assert.equal(presetNameInUse(stored, name), inUse, because);
+    const result = savePreset(stored, name, configuration);
+    const replaced = result.reason === null && result.presets.length === stored.length;
+    assert.equal(replaced, inUse, `saving "${name}" disagreed: ${because}`);
   }
 });
