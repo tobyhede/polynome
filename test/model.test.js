@@ -6,7 +6,10 @@ import {
   METER_UNITS,
   SOUND,
   STEP,
+  TEMPO_LIMIT,
+  TEMPO_SNAP,
   cycleSpanSeconds,
+  snapTempo,
   stepDurationSeconds,
   subdivisionLabel,
 } from "../model.js";
@@ -169,4 +172,63 @@ test("changing only a Meter denominator does not change its Cycle span", () => {
   };
 
   closeTo(cycleSpanSeconds(120, cycle), 2);
+});
+
+/**
+ * A drag stops on the ten-BPM marks the tick row draws, and the slider carries
+ * its value as a string, so the string form is the one the interface actually
+ * passes.
+ */
+test("a dragged tempo takes the nearest ten within the snap tolerance", () => {
+  assert.equal(snapTempo("88"), 90);
+  assert.equal(snapTempo("92"), 90);
+  assert.equal(snapTempo(89), 90);
+  assert.equal(snapTempo(90), 90);
+});
+
+test("a dragged tempo outside the tolerance is left where it landed", () => {
+  assert.equal(snapTempo(87), 87);
+  assert.equal(snapTempo("93"), 93);
+  assert.equal(snapTempo(85), 85);
+});
+
+/**
+ * Snapping never carries a tempo past a bound, and what makes that true is that
+ * both ends of the range are marks themselves. That is a fact about the two
+ * constants rather than about `snapTempo`, so it is asserted where a change to
+ * either would be caught — a range ending anywhere else would let the tolerance
+ * pull a tempo off the end of the slider.
+ */
+test("both ends of the tempo range are marks", () => {
+  assert.equal(TEMPO_LIMIT.minimum % TEMPO_SNAP.interval, 0);
+  assert.equal(TEMPO_LIMIT.maximum % TEMPO_SNAP.interval, 0);
+});
+
+test("snapping holds the tempo range's own ends", () => {
+  assert.equal(snapTempo(TEMPO_LIMIT.minimum + 1), TEMPO_LIMIT.minimum);
+  assert.equal(snapTempo(TEMPO_LIMIT.maximum - 1), TEMPO_LIMIT.maximum);
+  assert.equal(snapTempo(TEMPO_LIMIT.minimum), TEMPO_LIMIT.minimum);
+  assert.equal(snapTempo(TEMPO_LIMIT.maximum), TEMPO_LIMIT.maximum);
+});
+
+/**
+ * Every value the slider can hold is either a mark or within one tolerance of
+ * the nearest one, so no drag can land somewhere the snap leaves further from a
+ * mark than the tolerance allows.
+ */
+test("no reachable tempo settles further from a mark than the tolerance", () => {
+  for (let bpm = TEMPO_LIMIT.minimum; bpm <= TEMPO_LIMIT.maximum; bpm += 1) {
+    const snapped = snapTempo(bpm);
+    const mark = Math.round(snapped / TEMPO_SNAP.interval) * TEMPO_SNAP.interval;
+    assert.ok(
+      snapped === mark || Math.abs(snapped - mark) > TEMPO_SNAP.tolerance,
+      `${bpm} settled at ${snapped}, which is neither a mark nor clear of one`,
+    );
+  }
+});
+
+test("a tempo that is not a number is left for the Configuration to refuse", () => {
+  assert.equal(snapTempo(""), "");
+  assert.equal(snapTempo("fast"), "fast");
+  assert.equal(snapTempo(null), null);
 });

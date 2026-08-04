@@ -11,7 +11,7 @@ import {
   sameConfiguration,
   savePreset,
 } from "./configuration.js";
-import { panLabel, subdivisionLabel } from "./model.js";
+import { panLabel, snapTempo, subdivisionLabel, TEMPO_LIMIT, TEMPO_SNAP } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
@@ -684,6 +684,15 @@ function RhythmCard({ rhythm, cycle }) {
         </div>
       </div>
 
+      <!-- The settings pane sits between the heading and the steps, so opening
+           it from either control in that heading reveals it directly under the
+           control that was activated rather than below a step grid whose height
+           varies with the Meter. The steps keep their place on screen relative
+           to the card's own bottom edge. -->
+      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
+        <${RhythmSettings} rhythm=${rhythm} />
+      </div>
+
       <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
            data attribute, and the beat-gap clamp needs it as a number CSS can
            calculate with. Neither can read the other's form. An HTML comment is
@@ -698,10 +707,6 @@ function RhythmCard({ rhythm, cycle }) {
         style=${`--subdivision: ${rhythm.subdivision}`}
       >
         <${Beats} rhythm=${rhythm} />
-      </div>
-
-      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
-        <${RhythmSettings} rhythm=${rhythm} />
       </div>
     </article>
   `;
@@ -1042,11 +1047,38 @@ elements.helpToggle.addEventListener("click", () => {
 elements.bpm.addEventListener("change", (event) =>
   changeTempo(/** @type {HTMLInputElement} */ (event.target).value),
 );
+/**
+ * Only a pointer drag snaps to the marks, so the flag is what the drag is
+ * recognised by: an `input` event carries no pointer of its own.
+ *
+ * Everything that ends a drag lowers it, and a press does not always end in a
+ * release the slider sees: a scroll gesture takes the drag over and cancels it,
+ * the context menu takes a right button's release, and a press abandoned when
+ * the window loses the pointer ends without one at all. The keyboard is the
+ * backstop, because it is also the thing a raised flag would spoil — the first
+ * arrow key would be pulled straight back onto the mark it stepped off, and the
+ * slider would be stuck on that mark for good.
+ */
+let bpmSliderDragging = false;
+const endBpmSliderDrag = () => {
+  bpmSliderDragging = false;
+};
+elements.bpmSlider.addEventListener("pointerdown", () => {
+  bpmSliderDragging = true;
+});
+elements.bpmSlider.addEventListener("pointerup", endBpmSliderDrag);
+elements.bpmSlider.addEventListener("pointercancel", endBpmSliderDrag);
+elements.bpmSlider.addEventListener("keydown", endBpmSliderDrag);
 elements.bpmSlider.addEventListener("input", (event) => {
+  const dragged = /** @type {HTMLInputElement} */ (event.target).value;
   applyEdit(
-    { type: "set-tempo", bpm: /** @type {HTMLInputElement} */ (event.target).value },
+    { type: "set-tempo", bpm: bpmSliderDragging ? snapTempo(dragged) : dragged },
     { deferConsequence: true, render: false },
   );
+  // renderTransport() writes the tempo back onto the slider, which is what
+  // holds the thumb on a mark while the pointer moves inside its tolerance.
+  // The browser tracks the drag by pointer position, not by where the thumb
+  // was left, so the next move still reports the tempo the pointer is over.
   renderTransport();
   renderPresetPanel();
 });
@@ -1585,9 +1617,16 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Major ticks carry their own number, so the tick row is also the tempo scale.
-elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
-  const bpm = 30 + index * 10;
-  const major = bpm % 90 === 30;
+// The marks are `TEMPO_SNAP`'s own, spanning `TEMPO_LIMIT`, rather than a tenth
+// restated here: what a reader aims at and what a drag stops on have to be one
+// set of tempos, or the snap lands somewhere the row does not draw. Every ninth
+// mark is labelled, which is as close as the numbers sit before they collide at
+// the narrowest width.
+const LABELLED_EVERY = 9;
+const tempoMarks = (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_SNAP.interval + 1;
+elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
+  const bpm = TEMPO_LIMIT.minimum + index * TEMPO_SNAP.interval;
+  const major = index % LABELLED_EVERY === 0;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
 /**

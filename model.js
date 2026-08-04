@@ -49,6 +49,8 @@ export const METER_UNITS = Object.freeze([1, 2, 4, 8]);
 
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
 
+export const TEMPO_LIMIT = Object.freeze({ minimum: 30, maximum: 300 });
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -158,6 +160,42 @@ export function subdivisionLabel(subdivision, unit) {
   const unitName = UNIT_NAMES[unit] || "signature";
   const hint = SUBDIVISION_HINTS[subdivision] || `${subdivision}-tuplet`;
   return `${subdivision} per ${unitName} unit · ${hint}`;
+}
+
+/**
+ * The tempo marks a drag stops on. A drag that lands within `tolerance` of a
+ * mark takes the mark exactly, so the round tempos musicians actually name are
+ * the easy ones to hit. `app.js` draws the tick row from this interval and
+ * `TEMPO_LIMIT` rather than from its own tenth, because the marks a reader aims
+ * at and the marks a drag stops on are one set or the snap lands nowhere
+ * visible. Both ends of the range are marks themselves, which is what keeps the
+ * tolerance from pulling a tempo past a bound; `test/model.test.js` holds that.
+ *
+ * This restores what the browser used to do for free: a `<datalist>` on the
+ * slider snapped the thumb to its ticks, and it was dropped when the slider
+ * moved above `.bpm-ticks`, where the browser's own marks duplicated the row.
+ * The behaviour was the datalist's, not the tick row's, so drawing the marks
+ * ourselves did not carry it over.
+ *
+ * The tolerance leaves each mark's neighbours ±1 and ±2 unreachable by drag.
+ * They are reachable by typing and by the arrow keys, which is why only a
+ * pointer drag snaps: a keyboard step of one from a mark would be pulled
+ * straight back to it, and the slider would never move at all.
+ */
+export const TEMPO_SNAP = Object.freeze({ interval: 10, tolerance: 2 });
+
+/**
+ * Returns a number for anything numeric and the caller's own value untouched
+ * for everything else — the slider's string, an empty field, a `null` read back
+ * from storage. Repairing those here would decide what an unusable tempo means
+ * in the one place that cannot report it; the Configuration refuses them and
+ * says why, which is where `set-tempo` already sends every form value.
+ */
+export function snapTempo(value) {
+  const parsed = numericValue(value);
+  if (!Number.isFinite(parsed)) return value;
+  const mark = Math.round(parsed / TEMPO_SNAP.interval) * TEMPO_SNAP.interval;
+  return Math.abs(parsed - mark) <= TEMPO_SNAP.tolerance ? mark : parsed;
 }
 
 export function panLabel(value) {

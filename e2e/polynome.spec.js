@@ -109,6 +109,122 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
 });
 
+/**
+ * The tick row marks every ten BPM and a drag stops on those marks. Asserting a
+ * particular tempo at a particular offset would pin the browser's own mapping
+ * from pointer position to value, half a thumb width inset at either end, so
+ * what is asserted is the property the snap has: a dragged tempo is either on a
+ * mark or clear of one by more than the tolerance, never stranded beside it.
+ */
+test("dragging the tempo slider stops on the ten-BPM marks", async ({ page }) => {
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const track = await slider.boundingBox();
+  const y = track.y + track.height / 2;
+  const from = track.x + track.width * 0.3;
+
+  await page.mouse.move(from, y);
+  await page.mouse.down();
+  const dragged = [];
+  for (let offset = 0; offset <= 40; offset += 2) {
+    await page.mouse.move(from + offset, y);
+    dragged.push(Number(await slider.inputValue()));
+  }
+  await page.mouse.up();
+
+  const distanceToMark = (bpm) => Math.min(bpm % 10, 10 - (bpm % 10));
+  expect(dragged.filter((bpm) => distanceToMark(bpm) > 0 && distanceToMark(bpm) <= 2)).toEqual([]);
+  // Both confirm the drag moved and that it crossed marks rather than sitting
+  // in one gap the whole way, which would satisfy the assertion above trivially.
+  expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
+  expect(new Set(dragged.filter((bpm) => bpm % 10 === 0)).size).toBeGreaterThan(1);
+});
+
+/**
+ * Only the pointer snaps. A keyboard step of one away from a mark would be
+ * pulled straight back onto it, and the slider would be stuck on that mark for
+ * good, so the arrow keys reach the tempos between the marks and the number
+ * input keeps them.
+ *
+ * The starting tempo is set here rather than taken from the default, so moving
+ * that default reads as a changed default rather than as a snap that stopped
+ * working.
+ */
+test("the tempo arrow keys reach and hold the tempos between the marks", async ({ page }) => {
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+
+  await readout.fill("98");
+  await readout.blur();
+  await expect(slider).toHaveValue("98");
+
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("99");
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("100");
+  // Stepping off a mark is the case the snap would undo.
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("101");
+
+  await readout.fill("108");
+  await readout.blur();
+  await expect(slider).toHaveValue("108");
+});
+
+/**
+ * A press can end without the slider ever seeing a release: the context menu
+ * takes a right button's, and a press abandoned when the window loses the
+ * pointer ends the same way. The drag flag is raised on `pointerdown`, so one
+ * left raised would go on snapping — and the first arrow key after it would be
+ * pulled straight back onto the mark it stepped off, which is the state the
+ * flag exists to prevent. Pressing a key ends the drag for that reason.
+ */
+test("a press the slider is never released from leaves the arrow keys unsnapped", async ({
+  page,
+}) => {
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const track = await slider.boundingBox();
+
+  await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
+  await page.mouse.down({ button: "right" });
+
+  await readout.fill("100");
+  await readout.blur();
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("101");
+});
+
+/**
+ * The tick row is the drawn form of the marks `snapTempo` stops on, and the
+ * slider's own bounds are the range those marks span. The row is built from the
+ * model's constants and the bounds are attributes in `index.html`, which cannot
+ * import anything, so this is where the three are held to one another.
+ */
+test("the tick row and the slider's bounds are the tempo range the model names", async ({
+  page,
+}) => {
+  const { limit, interval } = await page.evaluate(async () => {
+    const { TEMPO_LIMIT, TEMPO_SNAP } = await import("/model.js");
+    return { limit: TEMPO_LIMIT, interval: TEMPO_SNAP.interval };
+  });
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+
+  await expect(slider).toHaveAttribute("min", String(limit.minimum));
+  await expect(slider).toHaveAttribute("max", String(limit.maximum));
+
+  const marks = await page
+    .locator("#bpm-ticks span")
+    .evaluateAll((ticks) => ticks.map((tick) => Number(tick.dataset.bpm)));
+  expect(marks).toEqual(
+    Array.from(
+      { length: (limit.maximum - limit.minimum) / interval + 1 },
+      (_, index) => limit.minimum + index * interval,
+    ),
+  );
+});
+
 test("storage from the wider meter domain is retired instead of repaired", async ({ page }) => {
   await page.evaluate(() => {
     localStorage.setItem("polynome-configuration", JSON.stringify({ bpm: 132 }));

@@ -925,13 +925,16 @@ h1.is-glitching {
     0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
+/* The rule is on the edge the pane meets the steps at. The pane opens under the
+   card heading, which has no rule of its own, so a rule above would divide the
+   heading from a pane its own background already sets apart. */
 .rhythm-settings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 216px;
   gap: 22px 30px;
   align-items: start;
-  padding: 20px 18px 22px;
-  border-top: 1px solid var(--line);
+  padding: 16px 18px 22px;
+  border-bottom: 1px solid var(--line);
   background: var(--soft);
   animation: drawer-in 140ms ease;
 }
