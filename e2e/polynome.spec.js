@@ -968,15 +968,29 @@ async function beatsPerRow(page) {
   });
 }
 
-async function setSignature(page, count) {
+/**
+ * Both Meter controls live in the settings pane, and the control that reveals it
+ * toggles — so opening one already open closes it. Every caller below wants the
+ * pane open rather than switched, which is a difference only a caller that
+ * happens to be second would ever notice.
+ */
+async function openRhythmSettings(page) {
+  const subdivision = page.locator('[data-action="toggle-subdivision-menu"]').first();
+  if (await subdivision.isVisible()) return;
   await page
     .getByRole("button", { name: /^Edit \d+\/\d+$/ })
     .first()
     .click();
+  await expect(subdivision).toBeVisible();
+}
+
+async function setSignature(page, count) {
+  await openRhythmSettings(page);
   await page.getByRole("combobox", { name: /meter numerator$/ }).selectOption(String(count));
 }
 
 async function setSubdivision(page, subdivision) {
+  await openRhythmSettings(page);
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator(`.subdivision-option[data-subdivision="${subdivision}"]`).click();
 }
@@ -1071,6 +1085,94 @@ test("a beat wider than the row scrolls instead of shrinking", async ({ page }) 
   await expect(steps).toHaveCSS("mask-image", "none");
 });
 
+/**
+ * The steps stand over evenly spaced onsets, so they have to be evenly spaced
+ * themselves. Setting beats further apart than the steps inside them drew a
+ * grouping the rhythm does not have — at a Subdivision of two it is exactly the
+ * engraved form of a swung pair, which is a claim about the timing that the
+ * scheduler does not make. Every Subdivision is walked because the gap that did
+ * this scaled with the Subdivision, so one of them alone would not have caught
+ * it.
+ */
+for (const subdivision of [1, 2, 3, 4, 5]) {
+  test(`a beat of ${subdivision} spaces its steps evenly with its neighbours`, async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await expect(page.locator(".rhythm-card .step")).toHaveCount(4 * subdivision);
+    await settleLayout(page);
+
+    const deltas = await page.evaluate(() => {
+      const centres = [...document.querySelectorAll(".rhythm-card .step")].map((step) => {
+        const { left, right, top } = step.getBoundingClientRect();
+        return { centre: (left + right) / 2, row: Math.round(top) };
+      });
+      return (
+        centres
+          .slice(1)
+          .map((step, index) => ({ step, previous: centres[index] }))
+          // A row break is not a gap between two steps, so it is not one of the
+          // distances this compares.
+          .filter(({ step, previous }) => step.row === previous.row)
+          .map(({ step, previous }) => Math.round(step.centre - previous.centre))
+      );
+    });
+
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(new Set(deltas), `subdivision ${subdivision} spaced steps ${deltas.join(", ")}`).toEqual(
+      new Set([deltas[0]]),
+    );
+  });
+}
+
+/**
+ * The label hangs above the number's box, but what a reader sees is the distance
+ * to the ink — and half the leading, the block padding and the display font's
+ * own ascent above its capitals all sit between the two, every one of them a
+ * share of the glyph size. So a margin that does not pull back at least as fast
+ * as the type grows leaves the label drifting away from the number it names,
+ * which is what the tempo curve doubling the glyph size makes visible.
+ *
+ * Measured against the ink rather than the box, because the box is the thing
+ * that hides the drift.
+ */
+test("the BPM label closes on the number as the tempo enlarges it", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+
+  const gapAt = async (bpm) => {
+    await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
+    await settleLayout(page);
+    return page.evaluate(() => {
+      const input = document.querySelector("#bpm-input");
+      const style = getComputedStyle(input);
+      const fontPx = parseFloat(style.fontSize);
+      const context = document.createElement("canvas").getContext("2d");
+      context.font = `${fontPx}px ${style.fontFamily}`;
+      const metrics = context.measureText(input.value);
+      const leading =
+        (parseFloat(style.lineHeight) -
+          (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent)) /
+        2;
+      const baseline =
+        input.getBoundingClientRect().top +
+        parseFloat(style.paddingTop) +
+        leading +
+        metrics.fontBoundingBoxAscent;
+      const inkTop = baseline - metrics.actualBoundingBoxAscent;
+      return inkTop - document.querySelector("#bpm-readout label").getBoundingClientRect().bottom;
+    });
+  };
+
+  const small = await gapAt(30);
+  const large = await gapAt(300);
+
+  // Closes rather than opens, and never so far that the two touch.
+  expect(large).toBeLessThanOrEqual(small);
+  expect(large).toBeGreaterThan(0);
+  // A slight reduction, not a collapse: the label must still read as a label
+  // sitting above the number rather than as part of it.
+  expect(large).toBeGreaterThan(small * 0.6);
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 
@@ -1097,10 +1199,9 @@ async function settleLayout(page) {
 }
 
 /**
- * The readout is a box positioned over the tempo it names, so its width has to
- * be the width of the digits inside it: the box is what centres the number on
- * its own point of the track, and what `--bpm-half` measures to keep it inside
- * the card.
+ * The readout is a box centred in the track, so its width has to be the width
+ * of the digits inside it: a box wider than what it holds centres itself and
+ * leaves the number off-centre by half the difference.
  *
  * A reader who raises their browser's default text size is what pulls the two
  * apart. The glyphs are sized in `rem` and grow; a width computed in pixels
@@ -1160,45 +1261,163 @@ test("transport spacing follows the viewport and its contents follow the card", 
 });
 
 /**
- * The readout travels the width of the track and grows with the tempo, so the
- * two ends are where it can hang off the card. Nothing else pins that: the
- * inline padding that used to reserve room for it is gone, and `--bpm-half`
- * now holds it half its own width inside either end instead.
+ * The number grows with the tempo but no longer travels with it. It docks in
+ * the middle of the track and hangs from the bottom edge, so the growth goes
+ * upward into the height the track reserves: the readout stays centred, the
+ * slider under it does not move, and neither end of the card is anywhere the
+ * number can reach.
  */
-test("the travelling tempo readout stays inside the transport card", async ({ page }) => {
-  for (const width of [320, 375, 540, 800, 1024]) {
+test("the tempo readout grows in place rather than travelling", async ({ page }) => {
+  for (const width of [320, 500, 968]) {
     await page.setViewportSize({ width, height: 900 });
+    let sliderTop = null;
+
     for (const bpm of [30, 96, 300]) {
       await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
       await settleLayout(page);
 
-      const {
-        readout,
-        card,
-        page: viewport,
-      } = await page.evaluate(() => {
+      const measured = await page.evaluate(() => {
         const box = (selector) => {
-          const { left, right } = document.querySelector(selector).getBoundingClientRect();
-          return { left, right };
+          const { left, right, top, bottom } = document
+            .querySelector(selector)
+            .getBoundingClientRect();
+          return { left, right, top, bottom, centre: (left + right) / 2 };
         };
         return {
           readout: box("#bpm-readout"),
+          track: box(".bpm-track"),
+          slider: box(".tempo-slider"),
           card: box(".transport"),
-          page: {
-            client: document.documentElement.clientWidth,
-            scroll: document.documentElement.scrollWidth,
-          },
+          scroll: document.documentElement.scrollWidth,
+          client: document.documentElement.clientWidth,
         };
       });
 
       const where = `${width}px at ${bpm}bpm`;
-      expect(readout.left, `${where} overhangs the card on the left`).toBeGreaterThanOrEqual(
-        card.left,
+      expect(measured.readout.centre, `${where} is off the track's centre`).toBeCloseTo(
+        measured.track.centre,
+        1,
       );
-      expect(readout.right, `${where} overhangs the card on the right`).toBeLessThanOrEqual(
-        card.right,
+      expect(measured.readout.bottom, `${where} has left the track's floor`).toBeCloseTo(
+        measured.track.bottom,
+        1,
       );
-      expect(viewport.scroll, `${where} widened the page`).toBeLessThanOrEqual(viewport.client);
+      expect(
+        measured.readout.left,
+        `${where} overhangs the track on the left`,
+      ).toBeGreaterThanOrEqual(measured.track.left);
+      expect(
+        measured.readout.right,
+        `${where} overhangs the track on the right`,
+      ).toBeLessThanOrEqual(measured.track.right);
+      expect(
+        measured.readout.left,
+        `${where} overhangs the card on the left`,
+      ).toBeGreaterThanOrEqual(measured.card.left);
+      expect(
+        measured.readout.right,
+        `${where} overhangs the card on the right`,
+      ).toBeLessThanOrEqual(measured.card.right);
+      expect(measured.scroll, `${where} widened the page`).toBeLessThanOrEqual(measured.client);
+
+      // The reserved height is what makes this true: the number is bottom
+      // anchored inside it, so a larger glyph takes room above itself only.
+      if (sliderTop === null) sliderTop = measured.slider.top;
+      else expect(measured.slider.top, `${where} moved the slider`).toBeCloseTo(sliderTop, 1);
+    }
+  }
+});
+
+/**
+ * The keys are the exact control the slider is not, and both halves of that
+ * matter: a tap has to be one bpm rather than a step the acceleration has
+ * already run away with, and the end of the range has to be a key that says it
+ * cannot act rather than one that silently does nothing.
+ */
+test("a tap on a tempo key is one bpm and the ends of the range disable one", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("112");
+  await readout.blur();
+
+  await up.click();
+  await expect(readout).toHaveValue("113");
+  await down.click();
+  await down.click();
+  await expect(readout).toHaveValue("111");
+
+  // Space reaches the same hold the pointer does, and the browser's own click
+  // on release would be a second step if anything listened for it.
+  await up.focus();
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("112");
+
+  await readout.fill("30");
+  await readout.blur();
+  await expect(down).toBeDisabled();
+  await expect(up).toBeEnabled();
+
+  await readout.fill("300");
+  await readout.blur();
+  await expect(up).toBeDisabled();
+  await expect(down).toBeEnabled();
+});
+
+/**
+ * A hold is what covers a long move, so it has to accelerate and it has to stop
+ * on its own at the end of the range. The key that reaches the end is disabled
+ * by the same render that got there, and a disabled button is sent no
+ * `pointerup` — so a repeat that did not end itself would still be running
+ * after the finger lifted.
+ */
+test("holding a tempo key accelerates and stops at the end of the range", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("60");
+  await readout.blur();
+
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down();
+  // Long enough to pass 30 from 60 several times over if the repeat ran on.
+  await expect(down).toBeDisabled({ timeout: 5000 });
+  await page.mouse.up();
+
+  await expect(readout).toHaveValue("30");
+  await page.waitForTimeout(400);
+  await expect(readout).toHaveValue("30");
+});
+
+/**
+ * One control height in the panel: the keys are the play bar's height at every
+ * width, and they are a tap target at the narrowest one.
+ */
+test("the tempo keys are the play bar's height and stay a tap target", async ({ page }) => {
+  for (const width of [320, 500, 968]) {
+    await page.setViewportSize({ width, height: 900 });
+    await settleLayout(page);
+
+    const measured = await page.evaluate(() => {
+      const size = (selector) => {
+        const { width, height } = document.querySelector(selector).getBoundingClientRect();
+        return { width, height };
+      };
+      return { down: size("#bpm-down"), up: size("#bpm-up"), play: size(".play-button") };
+    });
+
+    for (const [name, key] of [
+      ["−", measured.down],
+      ["+", measured.up],
+    ]) {
+      expect(key.height, `${name} is not the play bar's height at ${width}px`).toBeCloseTo(
+        measured.play.height,
+        1,
+      );
+      expect(key.width, `${name} is not square at ${width}px`).toBeCloseTo(key.height, 1);
+      expect(key.height, `${name} is under 48px at ${width}px`).toBeGreaterThanOrEqual(48);
     }
   }
 });

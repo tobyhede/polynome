@@ -48,6 +48,8 @@ const elements = {
   playIcon: /** @type {HTMLSpanElement} */ (document.querySelector("#play-icon")),
   bpm: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-input")),
   bpmSlider: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-slider")),
+  bpmDown: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-down")),
+  bpmUp: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-up")),
   bpmReadout: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-readout")),
   bpmTicks: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-ticks")),
   presetsToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-toggle")),
@@ -274,6 +276,11 @@ function renderPanels() {
 function renderTransport() {
   elements.bpm.value = String(state.bpm);
   elements.bpmSlider.value = String(state.bpm);
+  // A key at the end of the range is disabled rather than left live and silent,
+  // and the hold machinery reads the same bound: a repeat that stops changing
+  // the tempo has reached the end and ends itself.
+  elements.bpmDown.disabled = state.bpm <= TEMPO_LIMIT.minimum;
+  elements.bpmUp.disabled = state.bpm >= TEMPO_LIMIT.maximum;
   const progress = (state.bpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
@@ -287,20 +294,24 @@ function renderTransport() {
   const cq = (px) => `${(px / 5).toFixed(2)}cqw`;
   const fit = (px) => `${px < 0 ? "max" : "min"}(${px}px, ${cq(px)})`;
   const readout = elements.bpmReadout.style;
-  readout.setProperty("--bpm-left", `calc(${progress * 100}% + ${(0.5 - progress) * 22}px)`);
   readout.setProperty("--bpm-size", `min(${size}rem, ${cq(pixelSize)})`);
   // Derived from the resolved glyph size rather than recomputed in pixels. Both
   // branches of `--bpm-size` above are the same length as `pixelSize` while the
-  // root is the 16px this was drawn against, so these are the values the pixel
-  // arithmetic used to produce — but they stay the width of the digits when a
+  // root is the 16px this was drawn against, so this is the value the pixel
+  // arithmetic used to produce — but it stays the width of the digits when a
   // reader raises their browser's default text size and the `rem` branch grows.
-  // Everything the box does depends on that: it centres the number over its own
-  // point of the track, and `--bpm-half` is what holds it inside the card.
+  // The box is what centres the number in the track, so it has to be the width
+  // of what it holds or the centring is off by whatever the difference is.
   readout.setProperty("--bpm-width", "calc(var(--bpm-size) * 0.86 * 3)");
-  // Half the width, which is how far from either end of the track the CSS has
-  // to hold the number to keep it fully inside the card.
-  readout.setProperty("--bpm-half", "calc(var(--bpm-size) * 0.86 * 1.5)");
-  readout.setProperty("--bpm-label-margin", fit(6.5 - pixelSize * 0.255));
+  // The label sits above the number's box, and the gap a reader sees is to the
+  // ink rather than to that box: half the leading, the block padding, and the
+  // display font's own ascent above its capitals all sit between the two, and
+  // every one of them is a share of the glyph size. Measured, they add 0.389px
+  // per pixel of type, so a margin pulling back less than that per pixel leaves
+  // the gap growing with the tempo — which the earlier 0.255 did, opening it
+  // from 11px at 30bpm to 16px at 300. These two close it slightly instead,
+  // from 11px to 9px across the same range.
+  readout.setProperty("--bpm-label-margin", fit(13.4 - pixelSize * 0.46));
   const glitchTargets = [elements.bpm, elements.heading];
   glitchTargets.forEach((target) => {
     target.classList.toggle("is-glitching", glitchIntensity > 0);
@@ -693,18 +704,17 @@ function RhythmCard({ rhythm, cycle }) {
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
-      <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
-           data attribute, and the beat-gap clamp needs it as a number CSS can
-           calculate with. Neither can read the other's form. An HTML comment is
-           safe again here: the renderer parses the template and never emits it,
-           which is what an interpolated comment was working around. -->
+      <!-- The subdivision is carried for layoutSteps(), which reads it to choose
+           how many beats share a row. It was carried a second time as a custom
+           property the beat-gap clamp calculated with; that gap is now the same
+           one the steps inside a beat use, so nothing in the stylesheet asks
+           what the subdivision is any more. -->
       <div
         class="steps"
         role="group"
         aria-label=${`${label} step voices`}
         data-beats=${rhythm.signature.count}
         data-subdivision=${rhythm.subdivision}
-        style=${`--subdivision: ${rhythm.subdivision}`}
       >
         <${Beats} rhythm=${rhythm} />
       </div>
@@ -1082,18 +1092,108 @@ elements.bpmSlider.addEventListener("input", (event) => {
   renderTransport();
   renderPresetPanel();
 });
+elements.bpmSlider.addEventListener("change", commitTempo);
 /**
- * Dragging the slider defers the transport consequence, so on release the run
- * is still playing the tempo it started with. Comparing against that tempo
- * rather than a flag raised when the drag began keeps the decision correct even
- * when a drag ends without a change event, because the next release compares
- * against what is actually sounding.
+ * A slider drag and a held stepper key both defer the transport consequence, so
+ * while either is in progress the run is still playing the tempo it started
+ * with, and one of them has to hand it the new one. Comparing against that
+ * tempo rather than a flag raised when the gesture began keeps the decision
+ * correct even when it ends without a change event, because the next release
+ * compares against what is actually sounding.
  */
-elements.bpmSlider.addEventListener("change", () => {
+function commitTempo() {
   if (engine.playing && state.bpm !== runBpm) {
     engine.restart(state).catch(showError);
   }
-});
+}
+
+/**
+ * The stepper keys are the exact control the slider is not: a tap is one bpm,
+ * and a hold accelerates so that a long move is still a press rather than a
+ * drag. One step lands immediately, the first repeat after `HOLD_DELAY_MS`, and
+ * every interval after that is the last one decayed toward the floor.
+ */
+const HOLD_DELAY_MS = 420;
+const HOLD_DECAY = 0.72;
+const HOLD_FLOOR_MS = 45;
+
+let tempoHoldTimer = null;
+let tempoHolding = false;
+
+/**
+ * Each step takes the slider drag's route through `applyEdit` rather than
+ * writing `state.bpm`: the same clamp, the same repair, and the same deferral.
+ * A `restart-transport-run` per repeat would begin a new run every 45ms at the
+ * floor, and a run that never outlives its own look-ahead is one nobody hears.
+ *
+ * Reports whether the tempo actually moved. It has not when the press began at
+ * the end of the range, which the edit declines rather than clamps.
+ */
+function stepTempo(delta) {
+  const result = applyEdit(
+    { type: "set-tempo", bpm: state.bpm + delta },
+    { deferConsequence: true, render: false },
+  );
+  renderTransport();
+  renderPresetPanel();
+  return result.consequence !== "none";
+}
+
+function endTempoHold() {
+  if (!tempoHolding) return;
+  tempoHolding = false;
+  window.clearTimeout(tempoHoldTimer);
+  tempoHoldTimer = null;
+  commitTempo();
+}
+
+function startTempoHold(delta) {
+  endTempoHold();
+  tempoHolding = true;
+  const tick = (wait) => {
+    if (!stepTempo(delta)) {
+      // The far end of the range, and the render above has just disabled the key
+      // that reached it. A disabled button is sent no pointerup, so the release
+      // that would end this hold never arrives — it has to end itself here, or
+      // the repeat runs on against a bound it can no longer move.
+      endTempoHold();
+      return;
+    }
+    tempoHoldTimer = window.setTimeout(
+      () => tick(Math.max(HOLD_FLOOR_MS, wait * HOLD_DECAY)),
+      wait,
+    );
+  };
+  tick(HOLD_DELAY_MS);
+}
+
+const tempoKeys = /** @type {[HTMLButtonElement, number][]} */ ([
+  [elements.bpmDown, -1],
+  [elements.bpmUp, 1],
+]);
+for (const [stepper, delta] of tempoKeys) {
+  stepper.addEventListener("pointerdown", (event) => {
+    // Capture keeps the repeat alive when the finger slides off the key, and
+    // makes the release that ends it land back here rather than on whatever the
+    // finger has wandered onto.
+    stepper.setPointerCapture?.(event.pointerId);
+    startTempoHold(delta);
+  });
+  // A press does not always end in a release this key sees: a gesture can be
+  // cancelled out from under it, and focus can move mid-hold.
+  for (const type of ["pointerup", "pointercancel", "pointerleave", "blur"]) {
+    stepper.addEventListener(type, endTempoHold);
+  }
+  // The keyboard reaches the same hold rather than a separate single step, so
+  // Space and Enter accelerate exactly as a finger does. The browser's own
+  // click on release is left alone: nothing listens for it, which is what keeps
+  // a tap from counting twice.
+  stepper.addEventListener("keydown", (event) => {
+    if (event.repeat || (event.key !== " " && event.key !== "Enter")) return;
+    startTempoHold(delta);
+  });
+  stepper.addEventListener("keyup", endTempoHold);
+}
 elements.presetList.addEventListener("click", (event) => {
   const target = /** @type {HTMLElement} */ (event.target);
   const deleteButton = /** @type {HTMLElement | null} */ (
