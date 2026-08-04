@@ -223,43 +223,6 @@ h1 {
   animation: pop-in 140ms ease;
 }
 
-/*
- * Matches the cycle card: same display face, same uppercase title with a
- * lowercase count after the divider, same heading row with the control pushed
- * to the right. A panel and a cycle are different things, but they are the same
- * kind of surface and were reading as two different designs.
- */
-.panel-heading h2 {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 12px 6px 10px;
-  font-family: var(--display-font);
-  font-size: 1.15rem;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-}
-
-.panel-heading h2 span {
-  font-weight: 400;
-  text-transform: lowercase;
-}
-
-.panel-heading h2 span:last-child {
-  font-variant-numeric: tabular-nums;
-}
-
-.panel-heading h2 .panel-divider {
-  color: var(--line-strong);
-  font-size: 1.05rem;
-  font-weight: 400;
-}
-
-.panel-heading .remove-button {
-  margin-left: auto;
-}
-
 .help-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -660,7 +623,15 @@ h1.is-glitching {
   padding: 14px 18px 0;
 }
 
-.cycle-heading h2 {
+/*
+ * A cycle and a panel are different things sitting on the same kind of surface,
+ * and their headings are set identically: same display face, same uppercase
+ * title with a lowercase count after the divider, same row with the control
+ * pushed to the right. Written once for both, because a second copy of it is
+ * how the preset panel drifted into a second visual language to begin with.
+ */
+.cycle-heading h2,
+.panel-heading h2 {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -672,21 +643,28 @@ h1.is-glitching {
   text-transform: uppercase;
 }
 
-.cycle-heading h2 span {
+.cycle-heading h2 span,
+.panel-heading h2 span {
   font-weight: 400;
   text-transform: lowercase;
 }
 
-.cycle-heading h2 .cycle-divider {
+.cycle-heading h2 .cycle-divider,
+.panel-heading h2 .panel-divider {
   color: var(--line-strong);
   font-size: 1.05rem;
 }
 
-.cycle-heading h2 span:last-child {
+/* The count is named rather than positioned: the preset heading carries a
+   visually hidden noun after its number, so the last span in a heading is not
+   reliably the one whose digits change width as it crosses ten. */
+.cycle-heading h2 .heading-count,
+.panel-heading h2 .heading-count {
   font-variant-numeric: tabular-nums;
 }
 
-.cycle-heading .remove-button {
+.cycle-heading .remove-button,
+.panel-heading .remove-button {
   margin-left: auto;
 }
 

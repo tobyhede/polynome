@@ -662,6 +662,27 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
   expect(ratio).toBeGreaterThanOrEqual(4.5);
 });
 
+/**
+ * The preset count and a cycle's repetition count are the same number in the
+ * same heading, and both cross ten while the heading around them holds still.
+ * Tabular figures are what stop the width shifting under them, so a panel that
+ * borrowed the cycle card's heading has to have borrowed those with it.
+ *
+ * Each is located as the number a reader sees rather than by the rule that
+ * styles it: a heading whose digits jitter fails this however the selector that
+ * was meant to reach them is written.
+ */
+test("both heading counts are set in tabular figures", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  const presetCount = page.locator("#preset-count");
+  const repetitions = page.locator(".cycle-heading h2 span").last();
+
+  await expect(presetCount).toHaveText("2");
+  await expect(presetCount).toHaveCSS("font-variant-numeric", "tabular-nums");
+  await expect(repetitions).toHaveText("1");
+  await expect(repetitions).toHaveCSS("font-variant-numeric", "tabular-nums");
+});
+
 test("beats wrap into equal rows at every width", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
@@ -1074,4 +1095,31 @@ test("editing a built-in preset opens the save field empty", async ({ page }) =>
   await tempo.fill("129");
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(name).toHaveValue("Mine");
+});
+
+/**
+ * A save closes the panel it was made from and disables the control that opened
+ * it — what was just written is what this Configuration now is, so there is
+ * nothing left to save. Neither of the two places focus was sitting survives
+ * that, and a disabled button cannot hold it, so both branches have to hand it
+ * somewhere live rather than let it fall to the document.
+ */
+test("saving hands focus to a live control whether or not the preset panel is open", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const presets = page.getByRole("button", { name: "Presets", exact: true });
+  const openSave = page.getByRole("button", { name: "+ Save" });
+
+  // Closed: there is nowhere in the panel to put focus, and the toggle it came
+  // from is what the save has just disabled.
+  await tempo.fill("112");
+  await savePreset(page, "Unwatched");
+  await expect(openSave).toBeDisabled();
+  await expect(presets).toBeFocused();
+
+  // Open: the Preset the save just produced is on screen and is what the user
+  // is most likely to act on next.
+  await presets.click();
+  await tempo.fill("113");
+  await savePreset(page, "Watched");
+  await expect(presetButton(page, "Watched")).toBeFocused();
 });
