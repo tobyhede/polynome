@@ -854,6 +854,11 @@ h1.is-glitching {
      to agree with it. */
   --step-size: 58px;
 
+  /* And one length for the gap, for the same reason: the column gap below and
+     the gap inside a beat have to hold the same value, and two literals that
+     have to agree are two literals that can drift apart. */
+  --step-gap: 10px;
+
   /* Grid and flex items are min-content wide by default, which would let a wide
      beat push the card past the shell and hand layoutSteps() a width the screen
      does not have. */
@@ -871,7 +876,7 @@ h1.is-glitching {
      row's steps, and the gap has to clear the pulsed dot rather than the
      resting one. The bottom padding is opened further still, so the last row's
      dots sit inside the card rather than against its edge. */
-  gap: 22px 10px;
+  gap: 22px var(--step-gap);
   align-items: center;
   justify-content: start;
   padding: 14px 16px 34px;
@@ -899,7 +904,7 @@ h1.is-glitching {
 .beat {
   position: relative;
   display: flex;
-  gap: 10px;
+  gap: var(--step-gap);
 }
 
 /* A dot under the step the beat starts on: the quietest mark that still says
