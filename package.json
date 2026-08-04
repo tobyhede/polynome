@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A tiny, zero-runtime-dependency polyrhythm and polymeter metronome for the browser.",
+  "description": "A tiny polyrhythm and polymeter metronome for the browser.",
   "scripts": {
     "start": "node server.mjs",
     "lint": "biome check .",
@@ -27,5 +27,9 @@
     "@types/node": "^26.1.2",
     "esbuild": "0.28.1",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "htm": "3.1.1",
+    "preact": "10.29.8"
   }
 }

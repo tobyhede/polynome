@@ -106,6 +106,28 @@ test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts",
 });
 
 /**
+ * The document carries an import map so a browser loading source directly can
+ * resolve `preact` and `htm` against the installed packages. Nothing in the
+ * artifact needs it — esbuild bundles those modules in — and the paths it names
+ * lead into a directory the distribution does not contain, so a map that
+ * survived the build would describe a resolution that cannot happen from a file
+ * opened off disk. The site target asserts the same thing from the other
+ * direction, by resolving every reference it emits against the files it wrote.
+ *
+ * What is banned is a quoted relative path into `node_modules`, which is the
+ * shape the map and every `src` or `href` would take. The bare word is expected
+ * to appear: esbuild labels each bundled module with the path it came from, and
+ * a comment names a file without asking the browser for it.
+ */
+test("single-file distribution carries no import map and no fetchable installed-package path", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const html = await readFile(artifact, "utf8");
+
+  assert.doesNotMatch(html, /type=["']importmap["']/);
+  assert.doesNotMatch(html, /["']\.\/node_modules\//);
+});
+
+/**
  * A browser that refuses storage throws on the `localStorage` property itself,
  * before any method is called, so this is the one storage failure the
  * application cannot notice by checking what it read back. Starting anyway, on
