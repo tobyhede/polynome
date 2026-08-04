@@ -1872,6 +1872,22 @@ test("a tap on a tempo key is one bpm and the ends of the range disable one", as
   await expect(down).toBeEnabled();
 });
 
+test("non-primary mouse presses do not change or repeat the tempo", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  await readout.fill("112");
+  await readout.blur();
+
+  const key = await up.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  for (const button of ["right", "middle"]) {
+    await page.mouse.down({ button });
+    await page.waitForTimeout(700);
+    await page.mouse.up({ button });
+    await expect(readout).toHaveValue("112");
+  }
+});
+
 /**
  * The key that reaches the end of the range keeps its place in the tab order.
  * A held key disables itself under the user, and `disabled` would take it out
