@@ -1042,8 +1042,19 @@ function updateActiveSteps() {
           : activeIndex;
       const current = controls[visibleIndex];
       if (!current) continue;
-      if (rhythm.displayMode === "beat") void current.getBoundingClientRect();
       current.classList.add("is-current");
+      // A Beat control stays current for every pulse in its beat, so the class
+      // it pulses on does not leave and come back and the browser has no reason
+      // to begin the animation again. Restarting it through the animation itself
+      // asks for a style recalculation and nothing more; reading a box back off
+      // the element to force the same restart is a whole layout, once per onset
+      // per Beat-Mode rhythm, in the loop `layoutSteps` goes out of its way to
+      // keep layout out of.
+      if (rhythm.displayMode !== "beat") continue;
+      for (const animation of current.getAnimations()) {
+        animation.cancel();
+        animation.play();
+      }
     }
   }
   animationFrame = requestAnimationFrame(updateActiveSteps);
