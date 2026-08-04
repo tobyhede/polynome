@@ -704,14 +704,6 @@ function RhythmCard({ rhythm, cycle }) {
           >M</button>
           <button
             type="button"
-            class="icon-button${rhythm.displayMode === "subdivision" ? " is-active" : ""}"
-            data-action="display-mode"
-            aria-pressed=${String(rhythm.displayMode === "subdivision")}
-            aria-label=${`Show ${rhythm.displayMode === "beat" ? "Subdivision" : "Beat"} Mode for ${label}`}
-            title=${`Show ${rhythm.displayMode === "beat" ? "Subdivision" : "Beat"} Mode for ${label}`}
-          ><${DisplayModeIcon} /></button>
-          <button
-            type="button"
             class="icon-button edit-button${open ? " is-active" : ""}"
             data-action="toggle-settings"
             aria-expanded=${String(open)}
@@ -834,7 +826,28 @@ function RhythmSettings({ rhythm }) {
         </div>
       </div>
 
-      <div class="sound-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-sound-label`}>
+      <div class="segmented-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-steps-label`}>
+        <span id=${`rhythm-${rhythm.id}-steps-label`}>Steps</span>
+        <div>
+          <button
+            type="button"
+            data-action="display-mode"
+            data-display-mode="beat"
+            class="segment-button${rhythm.displayMode === "beat" ? " is-selected" : ""}"
+            aria-pressed=${String(rhythm.displayMode === "beat")}
+          >Beat</button>
+          <button
+            type="button"
+            data-action="display-mode"
+            data-display-mode="subdivision"
+            class="segment-button${rhythm.displayMode === "subdivision" ? " is-selected" : ""}"
+            aria-pressed=${String(rhythm.displayMode === "subdivision")}
+            aria-label="Subdivision"
+          >Sub</button>
+        </div>
+      </div>
+
+      <div class="segmented-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-sound-label`}>
         <span id=${`rhythm-${rhythm.id}-sound-label`}>Sound</span>
         <div>${SOUNDS.map(
           (sound) => html`
@@ -842,7 +855,7 @@ function RhythmSettings({ rhythm }) {
             type="button"
             data-action="sound"
             data-sound=${sound}
-            class="sound-button${rhythm.sound === sound ? " is-selected" : ""}"
+            class="segment-button${rhythm.sound === sound ? " is-selected" : ""}"
             aria-pressed=${String(rhythm.sound === sound)}
           >${sound}</button>
         `,
@@ -914,16 +927,6 @@ function Step({ step, index, beat }) {
       aria-label=${`${kind} ${number}: ${step} voice`}
       title=${`${kind} ${number}: ${step}`}
     ></button>
-  `;
-}
-
-function DisplayModeIcon() {
-  return html`
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="5" cy="12" r="2.5"></circle>
-      <circle cx="12" cy="12" r="2.5"></circle>
-      <circle cx="19" cy="12" r="2.5"></circle>
-    </svg>
   `;
 }
 
@@ -1626,7 +1629,7 @@ elements.cycles.addEventListener("click", (event) => {
           type: "set-display-mode",
           cycleId: cycle.id,
           rhythmId: rhythm.id,
-          displayMode: rhythm.displayMode === "beat" ? "subdivision" : "beat",
+          displayMode: actionElement.dataset.displayMode,
         });
       break;
     case "beat": {

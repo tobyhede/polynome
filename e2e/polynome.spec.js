@@ -555,18 +555,20 @@ test("a step control cycles primary, secondary, tertiary, off and back", async (
   }
 });
 
-test("each Rhythm layer toggles between Beat Mode and Subdivision Mode", async ({ page }) => {
+test("each Rhythm layer chooses Beat or Subdivision steps from its settings", async ({ page }) => {
   await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
   await setSubdivision(page, 3);
 
   const card = page.locator(".rhythm-card").first();
   const otherCard = page.locator(".rhythm-card").nth(1);
-  const toggle = card.getByRole("button", { name: "Show Subdivision Mode for 4/4" });
+  const mode = card.getByRole("group", { name: "Steps" });
+  const beat = mode.getByRole("button", { name: "Beat", exact: true });
+  const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
   const voices = card.getByRole("group", { name: "4/4 beat voices" });
   await expect(voices.getByRole("button")).toHaveCount(4);
   await expect(voices.getByRole("button").first()).toHaveAccessibleName("Beat 1: primary voice");
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(toggle.locator("circle")).toHaveCount(3);
+  await expect(beat).toHaveAttribute("aria-pressed", "true");
+  await expect(subdivision).toHaveAttribute("aria-pressed", "false");
   await expect(
     otherCard.getByRole("group", { name: "4/4 beat voices" }).getByRole("button"),
   ).toHaveCount(4);
@@ -574,62 +576,34 @@ test("each Rhythm layer toggles between Beat Mode and Subdivision Mode", async (
     await card
       .locator(".rhythm-actions button")
       .evaluateAll((buttons) => buttons.map((button) => button.dataset.action)),
-  ).toEqual(["mute", "display-mode", "toggle-settings", "remove-rhythm"]);
+  ).toEqual(["mute", "toggle-settings", "remove-rhythm"]);
 
-  await toggle.click();
+  await subdivision.click();
 
   await expect(
     card.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
   ).toHaveCount(12);
-  await expect(card.getByRole("button", { name: "Show Beat Mode for 4/4" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(card.getByRole("button", { name: "Show Beat Mode for 4/4" })).toBeFocused();
+  await expect(subdivision).toHaveAttribute("aria-pressed", "true");
+  await expect(subdivision).toBeFocused();
 });
 
-test("Beat Mode preserves hidden voices until its Beat control is changed", async ({ page }) => {
+test("changing Steps mode resets edited voices in either direction", async ({ page }) => {
   await setSubdivision(page, 3);
   const card = page.locator(".rhythm-card").first();
-  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
-  await card.getByRole("button", { name: "Step 2: tertiary voice" }).click();
-  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
+  const mode = card.getByRole("group", { name: "Steps" });
+  const beat = mode.getByRole("button", { name: "Beat", exact: true });
+  const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
 
-  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
-  const firstBeat = card.getByRole("button", { name: "Beat 1: primary voice" });
-  await expect(firstBeat).toBeVisible();
-  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
-  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
-
-  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
-  await firstBeat.click();
-  await expect(card.getByRole("button", { name: "Beat 1: secondary voice" })).toBeVisible();
-  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await subdivision.click();
+  await card.getByRole("button", { name: "Step 1: primary voice" }).click();
   await expect(card.getByRole("button", { name: "Step 1: secondary voice" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Step 2: tertiary voice" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Step 3: tertiary voice" })).toBeVisible();
-});
+  await beat.click();
+  await expect(card.getByRole("button", { name: "Beat 1: primary voice" })).toBeVisible();
 
-/**
- * A Beat control says what the whole beat sounds, so the one voice that says
- * nothing has to reach every pulse in it. Subdivision Mode is where a beat that
- * still sounded under an `off` control would be visible.
- */
-test("a Beat control cycled to off silences every pulse in its beat", async ({ page }) => {
-  await setSubdivision(page, 3);
-  const card = page.locator(".rhythm-card").first();
-  const beat = card.getByRole("button", { name: /^Beat 1:/ });
-
-  for (const voice of ["secondary", "tertiary", "off"]) {
-    await beat.click();
-    await expect(beat).toHaveAccessibleName(`Beat 1: ${voice} voice`);
-  }
-
-  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
-  await expect(card.getByRole("button", { name: "Step 1: off voice" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Step 3: off voice" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Step 4: secondary voice" })).toBeVisible();
+  await card.getByRole("button", { name: "Beat 1: primary voice" }).click();
+  await expect(card.getByRole("button", { name: "Beat 1: secondary voice" })).toBeVisible();
+  await subdivision.click();
+  await expect(card.getByRole("button", { name: "Step 1: primary voice" })).toBeVisible();
 });
 
 test("a Beat control visibly pulses at every Subdivision onset", async ({ page }) => {
@@ -666,7 +640,7 @@ test("the current control follows a display mode change during playback", async 
       const count = Number(element.dataset.pulseCount) + 1;
       element.dataset.pulseCount = String(count);
       if (count !== 2) return;
-      document.querySelector('[data-action="display-mode"]').click();
+      document.querySelector('[data-display-mode="subdivision"]').click();
       requestAnimationFrame(() => {
         document.body.dataset.currentAfterDisplayMode =
           document.querySelector(".step.is-current")?.getAttribute("aria-label") ?? "absent";
@@ -711,7 +685,10 @@ test("the playhead redraws where a display mode change moved it", async ({ page 
     { polling: "raf" },
   );
 
-  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
+  await card
+    .getByRole("group", { name: "Steps" })
+    .getByRole("button", { name: "Beat", exact: true })
+    .click();
 
   await expect(controls).toHaveCount(4);
   await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
@@ -1296,8 +1273,9 @@ async function setSubdivision(page, subdivision) {
 }
 
 async function showSubdivisionMode(page) {
-  const toggle = page.locator('[data-action="display-mode"]').first();
-  if ((await toggle.getAttribute("aria-pressed")) === "false") await toggle.click();
+  await openRhythmSettings(page);
+  const subdivision = page.locator('[data-display-mode="subdivision"]').first();
+  if ((await subdivision.getAttribute("aria-pressed")) === "false") await subdivision.click();
 }
 
 /**

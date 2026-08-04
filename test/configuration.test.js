@@ -718,7 +718,7 @@ test("advancing a Step voice cycles the four voices and preserves the transport 
   }
 });
 
-test("changing a Rhythm layer display mode preserves its sound and transport run", () => {
+test("changing a Rhythm layer to Subdivision Mode resets its Step voices without restarting", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -744,10 +744,64 @@ test("changing a Rhythm layer display mode preserves its sound and transport run
   });
 
   assert.equal(result.configuration.sequence.cycles[0].rhythms[0].displayMode, "subdivision");
-  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, rhythm.steps);
-  assert.equal(result.consequence, "update-configuration");
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, [
+    "primary",
+    "tertiary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+  ]);
+  assert.equal(result.consequence, "update-step-voices");
   assert.equal(result.reason, null);
   assert.equal(sameConfiguration(result.configuration, configuration), false);
+});
+
+test("changing a Rhythm layer to Beat Mode also resets its Step voices", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              displayMode: "subdivision",
+              subdivision: 2,
+              steps: ["off", "primary", "tertiary", "off"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-display-mode",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    displayMode: "beat",
+  });
+
+  assert.equal(result.configuration.sequence.cycles[0].rhythms[0].displayMode, "beat");
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, [
+    "primary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+  ]);
+  assert.equal(result.consequence, "update-step-voices");
+  assert.equal(result.reason, null);
 });
 
 test("advancing a Beat voice normalises its remaining subdivision pulses", () => {

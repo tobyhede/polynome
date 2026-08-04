@@ -115,7 +115,7 @@ test("Subdivision Mode has no accessibility violations", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.getByRole("button", { name: "4/4 subdivision" }).click();
   await page.getByRole("option", { name: /3 per quarter unit/ }).click();
-  await page.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
   await expect(
     page.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
   ).toHaveCount(12);
@@ -162,7 +162,8 @@ test("the current beat keeps the current step's glow when motion is reduced", as
   // one at all.
   expect(beatGlow).not.toBe("none");
 
-  await page.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
   await expect(
     page.locator('.steps[data-display-mode="subdivision"] .step.is-current'),
   ).toHaveCount(1);

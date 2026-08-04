@@ -94,7 +94,9 @@ _Avoid_: Default steps, reset pattern, base pattern
 Which of a rhythm layer's two grids its controls show, either Beat Mode or
 Subdivision Mode. It belongs to the rhythm layer and is part of the
 Configuration, so it survives a reload, saves into a Preset, and tells two
-Configurations apart.
+Configurations apart. Changing modes writes the Canonical pattern outright, so
+no Step voice that the new mode cannot edit survives audibly behind its
+controls.
 _Avoid_: View, zoom level, expanded, collapsed
 
 **Beat Mode**:

@@ -164,7 +164,7 @@ h1 {
 
 .chip-button:hover:not(:disabled, [aria-disabled="true"]),
 .preset-button:hover:not(:disabled),
-.sound-button:hover:not(:disabled),
+.segment-button:hover:not(:disabled),
 .icon-button.is-active {
   border-color: var(--accent);
   color: var(--ink);
@@ -1092,7 +1092,7 @@ h1.is-glitching {
 }
 
 .control-label,
-.sound-control {
+.segmented-control {
   display: grid;
   gap: 9px;
   min-width: 0;
@@ -1206,7 +1206,7 @@ h1.is-glitching {
   color: var(--accent);
 }
 
-.sound-control > div {
+.segmented-control > div {
   display: flex;
   gap: 5px;
   height: 44px;
@@ -1217,7 +1217,7 @@ h1.is-glitching {
   background: var(--card);
 }
 
-.sound-button {
+.segment-button {
   height: 36px;
   padding: 0 13px;
   border: 0;
@@ -1231,7 +1231,7 @@ h1.is-glitching {
   text-transform: uppercase;
 }
 
-.sound-button.is-selected {
+.segment-button.is-selected {
   background: var(--ink);
   color: #0c0c0d;
 }
@@ -1434,15 +1434,15 @@ h1.is-glitching {
     gap: 18px;
   }
 
-  .sound-control {
+  .segmented-control {
     width: 100%;
   }
 
-  .sound-control > div {
+  .segmented-control > div {
     width: 100%;
   }
 
-  .sound-button {
+  .segment-button {
     flex: 1;
     padding-inline: 6px;
   }

@@ -817,9 +817,10 @@ const COMMANDS = Object.freeze({
     leavesUnchanged: (current, edit) =>
       findRhythm(current, edit.cycleId, edit.rhythmId)?.displayMode === edit.displayMode,
     apply(current, edit) {
-      return changeRhythm(current, edit, "update-configuration", (rhythm) => ({
+      return changeRhythm(current, edit, "update-step-voices", (rhythm) => ({
         ...rhythm,
         displayMode: edit.displayMode,
+        steps: canonicalSteps(rhythm.signature.count, rhythm.subdivision),
       }));
     },
   },
