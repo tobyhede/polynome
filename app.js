@@ -1214,6 +1214,21 @@ function stepTempo(delta) {
   return result.consequence !== "none";
 }
 
+/**
+ * The number field commits on its own `change` event, which the browser sends
+ * only once focus has left it — and a pointer press on a key runs before the
+ * focus shift that would produce it. Stepping from `state.bpm` there would step
+ * from the tempo the field was last committed at, and the render that follows
+ * writes that result back over the digits still on screen, so a typed tempo
+ * would vanish without ever having been read.
+ *
+ * The keyboard reaches a hold with the key already focused, so the field has
+ * committed by then and this finds nothing to do.
+ */
+function commitPendingTempo() {
+  if (document.activeElement === elements.bpm) changeTempo(elements.bpm.value);
+}
+
 function endTempoHold() {
   if (!tempoHolding) return;
   tempoHolding = false;
@@ -1224,6 +1239,7 @@ function endTempoHold() {
 
 function startTempoHold(delta) {
   endTempoHold();
+  commitPendingTempo();
   tempoHolding = true;
   const tick = (wait) => {
     if (!stepTempo(delta)) {

@@ -1842,6 +1842,33 @@ test("a tempo key held to the end of its range keeps its place", async ({ page }
 });
 
 /**
+ * A number field commits on the `change` event, which arrives only once focus
+ * has left it — and `pointerdown` on a key runs before the focus shift that
+ * produces it. Every other test here leaves the field first, so this is the one
+ * that reaches the tempo a user typed and has not yet stepped away from.
+ */
+test("a tempo typed into the readout is stepped from, not discarded", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("200");
+  await up.click();
+  await expect(readout).toHaveValue("201");
+
+  await readout.fill("90");
+  await down.click();
+  await expect(readout).toHaveValue("89");
+
+  // The keyboard arrives at the same hold with the key already focused, so the
+  // field has committed on its own by then and there is nothing left pending.
+  await readout.fill("150");
+  await up.focus();
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("151");
+});
+
+/**
  * A hold is what covers a long move, so it has to accelerate. Thirty steps
  * inside the five seconds allowed below is only reachable if the interval
  * decays: a repeat held at `HOLD_DELAY_MS` throughout would take twelve seconds
