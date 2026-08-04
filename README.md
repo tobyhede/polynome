@@ -5,6 +5,7 @@ A deliberately small browser metronome with:
 - ordered cycles of one or more simultaneous rhythm layers
 - polyrhythm and polymeter presets
 - editable meter and subdivision per signature unit for every layer
+- a per-layer view of either one control per beat or one per pattern position
 - four Step voices: primary, secondary, tertiary, and off
 - independent volume and stereo pan for each rhythm
 - sample-accurate Web Audio scheduling from one shared transport clock
@@ -88,6 +89,10 @@ Each layer has:
 - a pattern whose steps select primary, secondary, or tertiary pitched voices,
   or silence; audible voices have equal gain, and each adjacent voice is four
   semitones lower than the one above it
+- a display mode: Beat Mode offers one control per beat, which sets the voice of
+  every pulse in that beat, and Subdivision Mode offers one control per pattern
+  position. Beat Mode is the default, and the choice is per layer and saved with
+  the rest of the layer
 - its own sound, volume, mute state, and stereo position
 
 Examples:
@@ -133,6 +138,8 @@ e2e/                  Playwright browser interaction tests
 ## Current limitations
 
 - Meter denominators describe the written beat unit but do not alter its audible rate.
+- Changing a meter numerator or a subdivision resets that layer's pattern to the
+  default voices for the new grid, and there is no undo. Save a preset first.
 - Changes to sequence timing or structure restart the shared transport when playing; Step-voice and mix edits do not.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.
