@@ -160,6 +160,31 @@ export function subdivisionLabel(subdivision, unit) {
   return `${subdivision} per ${unitName} unit · ${hint}`;
 }
 
+/**
+ * The tempo marks a drag stops on. The tick row draws one every ten BPM, and a
+ * drag that lands within `tolerance` of a mark takes the mark exactly, so the
+ * round tempos musicians actually name are the easy ones to hit.
+ *
+ * This restores what the browser used to do for free: a `<datalist>` on the
+ * slider snapped the thumb to its ticks, and it was dropped when the slider
+ * moved above `.bpm-ticks`, where the browser's own marks duplicated the row.
+ * The behaviour was the datalist's, not the tick row's, so drawing the marks
+ * ourselves did not carry it over.
+ *
+ * The tolerance leaves each mark's neighbours ±1 and ±2 unreachable by drag.
+ * They are reachable by typing and by the arrow keys, which is why only a
+ * pointer drag snaps: a keyboard step of one from a mark would be pulled
+ * straight back to it, and the slider would never move at all.
+ */
+export const TEMPO_SNAP = Object.freeze({ interval: 10, tolerance: 2 });
+
+export function snapTempo(value) {
+  const parsed = numericValue(value);
+  if (!Number.isFinite(parsed)) return value;
+  const mark = Math.round(parsed / TEMPO_SNAP.interval) * TEMPO_SNAP.interval;
+  return Math.abs(parsed - mark) <= TEMPO_SNAP.tolerance ? mark : parsed;
+}
+
 export function panLabel(value) {
   const pan = normaliseNumber(value, 0, -1, 1);
   if (Math.abs(pan) < 0.04) return "Centre";

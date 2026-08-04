@@ -8,7 +8,7 @@ import {
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
-import { panLabel, subdivisionLabel } from "./model.js";
+import { panLabel, snapTempo, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
@@ -601,6 +601,15 @@ function RhythmCard({ rhythm, cycle }) {
         </div>
       </div>
 
+      <!-- The settings pane sits between the heading and the steps, so opening
+           it from either control in that heading reveals it directly under the
+           control that was activated rather than below a step grid whose height
+           varies with the Meter. The steps keep their place on screen relative
+           to the card's own bottom edge. -->
+      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
+        <${RhythmSettings} rhythm=${rhythm} />
+      </div>
+
       <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
            data attribute, and the beat-gap clamp needs it as a number CSS can
            calculate with. Neither can read the other's form. An HTML comment is
@@ -615,10 +624,6 @@ function RhythmCard({ rhythm, cycle }) {
         style=${`--subdivision: ${rhythm.subdivision}`}
       >
         <${Beats} rhythm=${rhythm} />
-      </div>
-
-      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
-        <${RhythmSettings} rhythm=${rhythm} />
       </div>
     </article>
   `;
@@ -947,11 +952,32 @@ elements.helpToggle.addEventListener("click", () => {
 elements.bpm.addEventListener("change", (event) =>
   changeTempo(/** @type {HTMLInputElement} */ (event.target).value),
 );
+/**
+ * Only a pointer drag snaps to the ten-BPM marks, so the flag is what the drag
+ * is recognised by: an `input` event carries no pointer of its own. It is
+ * cleared on `pointercancel` as well as `pointerup`, because a drag taken over
+ * by a scroll gesture ends without a release, and a flag left raised would snap
+ * the arrow keys afterwards.
+ */
+let bpmSliderDragging = false;
+const endBpmSliderDrag = () => {
+  bpmSliderDragging = false;
+};
+elements.bpmSlider.addEventListener("pointerdown", () => {
+  bpmSliderDragging = true;
+});
+elements.bpmSlider.addEventListener("pointerup", endBpmSliderDrag);
+elements.bpmSlider.addEventListener("pointercancel", endBpmSliderDrag);
 elements.bpmSlider.addEventListener("input", (event) => {
+  const dragged = /** @type {HTMLInputElement} */ (event.target).value;
   applyEdit(
-    { type: "set-tempo", bpm: /** @type {HTMLInputElement} */ (event.target).value },
+    { type: "set-tempo", bpm: bpmSliderDragging ? snapTempo(dragged) : dragged },
     { deferConsequence: true, render: false },
   );
+  // renderTransport() writes the tempo back onto the slider, which is what
+  // holds the thumb on a mark while the pointer moves inside its tolerance.
+  // The browser tracks the drag by pointer position, not by where the thumb
+  // was left, so the next move still reports the tempo the pointer is over.
   renderTransport();
   renderPresetPanel();
 });

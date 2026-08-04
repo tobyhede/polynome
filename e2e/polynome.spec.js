@@ -63,6 +63,60 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
 });
 
+/**
+ * The tick row marks every ten BPM and a drag stops on those marks. Asserting a
+ * particular tempo at a particular offset would pin the browser's own mapping
+ * from pointer position to value, half a thumb width inset at either end, so
+ * what is asserted is the property the snap has: a dragged tempo is either on a
+ * mark or clear of one by more than the tolerance, never stranded beside it.
+ */
+test("dragging the tempo slider stops on the ten-BPM marks", async ({ page }) => {
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const track = await slider.boundingBox();
+  const y = track.y + track.height / 2;
+  const from = track.x + track.width * 0.3;
+
+  await page.mouse.move(from, y);
+  await page.mouse.down();
+  const dragged = [];
+  for (let offset = 0; offset <= 40; offset += 2) {
+    await page.mouse.move(from + offset, y);
+    dragged.push(Number(await slider.inputValue()));
+  }
+  await page.mouse.up();
+
+  const distanceToMark = (bpm) => Math.min(bpm % 10, 10 - (bpm % 10));
+  expect(dragged.filter((bpm) => distanceToMark(bpm) > 0 && distanceToMark(bpm) <= 2)).toEqual([]);
+  // Both confirm the drag moved and that it crossed marks rather than sitting
+  // in one gap the whole way, which would satisfy the assertion above trivially.
+  expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
+  expect(new Set(dragged.filter((bpm) => bpm % 10 === 0)).size).toBeGreaterThan(1);
+});
+
+/**
+ * Only the pointer snaps. A keyboard step of one away from a mark would be
+ * pulled straight back onto it, and the slider would be stuck on that mark for
+ * good, so the arrow keys reach the tempos between the marks and the number
+ * input keeps them.
+ */
+test("the tempo arrow keys reach and hold the tempos between the marks", async ({ page }) => {
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+
+  await slider.focus();
+  for (let press = 0; press < 3; press += 1) await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("99");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("100");
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("101");
+
+  await readout.fill("108");
+  await readout.blur();
+  await expect(slider).toHaveValue("108");
+});
+
 test("storage from the wider meter domain is retired instead of repaired", async ({ page }) => {
   await page.evaluate(() => {
     localStorage.setItem("polynome-configuration", JSON.stringify({ bpm: 132 }));

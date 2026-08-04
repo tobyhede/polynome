@@ -9,3 +9,10 @@ shots/
 # Serena's local state: a per-developer override file and a regenerable cache.
 .serena/project.local.yml
 .serena/cache/
+
+# Agent worktrees of this repository. Each is a full checkout carrying its own
+# copy of `biome.jsonc`, and Biome refuses a root configuration nested inside
+# another, so `npm run lint` fails outright for as long as one exists. Biome
+# reads this file, which is why the entry belongs here rather than in its
+# `files.includes`: one exclusion then covers every tool that walks the tree.
+.claude/worktrees/
