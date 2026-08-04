@@ -460,6 +460,33 @@ test("a Step voice outside the vocabulary schedules silence", () => {
   }
 });
 
+/**
+ * The same claim one seam out. `plan()` filters only `off`, so an unrecognised
+ * voice arrives at the engine as an ordinary event and is refused at the pitch
+ * table — the single audibility decision ADR-0008 describes. What matters is
+ * that refusing it costs the rest of the grid nothing: the surrounding clicks
+ * keep the start times they would have had, so the hole is one silent position
+ * rather than a shifted rhythm.
+ */
+test("an unrecognised voice leaves a silent position and an intact grid", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  const grid = fiftyMillisecondGrid();
+  grid.sequence.cycles[0].rhythms[0].steps[1] = "full";
+
+  await engine.start(grid);
+  for (const clock of [0.12, 0.24, 0.36]) {
+    context.currentTime = clock;
+    tick();
+  }
+
+  // The on-time grid without its second position: 0.11 is silent and 0.16
+  // still lands where it always did.
+  assert.deepEqual(clickStarts(context), [0.06, 0.16, 0.21, 0.26, 0.31, 0.36, 0.41, 0.46]);
+
+  engine.stop();
+});
+
 test("an unrecognised sound falls back to the high profile, inherited or not", () => {
   for (const sound of ["bogus", undefined, "constructor", "toString"]) {
     const context = new FakeAudioContext();
