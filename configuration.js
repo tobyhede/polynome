@@ -7,6 +7,7 @@ import {
   SOUND,
   STEP,
   SUBDIVISION_LIMIT,
+  TEMPO_LIMIT,
 } from "./model.js";
 
 /**
@@ -157,7 +158,7 @@ export function createConfiguration(input) {
         : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
-    bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
+    bpm: Math.round(normaliseNumber(source.bpm, 96, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
     sequence: { cycles: validCycles },
   };
 }
@@ -847,7 +848,8 @@ const COMMANDS = Object.freeze({
   },
   "set-tempo": {
     validPayload: (edit) => hasFormNumber(edit, "bpm"),
-    validValue: (edit) => numberInRange(edit, "bpm", 30, 300, true),
+    validValue: (edit) =>
+      numberInRange(edit, "bpm", TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum, true),
     leavesUnchanged: (current, edit) => current.bpm === formNumber(edit.bpm),
     apply(current, edit) {
       return changed({ ...current, bpm: formNumber(edit.bpm) }, "restart-transport-run");
