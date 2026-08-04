@@ -56,14 +56,25 @@ test("the help panel has no accessibility violations", async ({ page }) => {
 });
 
 test("the preset panel has no accessibility violations, empty and populated", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(page.locator("#preset-panel")).toBeVisible();
   await expectNoViolations(page);
 
   // A saved preset adds the delete button and the armed-delete styling, none of
-  // which exists in the built-in rows scanned above.
-  await page.getByRole("textbox", { name: "Save current preset" }).fill("Scanned");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // which exists in the built-in rows scanned above. + Save is live only while
+  // the Configuration differs from the Preset it came from, so the tempo moves
+  // first. The save panel is scanned open, since it is the only state in which
+  // its field and submit are in the document at all.
+  const bpm = page.getByLabel("Tempo in beats per minute");
+  await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  await expect(openSave).toBeEnabled();
+  await openSave.click();
+  const savePanel = page.getByRole("region", { name: "Save preset" });
+  await savePanel.getByRole("textbox", { name: "Preset name" }).fill("Scanned");
+  await expectNoViolations(page);
+
+  await savePanel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
   await expect(page.getByRole("status")).toHaveText("Scanned preset saved");
   await expectNoViolations(page);
 
