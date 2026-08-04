@@ -7,6 +7,7 @@ import {
   describePresets,
   presetNameInUse,
   removeSavedPreset,
+  sameConfiguration,
   savePreset,
 } from "./configuration.js";
 import { panLabel, subdivisionLabel } from "./model.js";
@@ -55,12 +56,10 @@ const elements = {
   presetCountNoun: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count-noun")),
   presetsClose: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-close")),
   presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
-  presetSaveDialog: /** @type {HTMLDialogElement} */ (
-    document.querySelector("#preset-save-dialog")
-  ),
+  presetSavePanel: /** @type {HTMLElement} */ (document.querySelector("#save-panel")),
   presetSaveOpen: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-open")),
-  presetSaveCancel: /** @type {HTMLButtonElement} */ (
-    document.querySelector("#preset-save-cancel")
+  presetSaveClose: /** @type {HTMLButtonElement} */ (
+    document.querySelector("#preset-save-close")
   ),
   presetSaveSubmit: /** @type {HTMLButtonElement} */ (
     document.querySelector("#preset-save-submit")
@@ -104,6 +103,16 @@ const {
 } = description.choices;
 let presetsOpen = false;
 let helpOpen = false;
+let savePanelOpen = false;
+/**
+ * The Preset this Configuration came from — applied from the panel, or written
+ * by the last save — and the snapshot it held at that moment. It answers two
+ * questions the interface cannot ask any other way: what to put in the name
+ * field, and whether anything has changed since, which is whether there is
+ * anything to save at all. Null until a Preset is involved, which is why a
+ * Configuration restored from storage on a fresh visit is savable.
+ */
+let presetOrigin = null;
 let pendingDeletePresetId = null;
 let openSubdivisionMenu = null;
 let animationFrame = null;
@@ -182,6 +191,11 @@ function applyEdit(edit, options = {}) {
   description = describeConfiguration(state);
   persistence.schedule(state);
   if (options.render !== false) renderInterface();
+  // Whether there is anything to save is a function of the Configuration, so it
+  // has to follow every edit — including the ones that skip the full render to
+  // keep a pointer drag cheap. This is one comparison against one remembered
+  // snapshot and a handful of attribute writes, not a pass over stored Presets.
+  else renderPanels();
 
   if (options.deferConsequence) return result;
   engine.applyConsequence(result.consequence, state)?.catch(showError);
@@ -196,6 +210,21 @@ function renderInterface() {
   renderFooter();
 }
 
+/**
+ * Whether the current Configuration has moved since the Preset it came from.
+ * One comparison against the remembered snapshot, not one per stored Preset:
+ * this runs on every render, including every step click and every pointer move
+ * of a tempo drag.
+ *
+ * A Configuration with no Preset behind it counts as unsaved. That covers a
+ * first visit and anything restored from storage, both of which the user may
+ * well want to keep.
+ */
+function hasUnsavedChanges() {
+  return presetOrigin === null
+    || !sameConfiguration(state, presetOrigin.configuration);
+}
+
 function renderPanels() {
   elements.presetPanel.hidden = !presetsOpen;
   elements.presetsToggle.setAttribute("aria-expanded", String(presetsOpen));
@@ -203,6 +232,17 @@ function renderPanels() {
   elements.helpPanel.hidden = !helpOpen;
   elements.helpToggle.setAttribute("aria-expanded", String(helpOpen));
   elements.helpToggle.classList.toggle("is-active", helpOpen);
+  elements.presetSavePanel.hidden = !savePanelOpen;
+  elements.presetSaveOpen.setAttribute("aria-expanded", String(savePanelOpen));
+  elements.presetSaveOpen.classList.toggle("is-active", savePanelOpen);
+  // Nothing to save is not a reason to hide the way in, so this disables rather
+  // than removes: the control stays where the user learned it is, and says why
+  // it will not act.
+  const unsaved = hasUnsavedChanges();
+  elements.presetSaveOpen.disabled = !unsaved && !savePanelOpen;
+  elements.presetSaveOpen.title = unsaved
+    ? "Save this setup as a preset"
+    : "No changes to save";
 }
 
 function renderTransport() {
@@ -1035,7 +1075,27 @@ elements.presetList.addEventListener("click", (event) => {
       ? { type: "apply-preset", name: preset.name }
       : { type: "apply-preset", configuration: preset.configuration },
   );
+  // Recorded after the edit, from the Configuration the edit actually produced
+  // rather than from the Preset's own copy: `apply-preset` regenerates every
+  // identifier, and remembering the copy would leave the two comparing unequal
+  // the instant they are compared.
+  rememberPresetOrigin(preset.name, preset.builtIn);
+  renderPanels();
 });
+
+function rememberPresetOrigin(name, builtIn = false) {
+  presetOrigin = { name, builtIn, configuration: state };
+}
+
+/**
+ * The name to open the save field on. A built-in Preset's name is reserved —
+ * `savePreset` refuses it rather than replacing anything — so offering it back
+ * would be offering a save that cannot succeed. Editing a built-in is how a
+ * user starts their own Preset, and naming it is the point.
+ */
+function nameToSaveUnder() {
+  return presetOrigin && !presetOrigin.builtIn ? presetOrigin.name : "";
+}
 /**
  * Saving under a name already in use replaces that Preset's snapshot. A
  * sentence under the field used to say so and nobody read it; the submit button
@@ -1048,18 +1108,38 @@ function describeSaveAction() {
       : "Save";
 }
 
+function closeSavePanel({ focusToggle = true } = {}) {
+  savePanelOpen = false;
+  renderPanels();
+  if (!focusToggle) return;
+  // Closing can be what disables the toggle — it is live only while there is
+  // something to save — and a disabled element cannot hold focus, so the
+  // neighbour takes it rather than the document.
+  const target = elements.presetSaveOpen.disabled
+    ? elements.presetsToggle
+    : elements.presetSaveOpen;
+  target.focus();
+}
+
 elements.presetSaveOpen.addEventListener("click", () => {
-  elements.presetName.value = "";
+  savePanelOpen = !savePanelOpen;
+  if (!savePanelOpen) {
+    closeSavePanel({ focusToggle: false });
+    return;
+  }
+  // Prefilled with the Preset this Configuration came from, so saving an edited
+  // version back over it is the default and renaming is the deliberate act. An
+  // untouched name is what carries the edits onto the Preset the user started
+  // from — which is `savePreset`'s existing replace-by-name behaviour, not a
+  // second path.
+  elements.presetName.value = nameToSaveUnder();
   elements.presetName.setCustomValidity("");
   describeSaveAction();
-  // `showModal` traps focus, answers Escape, and returns focus to this button
-  // on close. It does not block the thread, which `confirm` would, and the
-  // metronome can be playing throughout.
-  elements.presetSaveDialog.showModal();
+  renderPanels();
+  elements.presetName.focus();
+  elements.presetName.select();
 });
-elements.presetSaveCancel.addEventListener("click", () => {
-  elements.presetSaveDialog.close();
-});
+elements.presetSaveClose.addEventListener("click", () => closeSavePanel());
 elements.presetName.addEventListener("input", () => {
   elements.presetName.setCustomValidity("");
   describeSaveAction();
@@ -1079,14 +1159,22 @@ elements.presetSave.addEventListener("submit", (event) => {
   }
   savedPresets = result.presets;
   const persisted = writeSavedPresets(savedPresets);
-  elements.presetSaveDialog.close();
+  // What was just written is now what this Configuration is, so there is nothing
+  // left to save until the next edit. This is the same record applying a Preset
+  // makes, and it is what disables the way back in here.
+  rememberPresetOrigin(result.preset.name);
+  savePanelOpen = false;
+  renderPanels();
   renderPresetPanel();
-  // Only when the panel is open: closing the dialog returns focus to the button
-  // that opened it, and moving it into a panel the user cannot see would strand
-  // them. Saving deliberately does not open the panel — the status line is the
-  // confirmation, and a panel that opens itself takes over the screen.
+  // Only when the panel is open. Moving focus into a panel the user cannot see
+  // would strand them, and saving deliberately does not open it — the status
+  // line is the confirmation, and a panel that opens itself takes the screen.
+  // Otherwise focus goes nowhere useful, so it goes to the toggle it came from,
+  // which the save has just disabled; the presets toggle is the live neighbour.
   if (presetsOpen) {
     focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
+  } else {
+    elements.presetsToggle.focus();
   }
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
@@ -1261,7 +1349,11 @@ document.addEventListener("click", (event) => {
   dismissPendingDelete();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") dismissPendingDelete();
+  if (event.key !== "Escape") return;
+  dismissPendingDelete();
+  // The dialog this panel replaced answered Escape natively, and a panel that
+  // stopped doing so would be a regression a user notices before a test does.
+  if (savePanelOpen) closeSavePanel();
 });
 
 /**
@@ -1405,4 +1497,13 @@ elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
   const major = bpm % 90 === 30;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
+/**
+ * A Configuration restored from storage may already be one of the stored
+ * Presets exactly, and on that reading there is nothing to save. Deriving it
+ * once here costs one pass over the stored Presets at startup and keeps a
+ * reload from re-offering a save the user already made.
+ */
+presetOrigin = describePresets(state, savedPresets)
+  .filter(({ selected }) => selected)
+  .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
 renderInterface();

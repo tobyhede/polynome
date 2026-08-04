@@ -11,13 +11,26 @@ function presetButton(page, name) {
   return page.getByRole("button", { name: new RegExp(`^${name}\\b`) });
 }
 
-// Saving is reachable whether or not the panel is open, so this does not open
-// it. The submit reads "Replace" once the typed name is one already stored.
+/**
+ * + Save is live only while the current Configuration differs from the Preset it
+ * came from, so a test that wants to save has to have changed something first.
+ * Nudging the tempo is the cheapest edit that does not disturb the Sequence any
+ * assertion is about, and it is skipped when there is already something to save.
+ *
+ * Saving is reachable whether or not the preset panel is open, so this does not
+ * open it. The submit reads "Replace" once the typed name is one already stored.
+ */
 async function savePreset(page, name) {
-  await page.getByRole("button", { name: "+ Save" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Name" }).fill(name);
-  await dialog.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
+  const open = page.getByRole("button", { name: "+ Save" });
+  if (await open.isDisabled()) {
+    const bpm = page.getByLabel("Tempo in beats per minute");
+    await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+  }
+  await expect(open).toBeEnabled();
+  await open.click();
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  await panel.getByRole("textbox", { name: "Preset name" }).fill(name);
+  await panel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
   await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
 }
 
@@ -486,6 +499,10 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   const heading = page.getByRole("heading", { name: /^Presets/ });
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
+  // Saving requires an edit, and the edit available to `savePreset` is the
+  // tempo, so the arithmetic below starts from a value this test states rather
+  // than from whatever it was left at.
+  await page.getByRole("spinbutton", { name: "BPM" }).fill("96");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toBeHidden();
 
@@ -529,19 +546,21 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     });
     const page = await denied.newPage();
     const status = page.getByRole("status");
-    const dialog = page.getByRole("dialog");
+    const panel = page.getByRole("region", { name: /^Save preset/ });
     const openSave = page.getByRole("button", { name: "+ Save" });
-    const name = dialog.getByRole("textbox", { name: "Name" });
-    const save = dialog.getByRole("button", { name: /^(?:Save|Replace)$/ });
+    const name = panel.getByRole("textbox", { name: "Preset name" });
+    const save = panel.getByRole("button", { name: /^(?:Save|Replace)$/ });
     await page.goto("/");
     await page.getByRole("button", { name: "Presets", exact: true }).click();
 
+    await page.getByLabel("Tempo in beats per minute").fill("101");
     await openSave.click();
     await name.fill("First");
     await save.click();
     await expect(status).toHaveText("Preset could not be saved in this browser");
     await expect(presetButton(page, "First")).toBeVisible();
 
+    await page.getByLabel("Tempo in beats per minute").fill("102");
     await openSave.click();
     await name.fill("Second");
     await save.click();
@@ -931,4 +950,128 @@ test("the travelling tempo readout stays inside the transport card", async ({ pa
       expect(viewport.scroll, `${where} widened the page`).toBeLessThanOrEqual(viewport.client);
     }
   }
+});
+
+/**
+ * Saving is offered only when there is something to save. Applying a Preset and
+ * saving one both leave the Configuration equal to a stored Preset, and offering
+ * to write a copy of what is already there invites a duplicate under a second
+ * name. The rule is the same in both directions, so both are walked here.
+ */
+test("saving is offered only while the setup differs from the preset it came from", async ({ page }) => {
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+
+  // The default Configuration is the 4/4 preset exactly, adopted at startup.
+  await expect(openSave).toBeDisabled();
+
+  await tempo.fill("120");
+  await expect(openSave).toBeEnabled();
+
+  // Back to what the preset holds: the edit undid itself, so there is again
+  // nothing to save. Nothing records that an edit happened, only what it left.
+  await tempo.fill("96");
+  await expect(openSave).toBeDisabled();
+
+  await tempo.fill("132");
+  await savePreset(page, "Brisk");
+  await expect(openSave).toBeDisabled();
+
+  await tempo.fill("133");
+  await expect(openSave).toBeEnabled();
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await presetButton(page, "Brisk").click();
+  await expect(bpm).toHaveValue("132");
+  await expect(openSave).toBeDisabled();
+});
+
+/**
+ * The field opens holding the Preset this Configuration came from, so carrying
+ * an edit back onto it is the default and renaming is the deliberate act. That
+ * replaces rather than duplicates — the count is what proves it — and the
+ * submit says which of the two it is about to do before it is pressed.
+ */
+test("the save field opens on the preset the setup came from", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+
+  await tempo.fill("144");
+  await savePreset(page, "Fast");
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(heading).toContainText("3");
+
+  await tempo.fill("145");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("Fast");
+  await expect(name).toBeFocused();
+  await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
+
+  await panel.getByRole("button", { name: "Replace" }).click();
+  await expect(page.getByRole("status")).toHaveText("Fast preset saved");
+  await expect(panel).toBeHidden();
+  await expect(heading).toContainText("3");
+  await presetButton(page, "Fast").click();
+  await expect(bpm).toHaveValue("145");
+});
+
+/**
+ * The panel replaced a native dialog, which answered Escape without being asked.
+ * Closing must not save: the field is left holding an edited name and the stored
+ * Preset has to be untouched by it.
+ */
+test("closing the save panel abandons what was typed", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const openSave = page.getByRole("button", { name: "+ Save" });
+
+  await tempo.fill("150");
+  await savePreset(page, "Kept");
+  await tempo.fill("151");
+
+  await openSave.click();
+  await panel.getByRole("textbox", { name: "Preset name" }).fill("Discarded");
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+
+  await openSave.click();
+  await panel.getByRole("button", { name: "Close save preset" }).click();
+  await expect(panel).toBeHidden();
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(presetButton(page, "Discarded")).toHaveCount(0);
+  await expect(presetButton(page, "Kept")).toBeVisible();
+  await presetButton(page, "Kept").click();
+  await expect(bpm).toHaveValue("150");
+});
+
+/**
+ * A built-in Preset's name is reserved, so `savePreset` refuses it rather than
+ * replacing anything. Editing a built-in and pressing save must not open on a
+ * name that cannot be written — the whole point of that edit is to start a
+ * Preset of the user's own.
+ */
+test("editing a built-in preset opens the save field empty", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+
+  await tempo.fill("128");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("");
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+
+  await name.fill("Mine");
+  await panel.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Mine preset saved");
+
+  // Saved under its own name, the Preset now offers itself back for replacing.
+  await tempo.fill("129");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("Mine");
 });
