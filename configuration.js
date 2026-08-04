@@ -757,7 +757,7 @@ const COMMANDS = Object.freeze({
     leavesUnchanged: (current, edit) =>
       findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
     apply(current, edit) {
-      return changeRhythm(current, edit, "restart-transport-run", (rhythm) => ({
+      return changeRhythm(current, edit, "update-configuration", (rhythm) => ({
         ...rhythm,
         signature: { ...rhythm.signature, unit: formNumber(edit.unit) },
       }));

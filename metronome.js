@@ -308,8 +308,16 @@ export class MetronomeEngine extends EventTarget {
       this.updateStepLevels(state);
       return null;
     }
+    if (consequence === "update-configuration") {
+      this.updateConfiguration(state);
+      return null;
+    }
     this.updateMix(state);
     return null;
+  }
+
+  updateConfiguration(state) {
+    this.#state = state;
   }
 
   updateMix(state) {

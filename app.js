@@ -1238,21 +1238,28 @@ elements.cycles.addEventListener("change", (event) => {
   const context = findContext(target);
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
+  let result = null;
   if (field === "signature-count") {
-    applyEdit({
+    result = applyEdit({
       type: "set-meter-count",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       count: target.value,
     });
   } else if (field === "signature-unit") {
-    applyEdit({
+    result = applyEdit({
       type: "set-meter-unit",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       unit: target.value,
     });
   }
+  if (!result) return;
+  if (result.consequence === "none") return;
+  const committed = result.configuration.sequence.cycles
+    .find(({ id }) => id === cycle.id)
+    ?.rhythms.find(({ id }) => id === rhythm.id);
+  if (committed) elements.status.textContent = `Meter ${rhythmLabel(committed)}`;
 });
 
 engine.addEventListener("playstate", () => {

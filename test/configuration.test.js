@@ -471,6 +471,39 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   assert.equal(simpler.consequence, "restart-transport-run");
 });
 
+test("a conventional Meter denominator edit preserves the grid and transport run", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 2,
+              steps: ["full", "off", "quarter", "half"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    unit: 8,
+  });
+
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0], {
+    ...rhythm,
+    signature: { count: 2, unit: 8 },
+  });
+  assert.equal(result.consequence, "update-configuration");
+});
+
 test("advancing a Step level cycles the levels and preserves the transport run", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];

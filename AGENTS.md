@@ -35,6 +35,8 @@ The core promise is:
 
 Meter numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
 
+An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-levels` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
+
 ### Configuration edit failure modes
 
 `changeConfiguration` separates programmer error from user input, and the two are reported differently on purpose:
@@ -92,7 +94,7 @@ Also manually verify the audio-specific behavior Playwright cannot assess:
 1. Presets `4/4` and `4/4 + 3/4` sound as configured.
 2. Headphone separation at hard left and hard right through physical output.
 3. Full, half, quarter, and off levels are perceptually distinguishable, not merely correctly scaled.
-4. Signature and pulse edits restart cleanly while playing.
+4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.
 
 ## Product boundaries
 
