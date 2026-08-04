@@ -680,12 +680,20 @@ const COMMANDS = Object.freeze({
         return unchanged(current, "beat-not-found");
       }
       const firstPosition = beat * rhythm.subdivision;
+      // The beat is the only thing a Beat control addresses, so its voice is the
+      // voice of every pulse inside it: the leading pulse takes the advanced
+      // voice and the rest take the canonical `tertiary` beneath it. `off` is
+      // the exception, and it is the one that has to be, because `off` is the
+      // only silent voice — a beat announced as off with trailing `tertiary`
+      // pulses would go on sounding twice under a control that says it does not.
+      const nextVoice = nextStepVoice(rhythm.steps[firstPosition]);
+      const trailingVoice = nextVoice === STEP.OFF ? STEP.OFF : STEP.TERTIARY;
       return changeRhythm(current, edit, "update-step-voices", (candidate) => ({
         ...candidate,
         steps: candidate.steps.map((voice, position) => {
-          if (position === firstPosition) return nextStepVoice(voice);
+          if (position === firstPosition) return nextVoice;
           if (position < firstPosition + candidate.subdivision && position > firstPosition) {
-            return STEP.TERTIARY;
+            return trailingVoice;
           }
           return voice;
         }),

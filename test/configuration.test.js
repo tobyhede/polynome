@@ -722,6 +722,48 @@ test("advancing a Beat voice normalises its remaining subdivision pulses", () =>
   assert.equal(result.consequence, "update-step-voices");
 });
 
+/**
+ * In Beat Mode the beat is the only addressable thing, so its voice has to be
+ * the voice of every pulse inside it. Only `off` is silent, so a beat advanced
+ * to `off` that kept `tertiary` trailing pulses would go on sounding under a
+ * control announcing it as off.
+ */
+test("advancing a Beat voice carries all four voices across the whole beat", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  let current = configuration;
+
+  for (const expected of [
+    ["secondary", "tertiary", "tertiary"],
+    ["tertiary", "tertiary", "tertiary"],
+    ["off", "off", "off"],
+    ["primary", "tertiary", "tertiary"],
+  ]) {
+    const result = changeConfiguration(current, {
+      type: "advance-beat-voice",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      beat: 0,
+    });
+
+    assert.deepEqual(
+      result.configuration.sequence.cycles[0].rhythms[0].steps.slice(0, 3),
+      expected,
+    );
+    assert.equal(result.consequence, "update-step-voices");
+    current = result.configuration;
+  }
+});
+
 test("repair rejects inherited object names as Step voices", () => {
   const configuration = createConfiguration({
     sequence: {

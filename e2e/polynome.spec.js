@@ -610,6 +610,28 @@ test("Beat Mode preserves hidden voices until its Beat control is changed", asyn
   await expect(card.getByRole("button", { name: "Step 3: tertiary voice" })).toBeVisible();
 });
 
+/**
+ * A Beat control says what the whole beat sounds, so the one voice that says
+ * nothing has to reach every pulse in it. Subdivision Mode is where a beat that
+ * still sounded under an `off` control would be visible.
+ */
+test("a Beat control cycled to off silences every pulse in its beat", async ({ page }) => {
+  await setSubdivision(page, 3);
+  const card = page.locator(".rhythm-card").first();
+  const beat = card.getByRole("button", { name: /^Beat 1:/ });
+
+  for (const voice of ["secondary", "tertiary", "off"]) {
+    await beat.click();
+    await expect(beat).toHaveAccessibleName(`Beat 1: ${voice} voice`);
+  }
+
+  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await expect(card.getByRole("button", { name: "Step 1: off voice" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Step 3: off voice" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Step 4: secondary voice" })).toBeVisible();
+});
+
 test("a Beat control visibly pulses at every Subdivision onset", async ({ page }) => {
   await page.getByLabel("Tempo in beats per minute").fill("300");
   await setSubdivision(page, 3);
