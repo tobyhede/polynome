@@ -4,7 +4,7 @@
 > quarter-note model. Polynome now defines BPM as the shared primary-click rate;
 > see [Meter validity and tempo reference](meter-validity-and-tempo-reference.md).
 
-> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four amplitude-only step levels express emphasis: off, quarter, half, and full. Existing local state is hard-reset without migration or schema-version machinery.
+> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four Step voices express emphasis: off, tertiary, secondary, and primary. The three audible voices share one gain and descend in four-semitone intervals ([ADR-0008](../adr/0008-replace-step-levels-with-voices.md), which replaced the earlier amplitude-only levels). Existing local state is hard-reset without migration or schema-version machinery, here as everywhere: Polynome is unreleased, so no stored data exists to migrate.
 
 ## Conclusion
 
@@ -33,7 +33,7 @@ No additional grouping metadata is required for the product's meter-relative tim
 - **Pulse / grid position**: one evenly spaced scheduling position exposed by the app. This is a product-domain concept, not necessarily a sounded note.
 - **Note value**: a written duration such as quarter, eighth, or sixteenth. Note values do not by themselves state their metrical role ([Open Music Theory, Notating Rhythm](https://viva.pressbooks.pub/openmusictheory/chapter/notating-rhythm/)).
 - **Tuplet**: an explicit proportional division. A triplet places three parts in a span normally occupied by two in simple meter; compound meter already divides beats naturally into three, so three eighth notes within a 6/8 dotted-quarter beat are not a triplet ([Open Music Theory, Borrowed Divisions](https://viva.pressbooks.pub/openmusictheory/chapter/other-rhythmic-essentials/)).
-- **Pattern step**: one editable amplitude-level value. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
+- **Pattern step**: one editable emphasis value — an amplitude level when this was written, a Step voice since ADR-0008. In the recommended model it maps one-to-one to a grid position, but it should not be called a musical beat.
 
 ## What time signatures actually say
 
@@ -133,7 +133,7 @@ Costs: more state, validation, terminology, and UI than this metronome currently
 
 ### Recommendation: pulses per signature unit
 
-Use option A's small integer but name its reference precisely: `pulsesPerSignatureUnit`, where the signature unit is `1/D` of a whole note. This guarantees `N*K` editable positions for every meter, handles odd meters uniformly, and permits dynamic, honest labels. Grouping is deliberately not kept as state: accent structure is expressed only through amplitude-only step levels (see ADR-0001).
+Use option A's small integer but name its reference precisely: `pulsesPerSignatureUnit`, where the signature unit is `1/D` of a whole note. This guarantees `N*K` editable positions for every meter, handles odd meters uniformly, and permits dynamic, honest labels. Grouping is deliberately not kept as state (see ADR-0001): accent structure is expressed only through the per-position step value, an amplitude-only level when this was written and a Step voice since ADR-0008.
 
 This is intentionally less ambitious than a full beat-aware or note-value/tuplet model. If a later requirement demands “click only perceived beats” or arbitrary tuplets spanning multiple units, add an explicit grid reference/span then; do not overload `K`.
 
@@ -178,5 +178,5 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 - The subdivision dropdown supports `K = 1..5` pulses per signature unit.
 - The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter.
 - Ratio presets remain out of scope until the product has an explicit shared-cycle pulse model.
-- Emphasis remains entirely in amplitude-only step levels; no grouping state or control is introduced.
+- Emphasis remains entirely in the step value; no grouping state or control is introduced. That value was an amplitude-only level when this was written and is a Step voice since ADR-0008.
 - Existing persisted state is discarded rather than migrated because its subdivision meaning is ambiguous.

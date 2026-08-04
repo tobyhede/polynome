@@ -13,7 +13,7 @@ The audio time at which the current shared transport begins.
 _Avoid_: Start tick, timer start
 
 **Transport run**:
-One continuous traversal of the sequence, beginning at a transport origin and retaining the same timing structure until stopped or restarted. Step-level and mix edits may change what it plays without changing its position.
+One continuous traversal of the sequence, beginning at a transport origin and retaining the same timing structure until stopped or restarted. Step-voice and mix edits may change what it plays without changing its position.
 _Avoid_: Session
 
 **Sequence**:
@@ -70,15 +70,15 @@ The non-wrapping occurrence number of a rhythm layer's meter-relative grid posit
 _Avoid_: Pattern index
 
 **Pattern position**:
-The repeating editable position within a rhythm layer's meter-relative grid. Each pattern position has a step level.
+The repeating editable position within a rhythm layer's meter-relative grid. Each pattern position has a Step voice.
 _Avoid_: Absolute step
 
-**Step level**:
-The relative amplitude at a pattern position: `off` produces no event, while `quarter`, `half`, and `full` multiply the rhythm layer's level by `0.25`, `0.5`, and `1`. These names describe amplitude only, never note value or duration.
-_Avoid_: Accent, hit, rest, strength
+**Step voice**:
+The pitch role at a pattern position: `primary`, `secondary`, and `tertiary` use equal gain and descend in four-semitone intervals, while `off` produces no event.
+_Avoid_: Step level, Full, half, quarter, accent strength
 
 **Rhythm event**:
-A scheduled non-off occurrence identified by rhythm layer, absolute step, pattern position, step level, and audio time. Sound and mix are not properties of the rhythm event.
+A scheduled non-off occurrence identified by rhythm layer, absolute step, pattern position, Step voice, and audio time. Sound and mix are not properties of the rhythm event.
 _Avoid_: Tick, callback
 
 **Configuration**:

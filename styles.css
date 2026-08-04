@@ -870,7 +870,7 @@ h1.is-glitching {
     background 120ms ease;
 }
 
-.step-full {
+.step-primary {
   background: radial-gradient(
     circle closest-side at 50% 50%,
     color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 0%), #ffffff 26%) 0% 35.4%,
@@ -883,7 +883,7 @@ h1.is-glitching {
   );
 }
 
-.step-half {
+.step-secondary {
   background: radial-gradient(
     circle closest-side at 50% 50%,
     color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 24%), #ffffff 26%) 0% 35.4%,
@@ -896,7 +896,7 @@ h1.is-glitching {
   );
 }
 
-.step-quarter {
+.step-tertiary {
   background: radial-gradient(
     circle closest-side at 50% 50%,
     color-mix(in oklab, color-mix(in oklab, var(--accent), var(--card) 46%), #ffffff 26%) 0% 35.4%,

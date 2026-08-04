@@ -2,12 +2,16 @@
 
 Polynome will adopt the visual and interaction model of an external single-file React design prototype reviewed during the redesign. That prototype is not versioned in this repository and is not authoritative: the consequences recorded below are the reference. The production shared transport, Web Audio scheduler, zero-dependency architecture, accessibility, and responsive behavior are retained. This supersedes ADR-0002 only where that decision specified repetition limits, display-only dots, an always-expanded rhythm interface, or a generated sequence summary.
 
-Master volume as an editable mix value is superseded by ADR-0007. Every other step-level, mix, and transport consequence below remains in force.
+Master volume as an editable mix value is superseded by ADR-0007. The
+fractional step-level vocabulary and its amplitude-only voicing are superseded
+by ADR-0008. Every other mix and transport consequence below remains in force,
+and reads the same with `primary`, `secondary`, and `tertiary` substituted for
+`full`, `half`, and `quarter`.
 
 ## Consequences
 
-- Pattern positions have four amplitude-only step levels: `off`, `quarter`, `half`, and `full`. Their factors are `0`, `0.25`, `0.5`, and `1`; they never alter frequency, click duration, meter, cycle span, or transport phase.
-- Step controls cycle `full → half → quarter → off → full`. New patterns use `full` for the first position and `half` for remaining positions.
+- Pattern positions have four amplitude-only step levels: `off`, `quarter`, `half`, and `full`. Their factors are `0`, `0.25`, `0.5`, and `1`; they never alter frequency, click duration, meter, cycle span, or transport phase. Superseded by ADR-0008: the four positions are now Step voices at equal gain, distinguished by pitch instead of amplitude. That they never alter click duration, meter, cycle span, or transport phase still holds; that they never alter frequency does not, and is the point of the replacement.
+- Step controls cycle `full → half → quarter → off → full`. New patterns use `full` for the first position and `half` for remaining positions. Superseded by ADR-0008: the cycle and the new-pattern defaults are unchanged in shape, under the renamed voices.
 - Step-level and mix edits preserve the current transport position: step levels, mute, sound, rhythm level, balance, and master volume never move the transport origin. Step-level and sound changes apply to subsequently scheduled rhythm events, so events already inside the scheduler look-ahead keep the values they were scheduled with; mute, rhythm level, balance, and master volume apply immediately through the shared per-layer gain and pan nodes.
 - Tempo, meter-numerator, subdivision, cycle-repetition, and structural edits (adding or removing a cycle or a rhythm layer, and applying a preset) begin a new transport run from a new transport origin, at the first active cycle and its first cycle repetition. A meter-denominator edit changes notation metadata without changing click timing, so it preserves the current run. Dragging the tempo slider keeps the current run at its previous tempo; the new run begins when the slider is released.
 - Eight interactive dots set each cycle's repetition count from 0–8. A zero-repetition cycle is inactive and skipped, but the final active cycle cannot be disabled or removed. When the sequence contains exactly one cycle, that cycle always has exactly one repetition; zero and multiple repetitions apply only when the sequence contains multiple cycles.

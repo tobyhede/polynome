@@ -16,7 +16,7 @@ const createLayer = (overrides = {}) => {
     subdivision,
     steps: Array.from(
       { length },
-      (_, index) => supplied[index] || (index === 0 ? STEP.FULL : STEP.HALF),
+      (_, index) => supplied[index] || (index === 0 ? STEP.PRIMARY : STEP.SECONDARY),
     ),
   };
 };
@@ -205,7 +205,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
     id: "four-four-k1",
     signature: { count: 4, unit: 4 },
     subdivision: 1,
-    steps: [STEP.FULL, STEP.HALF, STEP.HALF, STEP.HALF],
+    steps: [STEP.PRIMARY, STEP.SECONDARY, STEP.SECONDARY, STEP.SECONDARY],
   });
   const transport = new SharedTransport();
 
@@ -216,28 +216,28 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
       layerId: "four-four-k1",
       absoluteStep: 0,
       patternPosition: 0,
-      level: 1,
+      voice: STEP.PRIMARY,
       audioTime: 10,
     },
     {
       layerId: "four-four-k1",
       absoluteStep: 1,
       patternPosition: 1,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 11,
     },
     {
       layerId: "four-four-k1",
       absoluteStep: 2,
       patternPosition: 2,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 12,
     },
     {
       layerId: "four-four-k1",
       absoluteStep: 3,
       patternPosition: 3,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 13,
     },
   ]);
@@ -333,7 +333,7 @@ test("a computed fractional event exactly at the horizon remains excluded", () =
     id: "fractional-boundary",
     signature: { count: 1, unit: 1 },
     subdivision: 3,
-    steps: [STEP.FULL, STEP.HALF, STEP.HALF],
+    steps: [STEP.PRIMARY, STEP.SECONDARY, STEP.SECONDARY],
   });
   const transport = new SharedTransport();
 
@@ -355,7 +355,7 @@ test("an off step produces no rhythm event", () => {
   const layer = createLayer({
     id: "off-steps",
     signature: { count: 4, unit: 4 },
-    steps: [STEP.FULL, STEP.OFF, STEP.HALF, STEP.OFF],
+    steps: [STEP.PRIMARY, STEP.OFF, STEP.SECONDARY, STEP.OFF],
   });
   const transport = new SharedTransport();
 
@@ -367,11 +367,11 @@ test("an off step produces no rhythm event", () => {
   );
 });
 
-test("rhythm events expose numeric step levels", () => {
+test("rhythm events expose every audible Step voice by name", () => {
   const layer = createLayer({
-    id: "levels",
+    id: "voices",
     signature: { count: 3, unit: 4 },
-    steps: [STEP.QUARTER, STEP.HALF, STEP.FULL],
+    steps: [STEP.TERTIARY, STEP.SECONDARY, STEP.PRIMARY],
   });
   const transport = new SharedTransport();
 
@@ -379,69 +379,93 @@ test("rhythm events expose numeric step levels", () => {
 
   assert.deepEqual(transport.plan(0, 3), [
     {
-      layerId: "levels",
+      layerId: "voices",
       absoluteStep: 0,
       patternPosition: 0,
-      level: 0.25,
+      voice: STEP.TERTIARY,
       audioTime: 0,
     },
     {
-      layerId: "levels",
+      layerId: "voices",
       absoluteStep: 1,
       patternPosition: 1,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 1,
     },
     {
-      layerId: "levels",
+      layerId: "voices",
       absoluteStep: 2,
       patternPosition: 2,
-      level: 1,
+      voice: STEP.PRIMARY,
       audioTime: 2,
     },
   ]);
 });
 
-test("step-level edits preserve transport position and affect future events", () => {
+/**
+ * Only `off` is filtered here, and that is the whole of the planning side's
+ * involvement in audibility. ADR-0008 puts the decision in one place — the
+ * pitch table `scheduleClickVoice` reads — so a voice this module has never
+ * heard of is carried through by name rather than guessed at. Planning is not
+ * where a repair belongs: a second opinion on the vocabulary would be a second
+ * place to change when it moves.
+ */
+test("a voice outside the vocabulary is planned by name, not filtered", () => {
   const layer = createLayer({
-    id: "live-level",
+    id: "stranger",
     signature: { count: 2, unit: 4 },
-    steps: [STEP.FULL, STEP.HALF],
+    steps: [STEP.PRIMARY, "full"],
+  });
+  const transport = new SharedTransport();
+
+  transport.start(sequence(60, [layer]), 0);
+
+  assert.deepEqual(
+    transport.plan(0, 2).map((event) => event.voice),
+    [STEP.PRIMARY, "full"],
+  );
+});
+
+test("Step-voice edits preserve transport position and affect future events", () => {
+  const layer = createLayer({
+    id: "live-voice",
+    signature: { count: 2, unit: 4 },
+    steps: [STEP.PRIMARY, STEP.SECONDARY],
   });
   const state = sequence(60, [layer]);
   const transport = new SharedTransport();
 
   transport.start(state, 10);
   transport.plan(9.9, 10.5);
-  layer.steps[1] = STEP.QUARTER;
-  transport.updateStepLevels(state);
+  layer.steps[1] = STEP.TERTIARY;
+  transport.updateStepVoices(state);
 
   assert.equal(transport.origin, 10);
   assert.deepEqual(transport.plan(10.4, 11.1), [
     {
-      layerId: "live-level",
+      layerId: "live-voice",
       absoluteStep: 1,
       patternPosition: 1,
-      level: 0.25,
+      voice: STEP.TERTIARY,
       audioTime: 11,
     },
   ]);
 });
 
-test("step-level updates reject legacy flat rhythm shapes", () => {
-  const rhythm = createLayer({ id: "legacy-levels" });
+test("Step-voice updates reject legacy flat rhythm shapes", () => {
+  const rhythm = createLayer({ id: "legacy-voices" });
   const transport = new SharedTransport();
 
   transport.start(sequence(60, [rhythm]), 0);
 
-  assert.throws(() => transport.updateStepLevels({ bpm: 60, layers: [rhythm] }), TypeError);
+  assert.throws(() => transport.updateStepVoices({ bpm: 60, layers: [rhythm] }), TypeError);
 });
 
 test("overlapping polls plan each absolute step only once", () => {
   const layer = createLayer({
     id: "steady",
     signature: { count: 4, unit: 4 },
-    steps: [STEP.FULL, STEP.HALF, STEP.HALF, STEP.HALF],
+    steps: [STEP.PRIMARY, STEP.SECONDARY, STEP.SECONDARY, STEP.SECONDARY],
   });
   const transport = new SharedTransport();
 
@@ -453,7 +477,7 @@ test("overlapping polls plan each absolute step only once", () => {
       layerId: "steady",
       absoluteStep: 3,
       patternPosition: 3,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 6.5,
     },
   ]);
@@ -463,7 +487,7 @@ test("a late poll discards missed events without restarting transport phase", ()
   const layer = createLayer({
     id: "phase",
     signature: { count: 4, unit: 4 },
-    steps: [STEP.FULL, STEP.HALF, STEP.HALF, STEP.HALF],
+    steps: [STEP.PRIMARY, STEP.SECONDARY, STEP.SECONDARY, STEP.SECONDARY],
   });
   const transport = new SharedTransport();
 
@@ -474,14 +498,14 @@ test("a late poll discards missed events without restarting transport phase", ()
       layerId: "phase",
       absoluteStep: 5,
       patternPosition: 1,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 12.5,
     },
     {
       layerId: "phase",
       absoluteStep: 6,
       patternPosition: 2,
-      level: 0.5,
+      voice: STEP.SECONDARY,
       audioTime: 13,
     },
   ]);
@@ -491,7 +515,7 @@ test("a transport run retains its starting timing snapshot", () => {
   const layer = createLayer({
     id: "snapshot",
     signature: { count: 2, unit: 4 },
-    steps: [STEP.FULL, STEP.OFF],
+    steps: [STEP.PRIMARY, STEP.OFF],
   });
   const state = sequence(60, [layer]);
   const transport = new SharedTransport();
@@ -499,14 +523,14 @@ test("a transport run retains its starting timing snapshot", () => {
   transport.start(state, 20);
   state.bpm = 120;
   layer.subdivision = 5;
-  layer.steps[1] = STEP.HALF;
+  layer.steps[1] = STEP.SECONDARY;
 
   assert.deepEqual(transport.plan(19.9, 22), [
     {
       layerId: "snapshot",
       absoluteStep: 0,
       patternPosition: 0,
-      level: 1,
+      voice: STEP.PRIMARY,
       audioTime: 20,
     },
   ]);
@@ -517,7 +541,7 @@ test("visual pattern position derives from the transport origin", () => {
     id: "playhead",
     signature: { count: 1, unit: 4 },
     subdivision: 3,
-    steps: [STEP.FULL, STEP.HALF, STEP.HALF],
+    steps: [STEP.PRIMARY, STEP.SECONDARY, STEP.SECONDARY],
   });
   const transport = new SharedTransport();
 
@@ -555,7 +579,7 @@ test("mute does not change a rhythm layer event timeline", () => {
     id: "muted",
     muted: true,
     signature: { count: 1, unit: 4 },
-    steps: [STEP.FULL],
+    steps: [STEP.PRIMARY],
   });
   const transport = new SharedTransport();
 
@@ -566,7 +590,7 @@ test("mute does not change a rhythm layer event timeline", () => {
       layerId: "muted",
       absoluteStep: 0,
       patternPosition: 0,
-      level: 1,
+      voice: STEP.PRIMARY,
       audioTime: 50,
     },
   ]);
@@ -597,7 +621,7 @@ test("starting a new transport run resets origin and scheduling position togethe
   const layer = createLayer({
     id: "restart",
     signature: { count: 1, unit: 4 },
-    steps: [STEP.FULL],
+    steps: [STEP.PRIMARY],
   });
   const transport = new SharedTransport();
   const state = sequence(60, [layer]);
@@ -612,7 +636,7 @@ test("starting a new transport run resets origin and scheduling position togethe
       layerId: "restart",
       absoluteStep: 0,
       patternPosition: 0,
-      level: 1,
+      voice: STEP.PRIMARY,
       audioTime: 70,
     },
   ]);

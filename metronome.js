@@ -1,4 +1,4 @@
-import { stepDurationSeconds } from "./model.js";
+import { lookup, SOUND, STEP, stepDurationSeconds } from "./model.js";
 import { SharedTransport } from "./shared-transport.js";
 
 const LOOK_AHEAD_SECONDS = 0.12;
@@ -72,10 +72,15 @@ const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVA
 const MAX_CLICK_LATENESS_SECONDS = 0.05;
 const MAX_CLICK_LATENESS_STEPS = 0.25;
 
-export const SOUND_PROFILES = Object.freeze({
-  high: Object.freeze({ frequency: 1240, type: "triangle", length: 0.032 }),
-  low: Object.freeze({ frequency: 690, type: "triangle", length: 0.042 }),
-  wood: Object.freeze({ frequency: 930, type: "sine", length: 0.026 }),
+/**
+ * How each sound in the vocabulary is voiced. `durationSeconds` rather than
+ * `length`, because it is a span of time and its siblings in `CLICK_ENVELOPE`
+ * already say so; `length` on an object reads as a count of something.
+ */
+export const SOUND_PROFILES = lookup({
+  [SOUND.HIGH]: Object.freeze({ frequency: 1240, type: "triangle", durationSeconds: 0.032 }),
+  [SOUND.LOW]: Object.freeze({ frequency: 690, type: "triangle", durationSeconds: 0.042 }),
+  [SOUND.WOOD]: Object.freeze({ frequency: 930, type: "sine", durationSeconds: 0.026 }),
 });
 
 export const CLICK_ENVELOPE = Object.freeze({
@@ -86,23 +91,39 @@ export const CLICK_ENVELOPE = Object.freeze({
 });
 
 /**
+ * The pitch of each audible Step voice, as a ratio against the selected sound
+ * profile's frequency. Four semitones apart, so the three voices outline an
+ * augmented triad and stay distinguishable on a small speaker without any of
+ * them being quieter than the others.
+ *
+ * `off` is deliberately absent rather than present as a silent entry: a voice
+ * this table cannot price is a voice the scheduler must not play, which makes
+ * the lookup itself the audibility test.
+ */
+export const STEP_PITCH_RATIOS = lookup({
+  [STEP.TERTIARY]: 2 ** (-8 / 12),
+  [STEP.SECONDARY]: 2 ** (-4 / 12),
+  [STEP.PRIMARY]: 1,
+});
+
+/**
  * Nodes come from the context's own factory methods rather than the global
  * constructors, so whatever context is handed in supplies the entire graph.
  * That is what lets an injected test double observe the voicing, and it costs
  * a real context nothing: the factory methods are the same nodes by another
  * name.
  */
-export function scheduleClickVoice(context, output, { sound, level, when }) {
-  if (!(level > 0)) return null;
+export function scheduleClickVoice(context, output, { sound, voice, when }) {
+  const pitchRatio = STEP_PITCH_RATIOS[voice];
+  if (!pitchRatio) return null;
 
-  const profile = SOUND_PROFILES[sound] || SOUND_PROFILES.high;
+  const profile = SOUND_PROFILES[sound] || SOUND_PROFILES[SOUND.HIGH];
   const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
-  const peak = peakGain * level;
-  const end = when + profile.length;
+  const end = when + profile.durationSeconds;
 
   const oscillator = context.createOscillator();
   oscillator.type = profile.type;
-  oscillator.frequency.value = profile.frequency;
+  oscillator.frequency.value = profile.frequency * pitchRatio;
   const envelope = context.createGain();
   envelope.gain.value = silenceGain;
 
@@ -110,7 +131,7 @@ export function scheduleClickVoice(context, output, { sound, level, when }) {
   envelope.connect(output);
 
   envelope.gain.setValueAtTime(silenceGain, when);
-  envelope.gain.exponentialRampToValueAtTime(peak, when + attackSeconds);
+  envelope.gain.exponentialRampToValueAtTime(peakGain, when + attackSeconds);
   envelope.gain.exponentialRampToValueAtTime(silenceGain, end);
 
   oscillator.start(when);
@@ -304,8 +325,8 @@ export class MetronomeEngine extends EventTarget {
     if (consequence === "restart-transport-run" && this.playing) {
       return this.restart(state);
     }
-    if (consequence === "update-step-levels") {
-      this.updateStepLevels(state);
+    if (consequence === "update-step-voices") {
+      this.updateStepVoices(state);
       return null;
     }
     if (consequence === "update-configuration") {
@@ -325,9 +346,9 @@ export class MetronomeEngine extends EventTarget {
     if (this.#context) this.#syncNodes();
   }
 
-  updateStepLevels(state) {
+  updateStepVoices(state) {
     this.#state = state;
-    if (this.#playing) this.#transport.updateStepLevels(state);
+    if (this.#playing) this.#transport.updateStepVoices(state);
   }
 
   activeStep(layer) {
@@ -553,12 +574,12 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.level, event.audioTime);
+        this.#scheduleClick(layer, event.voice, event.audioTime);
       }
     }
   }
 
-  #scheduleClick(layer, level, when) {
+  #scheduleClick(layer, voice, when) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
@@ -578,7 +599,7 @@ export class MetronomeEngine extends EventTarget {
 
     const oscillator = scheduleClickVoice(this.#context, output, {
       sound: layer.sound,
-      level,
+      voice,
       when: Math.max(when, now),
     });
     if (!oscillator) return;

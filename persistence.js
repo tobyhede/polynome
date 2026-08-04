@@ -1,29 +1,20 @@
 /**
- * Reads the stored value, adopting whatever a previous release left under an
- * older key name so that renaming the key does not silently reset a user's
- * settings. Superseded names hold a value this version can still read and are
- * migrated once; retired names hold shapes it cannot and are only discarded.
+ * Reads the stored value and clears the keys this version has retired, so a
+ * renamed key leaves nothing behind in a browser that still holds the old one.
+ *
+ * Retiring is all this does. Nothing here carries an older key's value forward:
+ * that is a migration, and AGENTS.md rules them out until Polynome has a
+ * release whose stored data is worth carrying. A renamed key resets what it
+ * held, deliberately.
  *
  * Storage is supplied by the caller, both to keep this free of any host
  * environment and because a browser may refuse it outright — every method can
  * throw, and none of them may take the page down with it.
  */
-export function readStoredValue({ storage, key, supersededKeys = [], retiredKeys = [] }) {
+export function readStoredValue({ storage, key, retiredKeys = [] }) {
   try {
     for (const retired of retiredKeys) storage.removeItem(retired);
-
-    let raw = storage.getItem(key);
-    for (const superseded of supersededKeys) {
-      if (raw === null) {
-        const candidate = storage.getItem(superseded);
-        if (candidate !== null) {
-          raw = candidate;
-          storage.setItem(key, candidate);
-        }
-      }
-      storage.removeItem(superseded);
-    }
-    return raw;
+    return storage.getItem(key);
   } catch {
     return null;
   }

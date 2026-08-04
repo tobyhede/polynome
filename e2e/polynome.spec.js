@@ -207,22 +207,22 @@ test("the widest rhythm grid is reachable through the constrained selects", asyn
   await page.getByRole("option").last().click();
 
   await expect(
-    page.getByRole("group", { name: "16/8 step levels" }).getByRole("button"),
+    page.getByRole("group", { name: "16/8 step voices" }).getByRole("button"),
   ).toHaveCount(80);
 });
 
-test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
-  const steps = page.getByRole("group", { name: "4/4 step levels" });
+test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
+  const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });
   const second = steps.getByRole("button", { name: /^Step 2:/ });
 
-  await expect(first).toHaveAttribute("aria-label", "Step 1: full level");
-  await expect(second).toHaveAttribute("aria-label", "Step 2: half level");
+  await expect(first).toHaveAttribute("aria-label", "Step 1: primary voice");
+  await expect(second).toHaveAttribute("aria-label", "Step 2: secondary voice");
 
-  for (const level of ["half", "quarter", "off", "full"]) {
+  for (const voice of ["secondary", "tertiary", "off", "primary"]) {
     await first.click();
-    await expect(first).toHaveAttribute("aria-label", `Step 1: ${level} level`);
-    await expect(second).toHaveAttribute("aria-label", "Step 2: half level");
+    await expect(first).toHaveAttribute("aria-label", `Step 1: ${voice} voice`);
+    await expect(second).toHaveAttribute("aria-label", "Step 2: secondary voice");
   }
 });
 

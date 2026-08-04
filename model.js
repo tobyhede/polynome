@@ -1,25 +1,39 @@
 export const STEP = Object.freeze({
   OFF: "off",
-  QUARTER: "quarter",
-  HALF: "half",
-  FULL: "full",
+  TERTIARY: "tertiary",
+  SECONDARY: "secondary",
+  PRIMARY: "primary",
 });
 
 /**
- * Every lookup below is keyed by a value a caller supplies, so a null prototype
- * keeps an inherited name such as `constructor` or `toString` from answering as
- * though it were a mapping this module wrote.
+ * Which click a rhythm layer plays. The name is the vocabulary and lives here;
+ * what each one is tuned to — frequency, waveform, duration — is `metronome.js`
+ * and its `SOUND_PROFILES`, keyed by these values.
+ *
+ * The split is the same one `STEP` and `STEP_PITCH_RATIOS` make: a name a
+ * listener chose and a stored Configuration carries has to survive being read
+ * by a module that knows nothing about oscillators.
  */
-function lookup(entries) {
+export const SOUND = Object.freeze({
+  HIGH: "high",
+  LOW: "low",
+  WOOD: "wood",
+});
+
+/**
+ * A table keyed by a value a caller supplies. The null prototype keeps an
+ * inherited name such as `constructor` or `toString` from answering as though
+ * it were a mapping this module wrote, and it makes a miss `undefined` rather
+ * than a function that survives a truthiness check and turns arithmetic into
+ * `NaN` further downstream.
+ *
+ * Exported because the rule is the vocabulary's, not this module's: any table
+ * keyed by a `STEP`, a meter unit, or a subdivision is reached with whatever a
+ * caller passes, wherever it lives.
+ */
+export function lookup(entries) {
   return Object.freeze(Object.assign(Object.create(null), entries));
 }
-
-const STEP_LEVELS = lookup({
-  [STEP.OFF]: 0,
-  [STEP.QUARTER]: 0.25,
-  [STEP.HALF]: 0.5,
-  [STEP.FULL]: 1,
-});
 
 /**
  * The shared musical vocabulary. `model.js` is the single definition; every
@@ -34,10 +48,6 @@ export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 16 });
 export const METER_UNITS = Object.freeze([1, 2, 4, 8]);
 
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
-
-export function stepLevel(step) {
-  return STEP_LEVELS[step] ?? 0;
-}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));

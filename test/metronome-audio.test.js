@@ -1,8 +1,15 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { createConfiguration } from "../configuration.js";
-import { MetronomeEngine } from "../metronome.js";
+import { createConfiguration, describeConfiguration } from "../configuration.js";
+import { SOUND, STEP } from "../model.js";
+import {
+  CLICK_ENVELOPE,
+  SOUND_PROFILES,
+  STEP_PITCH_RATIOS,
+  MetronomeEngine,
+  scheduleClickVoice,
+} from "../metronome.js";
 
 /**
  * A hand-written AudioContext test double.
@@ -385,6 +392,170 @@ const clickStarts = (context) => context.audibleClicks().map((click) => roundSec
 const gapsBetween = (starts) =>
   starts.slice(1).map((start, index) => roundSeconds(start - starts[index]));
 
+/** Voices one `scheduleClickVoice` call each, in their own contexts. */
+const voiceClicks = (voices) =>
+  voices.map((voice) => {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound: "high",
+      voice,
+      when: 1,
+    });
+    return { context, oscillator };
+  });
+
+test("every audible Step voice shares one gain envelope and its own pitch", () => {
+  const [tertiary, secondary, primary] = voiceClicks([STEP.TERTIARY, STEP.SECONDARY, STEP.PRIMARY]);
+
+  for (const { context } of [tertiary, secondary]) {
+    assert.deepEqual(context.gains[0].gain.automation, primary.context.gains[0].gain.automation);
+  }
+  assert.equal(primary.context.gains[0].gain.automation[1].value, CLICK_ENVELOPE.peakGain);
+
+  for (const [voice, { oscillator }] of [
+    [STEP.TERTIARY, tertiary],
+    [STEP.SECONDARY, secondary],
+    [STEP.PRIMARY, primary],
+  ]) {
+    assert.equal(
+      oscillator.frequency.value,
+      SOUND_PROFILES.high.frequency * STEP_PITCH_RATIOS[voice],
+    );
+  }
+  assert.ok(tertiary.oscillator.frequency.value < secondary.oscillator.frequency.value);
+  assert.ok(secondary.oscillator.frequency.value < primary.oscillator.frequency.value);
+});
+
+/**
+ * `scheduleClickVoice` is public surface (ADR-0004), so it is reached with
+ * values the Configuration repair never saw. Silence is the only safe answer:
+ * an unrecognised voice has no pitch to play, and guessing one puts a
+ * full-gain click on the grid at a position the listener switched off.
+ */
+test("a Step voice outside the vocabulary schedules silence", () => {
+  const unrecognised = [
+    STEP.OFF,
+    "full",
+    "bogus",
+    undefined,
+    null,
+    "",
+    "constructor",
+    "toString",
+    "valueOf",
+    "__proto__",
+  ];
+
+  for (const voice of unrecognised) {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound: "high",
+      voice,
+      when: 1,
+    });
+
+    assert.equal(oscillator, null, `${String(voice)} scheduled a click`);
+    assert.deepEqual(context.clicks, [], `${String(voice)} reached the graph`);
+    assert.deepEqual(context.oscillators, [], `${String(voice)} built a node`);
+  }
+});
+
+/**
+ * The same claim one seam out. `plan()` filters only `off`, so an unrecognised
+ * voice arrives at the engine as an ordinary event and is refused at the pitch
+ * table — the single audibility decision ADR-0008 describes. What matters is
+ * that refusing it costs the rest of the grid nothing: the surrounding clicks
+ * keep the start times they would have had, so the hole is one silent position
+ * rather than a shifted rhythm.
+ */
+test("an unrecognised voice leaves a silent position and an intact grid", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  const grid = fiftyMillisecondGrid();
+  grid.sequence.cycles[0].rhythms[0].steps[1] = "full";
+
+  await engine.start(grid);
+  for (const clock of [0.12, 0.24, 0.36]) {
+    context.currentTime = clock;
+    tick();
+  }
+
+  // The on-time grid without its second position: 0.11 is silent and 0.16
+  // still lands where it always did.
+  assert.deepEqual(clickStarts(context), [0.06, 0.16, 0.21, 0.26, 0.31, 0.36, 0.41, 0.46]);
+
+  engine.stop();
+});
+
+test("an unrecognised sound falls back to the high profile, inherited or not", () => {
+  for (const sound of ["bogus", undefined, "constructor", "toString"]) {
+    const context = new FakeAudioContext();
+    const oscillator = scheduleClickVoice(context, context.destination, {
+      sound,
+      voice: STEP.PRIMARY,
+      when: 1,
+    });
+
+    assert.equal(
+      oscillator.frequency.value,
+      SOUND_PROFILES.high.frequency,
+      `${String(sound)} did not fall back to the high profile`,
+    );
+    assert.equal(oscillator.type, SOUND_PROFILES.high.type);
+  }
+});
+
+/**
+ * The sound names were written out in three places: the profile table that
+ * tunes them, the repair that validates them, and the choice list the interface
+ * renders. Nothing failed when only one of the three learned a new name — the
+ * profile simply sat there unreachable, because repair rejected the name that
+ * would have selected it. These assertions are what make that drift loud.
+ */
+test("one sound vocabulary reaches the profiles, the repair, and the interface", () => {
+  const names = Object.values(SOUND);
+
+  assert.deepEqual(Object.keys(SOUND_PROFILES).sort(), [...names].sort());
+  assert.deepEqual(describeConfiguration(createConfiguration()).choices.sounds, names);
+
+  // The choice list is what the interface offers; repair is what decides
+  // whether choosing it survives being saved and read back. A name the list
+  // offers and repair rejects would silently return every rhythm to `high`.
+  for (const sound of names) {
+    const repaired = createConfiguration({
+      sequence: { cycles: [{ rhythms: [{ sound }] }] },
+    });
+
+    assert.equal(
+      repaired.sequence.cycles[0].rhythms[0].sound,
+      sound,
+      `repair did not preserve the ${sound} sound`,
+    );
+  }
+});
+
+test("every sound profile carries the same tuning shape", () => {
+  for (const name of Object.values(SOUND)) {
+    const profile = SOUND_PROFILES[name];
+
+    assert.ok(profile.frequency > 0, `${name} has no frequency`);
+    assert.equal(typeof profile.type, "string");
+    assert.ok(profile.durationSeconds > 0, `${name} has no durationSeconds`);
+    assert.ok(Object.isFrozen(profile));
+  }
+});
+
+test("the Step pitch table answers only to the vocabulary model.js defines", () => {
+  assert.deepEqual(
+    Object.keys(STEP_PITCH_RATIOS).sort(),
+    [STEP.PRIMARY, STEP.SECONDARY, STEP.TERTIARY].sort(),
+  );
+  assert.equal(Object.getPrototypeOf(STEP_PITCH_RATIOS), null);
+  for (const inherited of ["constructor", "toString", "valueOf"]) {
+    assert.equal(STEP_PITCH_RATIOS[inherited], undefined);
+  }
+});
+
 test("an injected audio context factory supplies the whole audio graph", async () => {
   let created = 0;
   const context = new FakeAudioContext({ state: "running" });
@@ -455,7 +626,7 @@ test("a stored master volume does not reach the output stage", async () => {
       cycles: [
         {
           repetitions: 1,
-          rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: ["full"] }],
+          rhythms: [{ signature: { count: 1, unit: 4 }, subdivision: 1, steps: [STEP.PRIMARY] }],
         },
       ],
     },

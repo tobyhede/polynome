@@ -58,7 +58,7 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
       {
         signature: { count: 4, unit: 4 },
         subdivision: 1,
-        steps: ["full", "half", "half", "half"],
+        steps: ["primary", "secondary", "secondary", "secondary"],
         volume: 0.72,
         pan: 0,
         sound: "high",
@@ -112,7 +112,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
             {
               signature: { count: 5, unit: 8 },
               subdivision: 3,
-              steps: ["full", "off", "quarter", "half", "full"],
+              steps: ["primary", "off", "tertiary", "secondary", "primary"],
               sound: "wood",
               volume: 0.31,
               pan: -0.62,
@@ -424,7 +424,7 @@ test("Rhythm-layer structural edits preserve a non-empty Cycle", () => {
   assert.equal(removed.consequence, "restart-transport-run");
 });
 
-test("Meter and Subdivision edits resize the meter-relative grid without losing levels", () => {
+test("Meter and Subdivision edits resize the meter-relative grid without losing voices", () => {
   const base = createConfiguration({
     sequence: {
       cycles: [
@@ -433,7 +433,7 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
             {
               signature: { count: 2, unit: 4 },
               subdivision: 2,
-              steps: ["full", "off", "half", "full"],
+              steps: ["primary", "off", "secondary", "primary"],
             },
           ],
         },
@@ -449,12 +449,12 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
     count: 3,
   });
   assert.deepEqual(wider.configuration.sequence.cycles[0].rhythms[0].steps, [
-    "full",
+    "primary",
     "off",
-    "half",
-    "full",
-    "half",
-    "half",
+    "secondary",
+    "primary",
+    "secondary",
+    "secondary",
   ]);
   assert.equal(wider.consequence, "restart-transport-run");
   const simpler = changeConfiguration(wider.configuration, {
@@ -464,9 +464,9 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
     subdivision: 1,
   });
   assert.deepEqual(simpler.configuration.sequence.cycles[0].rhythms[0].steps, [
-    "full",
+    "primary",
     "off",
-    "half",
+    "secondary",
   ]);
   assert.equal(simpler.consequence, "restart-transport-run");
 });
@@ -480,7 +480,7 @@ test("a conventional Meter denominator edit preserves the grid and transport run
             {
               signature: { count: 2, unit: 4 },
               subdivision: 2,
-              steps: ["full", "off", "quarter", "half"],
+              steps: ["primary", "off", "tertiary", "secondary"],
             },
           ],
         },
@@ -504,27 +504,50 @@ test("a conventional Meter denominator edit preserves the grid and transport run
   assert.equal(result.consequence, "update-configuration");
 });
 
-test("advancing a Step level cycles the levels and preserves the transport run", () => {
+test("advancing a Step voice cycles the four voices and preserves the transport run", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   let current = configuration;
 
-  for (const expected of ["half", "quarter", "off", "full"]) {
+  for (const expected of ["secondary", "tertiary", "off", "primary"]) {
     const result = changeConfiguration(current, {
-      type: "advance-step-level",
+      type: "advance-step-voice",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       position: 0,
     });
 
     assert.equal(result.configuration.sequence.cycles[0].rhythms[0].steps[0], expected);
-    assert.equal(result.consequence, "update-step-levels");
+    assert.equal(result.consequence, "update-step-voices");
     current = result.configuration;
   }
 });
 
-test("Step-level positions outside the meter-relative grid are rejected", () => {
+test("repair rejects inherited object names as Step voices", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 3, unit: 4 },
+              steps: ["constructor", "toString", "__proto__"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(configuration.sequence.cycles[0].rhythms[0].steps, [
+    "secondary",
+    "secondary",
+    "secondary",
+  ]);
+});
+
+test("Step-voice positions outside the meter-relative grid are rejected", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
@@ -532,7 +555,7 @@ test("Step-level positions outside the meter-relative grid are rejected", () => 
 
   for (const position of outside) {
     const result = changeConfiguration(configuration, {
-      type: "advance-step-level",
+      type: "advance-step-voice",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       position,
@@ -575,7 +598,7 @@ test("Configuration description exposes domain choices and unavailable final rem
     meterUnits: [1, 2, 4, 8],
     subdivisions: [1, 2, 3, 4, 5],
     sounds: ["high", "low", "wood"],
-    stepLevels: ["off", "quarter", "half", "full"],
+    stepVoices: ["off", "tertiary", "secondary", "primary"],
     repetitions: [0, 1, 2, 3, 4, 5, 6, 7, 8],
   });
   assert.equal(description.selectedPreset, "4/4");
@@ -915,7 +938,7 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "remove-cycle" },
     { type: "add-rhythm", cycleId: 42 },
     { type: "remove-rhythm", cycleId: cycle.id },
-    { type: "advance-step-level", cycleId: cycle.id, rhythmId: rhythm.id },
+    { type: "advance-step-voice", cycleId: cycle.id, rhythmId: rhythm.id },
   ];
 
   for (const edit of malformedEdits) {

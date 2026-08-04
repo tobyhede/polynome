@@ -24,7 +24,7 @@ The core promise is:
 - `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
 - `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
 - `metronome.js`: Web Audio nodes, transport, look-ahead scheduler, and the routing from an edit's transport consequence to the narrowest engine method that satisfies it.
-- `persistence.js`: deferred writes and storage-key migration, both free of any host environment so they can be driven by tests.
+- `persistence.js`: deferred writes and storage-key retirement, both free of any host environment so they can be driven by tests. Retirement discards an old key; it never carries its value into the new one, which is the migration the rule below rules out.
 - `app.js`: DOM interaction, transient interface state, and visual playhead. It owns the storage key names and wires `localStorage` to `persistence.js`.
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
@@ -35,7 +35,7 @@ The core promise is:
 
 Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
 
-An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-levels` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
+An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-voices` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
 
 ### Configuration edit failure modes
 
@@ -93,7 +93,7 @@ Also manually verify the audio-specific behavior Playwright cannot assess:
 
 1. Presets `4/4` and `4/4 + 3/4` sound as configured.
 2. Headphone separation at hard left and hard right through physical output.
-3. Full, half, quarter, and off levels are perceptually distinguishable, not merely correctly scaled.
+3. Primary, secondary, and tertiary Step voices are perceptually distinguishable at equal gain, and `off` is silent. Check this on a `low` layer, not the default `high`: `low` is the worst case, because its voices land lowest and the ear is least sensitive there.
 4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.
 
 ## Product boundaries
@@ -111,6 +111,24 @@ Require explicit product justification before adding:
 
 - musical notation
 - MIDI sequencing
+
+### Do not build migrations
+
+Polynome has never been released. There is no stored data anywhere but a
+developer's own browser, and that is disposable. When a stored shape changes,
+retire it: drop the key, or let repair replace the unrecognised value with a
+default. Do not write a migration, a schema version, an upgrade path, or a
+compatibility shim, and do not add a test for one.
+
+Migration is a feature, and like any other it is built when it is asked for by
+name. "Existing saved patterns are preserved" is not a requirement anyone here
+has stated; it is a reflex, and it has cost real time more than once. The tell
+is prose in a decision record justifying why some old value must survive — if
+nobody can name the release that produced it, delete the code and the paragraph
+together.
+
+When the first release happens, this section is what changes, and the migration
+policy is decided then with real data in view.
 - user accounts
 - cloud sync
 - effects chains

@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import {
   METER_COUNT_LIMIT,
   METER_UNITS,
+  SOUND,
   STEP,
   cycleSpanSeconds,
   stepDurationSeconds,
-  stepLevel,
   subdivisionLabel,
 } from "../model.js";
 import { createConfiguration, describeConfiguration } from "../configuration.js";
@@ -18,13 +18,6 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
     `Expected ${actual} to be within ${tolerance} of ${expected}`,
   );
 };
-
-test("step levels expose amplitude-only factors", () => {
-  assert.equal(stepLevel(STEP.OFF), 0);
-  assert.equal(stepLevel(STEP.QUARTER), 0.25);
-  assert.equal(stepLevel(STEP.HALF), 0.5);
-  assert.equal(stepLevel(STEP.FULL), 1);
-});
 
 test("a Cycle span completes every contained Meter and ignores Subdivision", () => {
   const cycle = {
@@ -52,11 +45,13 @@ test("Meter count clamps to one shared maximum in Configuration and timing", () 
 });
 
 test("the shared vocabulary has one definition", () => {
-  assert.deepEqual(Object.values(STEP), ["off", "quarter", "half", "full"]);
+  assert.deepEqual(Object.values(STEP), ["off", "tertiary", "secondary", "primary"]);
+  assert.deepEqual(Object.values(SOUND), ["high", "low", "wood"]);
   assert.deepEqual(METER_COUNT_LIMIT, { minimum: 1, maximum: 16 });
   assert.ok(Object.isFrozen(METER_COUNT_LIMIT));
   assert.deepEqual(METER_UNITS, [1, 2, 4, 8]);
   assert.ok(Object.isFrozen(METER_UNITS));
+  assert.ok(Object.isFrozen(SOUND));
 });
 
 test("Subdivision labels name the signature unit and the grouping", () => {

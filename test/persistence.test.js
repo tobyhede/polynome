@@ -158,41 +158,10 @@ test("a write that throws does not reach the caller", () => {
 });
 
 /**
- * Renaming the storage key would silently reset every existing user, so the
- * value stored under the previous name is adopted once and then the old name
- * is cleared. Retired names carry shapes this version cannot read and are only
- * ever discarded.
+ * A retired name holds a shape this version does not read. Discarding it is the
+ * whole of the contract: the key goes, and the current key is left holding
+ * whatever it already held, which for a first read is nothing.
  */
-test("a stored value is adopted from the previous key name", () => {
-  const storage = createStorage({ "polynome-redesign": '{"bpm":132}' });
-
-  const raw = readStoredValue({
-    storage,
-    key: "polynome-configuration",
-    supersededKeys: ["polynome-redesign"],
-  });
-
-  assert.equal(raw, '{"bpm":132}');
-  assert.equal(storage.getItem("polynome-configuration"), '{"bpm":132}');
-  assert.deepEqual(storage.keys, ["polynome-configuration"]);
-});
-
-test("the current key wins and the superseded one is cleared", () => {
-  const storage = createStorage({
-    "polynome-configuration": '{"bpm":90}',
-    "polynome-redesign": '{"bpm":132}',
-  });
-
-  const raw = readStoredValue({
-    storage,
-    key: "polynome-configuration",
-    supersededKeys: ["polynome-redesign"],
-  });
-
-  assert.equal(raw, '{"bpm":90}');
-  assert.deepEqual(storage.keys, ["polynome-configuration"]);
-});
-
 test("retired keys are discarded rather than adopted", () => {
   const storage = createStorage({
     "polynome:v1": '{"bpm":200}',
@@ -209,13 +178,48 @@ test("retired keys are discarded rather than adopted", () => {
   assert.deepEqual(storage.keys, []);
 });
 
+test("retiring a key leaves the current one untouched", () => {
+  const storage = createStorage({
+    "polynome-configuration": '{"bpm":90}',
+    "polynome-redesign": '{"bpm":132}',
+  });
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    retiredKeys: ["polynome-redesign"],
+  });
+
+  assert.equal(raw, '{"bpm":90}');
+  assert.deepEqual(storage.keys, ["polynome-configuration"]);
+});
+
+/**
+ * The guard on AGENTS.md's "Do not build migrations" rule. Adopting an older
+ * key's value into the current one is a migration, and this module deliberately
+ * does not have one: an option asking for that behaviour is ignored rather than
+ * honoured, so re-adding the branch fails here rather than shipping quietly.
+ */
+test("no older key's value is adopted into the current one", () => {
+  const storage = createStorage({ "polynome-redesign": '{"bpm":132}' });
+
+  const raw = readStoredValue({
+    storage,
+    key: "polynome-configuration",
+    supersededKeys: ["polynome-redesign"],
+  });
+
+  assert.equal(raw, null);
+  assert.equal(storage.getItem("polynome-configuration"), null);
+});
+
 test("nothing stored reads as null without writing", () => {
   const storage = createStorage();
 
   const raw = readStoredValue({
     storage,
     key: "polynome-configuration",
-    supersededKeys: ["polynome-redesign"],
+    retiredKeys: ["polynome-redesign"],
   });
 
   assert.equal(raw, null);
@@ -244,7 +248,6 @@ test("a storage that throws reads as null", () => {
     raw = readStoredValue({
       storage: unavailable,
       key: "polynome-configuration",
-      supersededKeys: ["polynome-redesign"],
       retiredKeys: ["polynome:v1"],
     });
   });
