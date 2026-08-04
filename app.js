@@ -834,13 +834,13 @@ function RhythmSettings({ rhythm }) {
 // between beats. `steps.length` is always `signature.count * subdivision`, so
 // every group is full and no row is left ragged.
 //
-// Each beat carries its own number, drawn under the step it starts on. The
-// steps are evenly spaced, so nothing in the grid itself says where a beat
-// begins — and the first step of a bar cannot say it either, because its voice
-// is the listener's to change and a downbeat switched off is the dimmest circle
-// in the row. The number is `aria-hidden` because `.steps` is a named group a
-// screen reader reads through, and four loose numerals among the step names are
-// noise; every step already names its own position.
+// Where a beat starts is marked by a dot the stylesheet draws on `.beat`
+// itself, so nothing here emits it. The steps are evenly spaced and say
+// nothing about grouping, and the first step of a bar cannot say it either:
+// its voice is the listener's to change, and a downbeat switched off is the
+// dimmest circle in the row. A pseudo-element keeps the mark out of the
+// accessibility tree without an `aria-hidden` element to carry it, which is
+// what a purely decorative mark inside a named group should be.
 function Beats({ rhythm }) {
   const beats = [];
   for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
@@ -851,9 +851,8 @@ function Beats({ rhythm }) {
     );
   }
   return html`${beats.map(
-    (group, beat) => html`
+    (group) => html`
     <div class="beat">
-      <span class="beat-number" aria-hidden="true">${beat + 1}</span>
       ${group.map(({ step, index }) => html`<${Step} step=${step} index=${index} />`)}
     </div>
   `,

@@ -866,13 +866,15 @@ h1.is-glitching {
      and the onsets it stands over are evenly spaced. A row still breaks only
      between beats — `.beat` is what guarantees that, not the gap.
 
-     The row gap is the wider one because the beat numbers hang below their row;
-     at the column gap's 10px the first row's numbers land on the second row's
-     steps. The bottom padding is opened for the last row's numbers. */
-  gap: 26px 10px;
+     The row gap is the wider one because the beat dots hang below their row;
+     at the column gap's 10px the first row's dots would land on the second
+     row's steps, and the gap has to clear the pulsed dot rather than the
+     resting one. The bottom padding is opened further still, so the last row's
+     dots sit inside the card rather than against its edge. */
+  gap: 22px 10px;
   align-items: center;
   justify-content: start;
-  padding: 14px 16px 30px;
+  padding: 14px 16px 34px;
 }
 
 /* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
@@ -900,23 +902,41 @@ h1.is-glitching {
   gap: 10px;
 }
 
-/* Set like the tempo tick labels, which is the same job: a small figure naming
-   a position on a scale. Absolutely positioned, so it is out of the flex line
-   and the beat's own steps are laid out as though it were not there — and boxed
-   to one step's width so it centres on the step it names whatever the beat's
-   own width is. */
-.beat-number {
+/* A dot under the step the beat starts on: the quietest mark that still says
+   a beat begins here. Half a step in from the beat's own left edge, so it
+   centres on that step whatever the beat's width is.
+
+   It pulses on its own onset rather than for the beat's whole length, so the
+   mark answers the beat and settles: the selector reads the beat's *first*
+   step, not any step of it. Reading any step would leave the dot lit through
+   four sixteenths and pulsing at a quarter of the rate it stands for.
+
+   The class is the one the visual playhead already writes onto a step every
+   frame, so the pulse costs no JavaScript of its own and cannot drift from
+   what is sounding.
+
+   Under `prefers-reduced-motion` the block at the end of this file takes the
+   transition to nothing, so the dot changes state without travelling. That is
+   the intent, not a casualty of it: the beat still marks itself. */
+.beat::after {
+  content: "";
   position: absolute;
   top: 100%;
-  left: 0;
-  width: var(--step-size);
-  margin-top: 9px;
-  color: var(--muted);
-  font-size: 0.6rem;
-  font-weight: 640;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  text-align: center;
+  left: calc(var(--step-size) / 2);
+  width: 4px;
+  height: 4px;
+  margin-top: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition:
+    background-color 90ms ease,
+    transform 90ms ease;
+}
+
+.beat:has(> .step:first-child.is-current)::after {
+  transform: translateX(-50%) scale(2.2);
+  background: var(--accent);
 }
 
 .step {

@@ -1127,62 +1127,121 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
 /**
  * Even spacing means the grid no longer says where a beat starts, and the first
  * step of a bar cannot say it either: its voice is the listener's to change, and
- * a downbeat switched off is the dimmest circle in the row. So each beat carries
- * its number, under the step it starts on.
+ * a downbeat switched off is the dimmest circle in the row. So a dot marks it,
+ * under the step the beat begins on.
  *
- * The numbers hang below their row, which is what the row gap has to clear —
- * at the column gap's 10px the first row's numbers land on the second row's
- * steps. Sixteen steps of four is where that shows, because it is the widest
- * grid that still wraps.
+ * The dots hang below their row, and it is the pulsed dot the row gap has to
+ * clear rather than the resting one — a dot that grew into the steps beneath it
+ * would only do so while playing, which is exactly when nobody is looking for
+ * it. Sixteen steps of four is where that shows, because it is the widest grid
+ * that still wraps.
  */
-test("every beat is numbered under its first step, clear of the row below", async ({ page }) => {
+test("a dot marks each beat, clear of the row below even when it pulses", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await setSubdivision(page, 4);
-  await expect(page.locator(".rhythm-card .beat-number")).toHaveCount(4);
   await settleLayout(page);
 
   const measured = await page.evaluate(() => {
     const card = document.querySelector(".rhythm-card");
     const box = (element) => element.getBoundingClientRect();
+    const stepSize = box(card.querySelector(".step")).width;
     return {
-      numbers: [...card.querySelectorAll(".beat-number")].map((number) => ({
-        text: number.textContent,
-        hidden: number.getAttribute("aria-hidden"),
-        centre: (box(number).left + box(number).right) / 2,
-        bottom: box(number).bottom,
-        // The step this number names, which it has to sit under rather than
-        // merely near.
-        stepCentre: (() => {
-          const step = number.parentElement.querySelector(".step");
-          return (box(step).left + box(step).right) / 2;
-        })(),
-      })),
+      stepSize,
+      dots: [...card.querySelectorAll(".beat")].map((beat) => {
+        const dot = getComputedStyle(beat, "::after");
+        const size = parseFloat(dot.height);
+        // The pseudo-element has no box of its own to measure, so its geometry
+        // comes from the beat it hangs off and its own resolved lengths. The
+        // scale is what the pulse grows by, and the reach below is measured
+        // from the dot's centre outward.
+        const top = box(beat).bottom + parseFloat(dot.marginTop);
+        const scale = Number(dot.transform.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
+        return {
+          content: dot.content,
+          left: parseFloat(dot.left),
+          size,
+          restingBottom: top + size,
+          pulsedBottom: top + size / 2 + (size * scale) / 2,
+        };
+      }),
       stepTops: [...card.querySelectorAll(".step")].map((step) => box(step).top),
-      cardBottom: box(card.querySelector(".steps")).bottom,
+      rowBottom: box(card.querySelector(".steps")).bottom,
     };
   });
 
-  expect(measured.numbers.map(({ text }) => text)).toEqual(["1", "2", "3", "4"]);
-  // Decoration: every step already names its own position, and four loose
-  // numerals inside a named group are noise a screen reader has to read past.
-  expect(measured.numbers.map(({ hidden }) => hidden)).toEqual(["true", "true", "true", "true"]);
-
-  for (const number of measured.numbers) {
-    expect(number.centre, `beat ${number.text} is not over its own step`).toBeCloseTo(
-      number.stepCentre,
+  expect(measured.dots).toHaveLength(4);
+  for (const [index, dot] of measured.dots.entries()) {
+    expect(dot.content, `beat ${index + 1} draws no dot`).not.toBe("none");
+    // Half a step in from the beat's left edge is the centre of its first step,
+    // which is the onset the dot stands for.
+    expect(dot.left, `beat ${index + 1} is not over its own step`).toBeCloseTo(
+      measured.stepSize / 2,
       0,
     );
-    // Nothing on a later row may start above where this number ends.
-    const below = measured.stepTops.filter((top) => top > number.bottom - 1);
+
+    const below = measured.stepTops.filter((top) => top > dot.restingBottom);
     for (const top of below) {
-      expect(top, `beat ${number.text} overlaps the row beneath it`).toBeGreaterThanOrEqual(
-        number.bottom,
+      expect(top, `beat ${index + 1} pulses into the row beneath it`).toBeGreaterThanOrEqual(
+        dot.pulsedBottom,
       );
     }
-    expect(number.bottom, `beat ${number.text} overflows the step row`).toBeLessThanOrEqual(
-      measured.cardBottom,
+    expect(dot.pulsedBottom, `beat ${index + 1} pulses out of the step row`).toBeLessThanOrEqual(
+      measured.rowBottom,
     );
   }
+});
+
+/**
+ * The dot takes the accent and grows on the beat the playhead is on, and it
+ * pulses on that beat's own onset rather than through its whole length — the
+ * selector reads the beat's first step, not any step of it. Reading any step
+ * would leave the mark lit through four sixteenths and pulsing at a quarter of
+ * the rate it stands for.
+ *
+ * Driven by writing the class the playhead writes, rather than by running the
+ * transport, so what is asserted is a state and not a moment. Reduced motion is
+ * emulated and two frames are let past before each reading, for the same
+ * reason: the transition is 90ms, and a computed style taken before the first
+ * recalc after a class change is the value the transition starts from, which is
+ * indistinguishable from the state never having changed. That mistake is what
+ * made this look at first like a Chromium bug rather than a measurement error.
+ * A timeout would be a number too short on a loaded runner and wasted
+ * everywhere else.
+ */
+test("the beat dot pulses on its own onset, not through the whole beat", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await setSubdivision(page, 4);
+  await settleLayout(page);
+
+  const dotsWhilePlaying = (step) =>
+    page.evaluate(async (index) => {
+      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      for (const element of steps) element.classList.remove("is-current");
+      if (index !== null) steps[index].classList.add("is-current");
+      await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
+      return [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+        const dot = getComputedStyle(beat, "::after");
+        return `${dot.backgroundColor} ${dot.transform}`;
+      });
+    }, step);
+
+  const resting = await dotsWhilePlaying(null);
+  // Step 0 is beat one's own onset; step 2 is inside beat one but past it; step
+  // 4 is beat two's onset and must leave beat one alone.
+  const atOnset = await dotsWhilePlaying(0);
+  const within = await dotsWhilePlaying(2);
+  const nextBeat = await dotsWhilePlaying(4);
+
+  expect(new Set(resting).size, "a dot was already pulsing at rest").toBe(1);
+  expect(atOnset[0], "beat one did not pulse on its own onset").not.toBe(resting[0]);
+  expect(atOnset.slice(1), "a beat pulsed that was not being played").toEqual(resting.slice(1));
+  expect(within, "the dot stayed lit past its own onset").toEqual(resting);
+  expect(nextBeat[1], "beat two did not pulse on its own onset").not.toBe(resting[1]);
+  expect(nextBeat[0], "beat one pulsed on beat two's onset").toBe(resting[0]);
+
+  // Grows rather than merely recolours.
+  const scaleOf = (dot) => Number(dot.match(/matrix\(([\d.]+)/)[1]);
+  expect(scaleOf(atOnset[0])).toBeGreaterThan(scaleOf(resting[0]));
 });
 
 /**
