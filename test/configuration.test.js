@@ -524,21 +524,6 @@ test("advancing a Step voice cycles the four voices and preserves the transport 
   }
 });
 
-test("repair maps former Step-level names to Step voices", () => {
-  const configuration = createConfiguration({
-    sequence: {
-      cycles: [{ rhythms: [{ steps: ["full", "half", "quarter", "off"] }] }],
-    },
-  });
-
-  assert.deepEqual(configuration.sequence.cycles[0].rhythms[0].steps, [
-    "primary",
-    "secondary",
-    "tertiary",
-    "off",
-  ]);
-});
-
 test("repair rejects inherited object names as Step voices", () => {
   const configuration = createConfiguration({
     sequence: {

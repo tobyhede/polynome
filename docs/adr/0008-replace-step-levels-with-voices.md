@@ -20,11 +20,9 @@ and amplitude-only voicing, and ADR-0004's amplitude-scaling assertion.
   roughly 6 dB and 12 dB, so this is the same coupling reduced by most of an
   order of magnitude, and trimming it away would restore the per-voice gain this
   decision exists to remove.
-- Configuration repair maps the former `full`, `half`, and `quarter` values to
-  `primary`, `secondary`, and `tertiary`, preserving patterns and saved presets.
-  ADR-0003 took a clean break rather than migrate; that is not available here,
-  because ADR-0006 has since put listener-named presets in local storage and a
-  break would discard patterns they wrote.
+- Nothing migrates the former `full`, `half`, and `quarter` values. Polynome has
+  not been released, so no stored pattern holds them and there is no data for a
+  migration to carry. Repair treats them as it treats any unrecognised value.
 - A voice with no entry in the pitch table is not audible. `off` is absent from
   that table rather than present as a silent entry, so one lookup decides both
   pitch and audibility, and an unrecognised voice reaching the public

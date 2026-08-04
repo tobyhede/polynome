@@ -111,6 +111,24 @@ Require explicit product justification before adding:
 
 - musical notation
 - MIDI sequencing
+
+### Do not build migrations
+
+Polynome has never been released. There is no stored data anywhere but a
+developer's own browser, and that is disposable. When a stored shape changes,
+retire it: drop the key, or let repair replace the unrecognised value with a
+default. Do not write a migration, a schema version, an upgrade path, or a
+compatibility shim, and do not add a test for one.
+
+Migration is a feature, and like any other it is built when it is asked for by
+name. "Existing saved patterns are preserved" is not a requirement anyone here
+has stated; it is a reflex, and it has cost real time more than once. The tell
+is prose in a decision record justifying why some old value must survive — if
+nobody can name the release that produced it, delete the code and the paragraph
+together.
+
+When the first release happens, this section is what changes, and the migration
+policy is decided then with real data in view.
 - user accounts
 - cloud sync
 - effects chains

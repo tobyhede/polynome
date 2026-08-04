@@ -20,4 +20,4 @@ and reads the same with `primary`, `secondary`, and `tertiary` substituted for
 - Master volume as a user-editable value is superseded by ADR-0007; the mix behaviour above still governs mute, rhythm level, and balance.
 - The prototype is a design reference, not production code. Its React runtime, animation-driven audio, external Google Font requests, and non-responsive shortcuts are not adopted.
 - JetBrains Mono and Major Mono Display are self-hosted with system fallbacks and embedded in the generated single-file bundle.
-- Persistence takes a clean break because step values and cycle repetition rules change. ADR-0008 does not take a second clean break: by then saved presets existed under ADR-0006, so it migrates the three former level names on repair instead.
+- Persistence takes a clean break because step values and cycle repetition rules change.
