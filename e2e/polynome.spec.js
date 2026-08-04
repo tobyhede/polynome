@@ -650,6 +650,73 @@ test("a Beat control visibly pulses at every Subdivision onset", async ({ page }
     .toBeGreaterThanOrEqual(3);
 });
 
+/**
+ * Display Mode changes only which controls represent the running Rhythm layer;
+ * they do not restart its transport run. The newly visible controls therefore
+ * have to pick up the playhead even when the same absolute step is still active.
+ */
+test("the current control follows a display mode change during playback", async ({ page }) => {
+  await page.getByLabel("Tempo in beats per minute").fill("60");
+  await setSubdivision(page, 3);
+  const card = page.locator(".rhythm-card").first();
+  const secondBeat = card.getByRole("button", { name: /^Beat 2:/ });
+  await secondBeat.evaluate((element) => {
+    element.dataset.pulseCount = "0";
+    element.addEventListener("animationstart", () => {
+      const count = Number(element.dataset.pulseCount) + 1;
+      element.dataset.pulseCount = String(count);
+      if (count !== 2) return;
+      document.querySelector('[data-action="display-mode"]').click();
+      requestAnimationFrame(() => {
+        document.body.dataset.currentAfterDisplayMode =
+          document.querySelector(".step.is-current")?.getAttribute("aria-label") ?? "absent";
+      });
+    });
+  });
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect
+    .poll(() => page.locator("body").getAttribute("data-current-after-display-mode"))
+    .toMatch(/^Step 5:/);
+});
+
+/**
+ * The playhead redraws only at an onset, and what it last drew is what tells it
+ * an onset has arrived. The display mode decides both how many controls there
+ * are and which one an absolute step falls on, so a record of the last draw that
+ * does not carry the mode answers for the grid the other mode had: the highlight
+ * stays where the replaced controls left it, or goes missing with them, until
+ * the next onset repairs it — which at a slow tempo is a long time watching a
+ * metronome that has stopped following itself.
+ */
+test("the playhead redraws where a display mode change moved it", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  await readout.fill("30");
+  await readout.blur();
+  await setSubdivision(page, 2);
+  await showSubdivisionMode(page);
+
+  const card = page.locator(".rhythm-card").first();
+  const controls = card.locator(".step");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  // A subdivision pulse lasts a second at this tempo, and the beat this one
+  // belongs to does not come round again for another seven. Catching the onset
+  // rather than sampling for it leaves the whole of that second to change the
+  // mode and assert in, and makes a highlight that only arrives at the following
+  // onset a failure rather than a slow pass.
+  await page.waitForFunction(
+    () => document.querySelectorAll(".rhythm-card .step")[3]?.classList.contains("is-current"),
+    null,
+    { polling: "raf" },
+  );
+
+  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
+
+  await expect(controls).toHaveCount(4);
+  await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
+});
+
 test("disabling a cycle preserves focus and the sole active cycle indicator", async ({ page }) => {
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
 

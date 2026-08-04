@@ -1026,8 +1026,12 @@ function updateActiveSteps() {
       const activeIndex = engine.activeStep(rhythm);
       card.classList.toggle("is-current", active);
       const steps = card.querySelector(".steps");
-      if (!steps || steps.getAttribute("data-active-step") === String(activeIndex)) continue;
-      steps.setAttribute("data-active-step", String(activeIndex));
+      // What was drawn, not merely where the transport is: the display mode
+      // decides how many controls there are and which one an absolute step falls
+      // on, so a change of mode is a redraw the same absolute step still needs.
+      const drawn = `${rhythm.displayMode}:${activeIndex}`;
+      if (!steps || steps.getAttribute("data-active-step") === drawn) continue;
+      steps.setAttribute("data-active-step", drawn);
       const controls = steps.querySelectorAll(".step");
       controls.forEach((element) => {
         element.classList.remove("is-current");
