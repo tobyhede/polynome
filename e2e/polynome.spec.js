@@ -11,9 +11,13 @@ function presetButton(page, name) {
   return page.getByRole("button", { name: new RegExp(`^${name}\\b`) });
 }
 
+// Saving is reachable whether or not the panel is open, so this does not open
+// it. The submit reads "Replace" once the typed name is one already stored.
 async function savePreset(page, name) {
-  await page.getByRole("textbox", { name: "Save current preset" }).fill(name);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "+ Save" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Name" }).fill(name);
+  await dialog.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
   await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
 }
 
@@ -293,7 +297,7 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
 });
 
 test("sound customization clears preset selection and persists", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   // A preset button carries its name and a notation preview, so its accessible
   // name is the whole summary; the identifier is what stays stable.
   const preset = page.locator('[data-preset-id="built-in-4-4"]');
@@ -309,7 +313,7 @@ test("sound customization clears preset selection and persists", async ({ page }
   await expect(preset).not.toHaveClass(/\bis-selected\b/);
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(page.locator('[data-preset-id="built-in-4-4"]')).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -333,7 +337,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 test("saving writes what storage holds now, not what this tab read at startup", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Shared");
 
   await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
@@ -343,7 +347,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await expect(presetButton(page, "Shared")).toHaveCount(0);
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Later")).toBeVisible();
   await expect(presetButton(page, "Shared")).toHaveCount(0);
 });
@@ -351,7 +355,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
 test("deleting removes one preset without dropping presets this tab never saw", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
@@ -366,7 +370,7 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await expect(presetButton(page, "Keeper")).toBeVisible();
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Doomed")).toHaveCount(0);
   await expect(presetButton(page, "Keeper")).toBeVisible();
 });
@@ -378,8 +382,8 @@ test("an open preset panel follows another tab's saves and deletions", async ({
   const heading = page.getByRole("heading", { name: /^Presets/ });
   const other = await context.newPage();
   await other.goto("/");
-  await page.getByRole("button", { name: "Presets" }).click();
-  await other.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
 
   await savePreset(other, "Rehearsal");
   await expect(presetButton(page, "Rehearsal")).toBeVisible();
@@ -395,17 +399,17 @@ test("a preset deleted in another tab stays deleted when this tab saves", async 
   context,
 }) => {
   const other = await context.newPage();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Retired");
 
   await other.goto("/");
-  await other.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
   await deletePreset(other, "Retired");
   await expect(presetButton(other, "Retired")).toHaveCount(0);
 
   await savePreset(page, "Current");
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Current")).toBeVisible();
   await expect(presetButton(page, "Retired")).toHaveCount(0);
 });
@@ -422,7 +426,7 @@ test("deleting a preset confirms in place without a browser dialog", async ({ pa
     dialogs.push(dialog.message());
     dialog.dismiss();
   });
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Scratch");
 
   await page.getByRole("button", { name: "Delete Scratch preset" }).click();
@@ -440,7 +444,7 @@ test("deleting a preset confirms in place without a browser dialog", async ({ pa
 });
 
 test("an armed delete is dismissed by Escape and by a click elsewhere", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Scratch");
   const remove = page.getByRole("button", { name: "Delete Scratch preset" });
   const confirm = page.getByRole("button", { name: "Confirm deleting Scratch preset" });
@@ -462,7 +466,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 });
 
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Ghost");
   await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
 
@@ -480,9 +484,9 @@ test("deleting a preset another tab already removed says so and clears it", asyn
  */
 test("a hidden preset panel is not rebuilt while the tempo changes", async ({ page }) => {
   const heading = page.getByRole("heading", { name: /^Presets/ });
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toBeHidden();
 
   await page.evaluate(() => {
@@ -499,7 +503,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Watched")).toBeVisible();
   await expect(heading).toContainText("3");
 });
@@ -525,16 +529,20 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     });
     const page = await denied.newPage();
     const status = page.getByRole("status");
-    const name = page.getByRole("textbox", { name: "Save current preset" });
-    const save = page.getByRole("button", { name: "Save", exact: true });
+    const dialog = page.getByRole("dialog");
+    const openSave = page.getByRole("button", { name: "+ Save" });
+    const name = dialog.getByRole("textbox", { name: "Name" });
+    const save = dialog.getByRole("button", { name: /^(?:Save|Replace)$/ });
     await page.goto("/");
-    await page.getByRole("button", { name: "Presets" }).click();
+    await page.getByRole("button", { name: "Presets", exact: true }).click();
 
+    await openSave.click();
     await name.fill("First");
     await save.click();
     await expect(status).toHaveText("Preset could not be saved in this browser");
     await expect(presetButton(page, "First")).toBeVisible();
 
+    await openSave.click();
     await name.fill("Second");
     await save.click();
     await expect(presetButton(page, "Second")).toBeVisible();
@@ -556,7 +564,7 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
  * identical DOM on every pointer move of a drag.
  */
 test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
   const builtIn = page.locator('[data-preset-id="built-in-4-4"]');
   await builtIn.click();
@@ -583,20 +591,21 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
  * The rebuild that adopts another tab's deletion destroys whatever the user had
  * focused. Restoring by identifier finds nothing when the identifier is what was
  * deleted, and focus falls to the document, which is where a keyboard user least
- * expects to be. The save field is where deleting in this tab already leaves it.
+ * expects to be. The panel's close control is where deleting in this tab already
+ * leaves it, and unlike a Preset card it is always there to receive focus.
  */
 test("focus survives another tab deleting the preset it was on", async ({ page, context }) => {
   const other = await context.newPage();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Doomed");
   await page.getByRole("button", { name: "Delete Doomed preset" }).focus();
 
   await other.goto("/");
-  await other.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
   await deletePreset(other, "Doomed");
 
   await expect(presetButton(page, "Doomed")).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: "Save current preset" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Close presets" })).toBeFocused();
 });
 
 /**
@@ -606,7 +615,7 @@ test("focus survives another tab deleting the preset it was on", async ({ page, 
  * pair shows it: the glyph all but disappears on the card the user just picked.
  */
 test("the delete glyph stays readable on a selected preset", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Chosen");
   const preset = presetButton(page, "Chosen");
   await preset.click();

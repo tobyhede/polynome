@@ -26,7 +26,7 @@ const AA_NORMAL_TEXT = 4.5;
  * slider runs, so it has to meet the ratio like any other label.
  */
 const DECORATIVE_RULES = new Set([
-  ".top-panel h2 .panel-divider",
+  ".panel-heading h2 .panel-divider",
   ".cycle-heading h2 .cycle-divider",
   '.rhythm-identity > span[aria-hidden="true"]',
   ".signature-input > span",
@@ -170,6 +170,15 @@ test("every element app.js resolves by id exists in the shell", async () => {
  * nobody who cannot, unless the field points at it. `aria-describedby` is also
  * silent when it names an element that is not there, so the reference has to
  * resolve rather than merely exist.
+ *
+ * The shell currently has none. The save hint was the last one, and it went
+ * when the save form moved into its dialog: what it explained — that a name
+ * already in use replaces that Preset rather than adding one — is now carried
+ * by the submit button, which reads "Replace" from the moment the typed name
+ * makes it true. A label the user is about to activate says it better than a
+ * sentence beside a field, and it says it in the accessibility tree without a
+ * reference to resolve. So this asserts no *dangling* reference rather than
+ * requiring one to exist; the first description added is checked again.
  */
 test("every aria-describedby names an element the shell emits", async () => {
   const html = await readFile("index.html", "utf8");
@@ -177,7 +186,6 @@ test("every aria-describedby names an element the shell emits", async () => {
     match[1].trim().split(/\s+/),
   ).flat();
 
-  assert.ok(references.length, "Expected the shell to describe a control");
   const missing = references.filter((id) => !new RegExp(`\\sid="${id}"`).test(html));
   assert.deepEqual(missing, []);
 });
