@@ -4,7 +4,7 @@
 > quarter-note model. Polynome now defines BPM as the shared primary-click rate;
 > see [Meter validity and tempo reference](meter-validity-and-tempo-reference.md).
 
-> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four Step voices express emphasis: off, tertiary, secondary, and primary. The three audible voices share one gain and descend in four-semitone intervals ([ADR-0008](../adr/0008-replace-step-levels-with-voices.md), which replaced the earlier amplitude-only levels). Persistence stores no schema version: retired keys are discarded on load rather than migrated, most recently when the meter domain narrowed and the configuration and preset keys moved to `-v2`.
+> **Resolved product decisions:** Polynome uses meter-relative grids only, with subdivisions of `1` through `5` pulses per signature unit. Grouping is not modeled as state or UI. Four Step voices express emphasis: off, tertiary, secondary, and primary. The three audible voices share one gain and descend in four-semitone intervals ([ADR-0008](../adr/0008-replace-step-levels-with-voices.md), which replaced the earlier amplitude-only levels). Persistence stores no schema version, and retiring a key is not the same act as repairing a record. Retired keys are deleted before anything parses them — most recently the pre-`-v2` configuration and preset records, discarded when the meter domain narrowed. Records under the current keys are repaired rather than discarded, and that is what carries a former `full`, `half`, or `quarter` Step value onto its voice, in saved Presets as much as in the open Configuration.
 
 ## Conclusion
 
