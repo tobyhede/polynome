@@ -1,6 +1,7 @@
 import {
   METER_COUNT_LIMIT,
-  NOTE_UNITS as METER_UNITS,
+  METER_UNITS,
+  normaliseMeterUnit,
   normaliseNumber,
   STEP,
   SUBDIVISION_LIMIT,
@@ -20,6 +21,7 @@ function choiceRange({ minimum, maximum }) {
 const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
+const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
 const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
@@ -66,9 +68,7 @@ function createRhythm(overrides = {}) {
         METER_COUNT_LIMIT.maximum,
       ),
     ),
-    unit: METER_UNITS.includes(Number(overrides.signature?.unit))
-      ? Number(overrides.signature.unit)
-      : 4,
+    unit: normaliseMeterUnit(overrides.signature?.unit),
   };
   const subdivision = Math.round(
     normaliseNumber(overrides.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
@@ -446,6 +446,7 @@ export function describeConfiguration(configuration) {
     selectedPreset: selectedPreset(valid),
     choices: {
       presetNames: [...PRESETS],
+      meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
       subdivisions: [...SUBDIVISIONS],
       sounds: [...SOUNDS],

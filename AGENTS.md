@@ -31,7 +31,9 @@ The core promise is:
 - `biome.jsonc`: lint and formatter configuration. `.jsonc` rather than `.json` because strict JSON cannot hold the paragraph explaining the one disabled rule, and a rule turned off without a reason is one nobody can safely turn back on.
 - `jsconfig.json`, `types/`: TypeScript's `checkJs` configuration and the ambient declarations for browser APIs its DOM library omits.
 
-`model.js` holds the shared musical vocabulary (`STEP`, `NOTE_UNITS`, `METER_COUNT_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+`model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+
+Meter numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
 
 ### Configuration edit failure modes
 

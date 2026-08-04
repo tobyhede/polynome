@@ -616,7 +616,6 @@ test("a prime meter never splits into unequal rows", async ({ page }) => {
 for (const { beats, subdivision, steps } of [
   { beats: 8, subdivision: 4, steps: 32 },
   { beats: 16, subdivision: 2, steps: 32 },
-  { beats: 32, subdivision: 1, steps: 32 },
 ]) {
   test(`${beats} beats of ${subdivision} never puts more than sixteen steps on a row`, async ({
     page,

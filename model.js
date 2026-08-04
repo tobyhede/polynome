@@ -25,12 +25,13 @@ const STEP_LEVELS = lookup({
  * The shared musical vocabulary. `model.js` is the single definition; every
  * other module imports these rather than restating the literals.
  *
- * Tempo is always interpreted as quarter-note BPM, so `60 / bpm` is a quarter
- * note in seconds throughout this module regardless of any meter's unit.
+ * Tempo names the shared primary beat rate. Every rhythm layer receives one
+ * signature-unit beat per `60 / bpm` seconds; Subdivision alone divides that
+ * duration into Pattern positions.
  */
-export const NOTE_UNITS = Object.freeze([1, 2, 4, 8, 16, 32]);
+export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 16 });
 
-export const METER_COUNT_LIMIT = Object.freeze({ minimum: 1, maximum: 32 });
+export const METER_UNITS = Object.freeze([1, 2, 4, 8]);
 
 export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
 
@@ -47,19 +48,36 @@ function clamp(value, min, max) {
  * controls. Only a number or a numeric string is a value; everything else is a
  * missing one, because `Number` reads `null`, `""`, and `[]` as zero and a
  * layer that simply had nothing saved for it would come back silent rather
- * than at its default.
+ * than at its default. Callers decide what a missing value means: a Meter
+ * count is clamped into range, a Meter denominator is refused outright.
  */
-export function normaliseNumber(value, fallback, min, max) {
+function numericValue(value) {
   const numeric = typeof value === "number" || (typeof value === "string" && value.trim() !== "");
-  const parsed = numeric ? Number(value) : Number.NaN;
+  return numeric ? Number(value) : Number.NaN;
+}
+
+export function normaliseNumber(value, fallback, min, max) {
+  const parsed = numericValue(value);
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
 
-function normaliseUnit(value, fallback = 4) {
-  const parsed = Number(value);
-  return NOTE_UNITS.includes(parsed) ? parsed : fallback;
+/**
+ * A Meter denominator is one of the conventional written units the interface
+ * offers. Stored values outside that finite vocabulary fall back rather than
+ * being coerced into a different Meter.
+ */
+export function normaliseMeterUnit(value, fallback = 4) {
+  const parsed = numericValue(value);
+  return METER_UNITS.includes(parsed) ? parsed : fallback;
 }
 
+/**
+ * A Cycle span is the least common multiple of its Meter counts. Those counts
+ * are whole numbers the count range clamps, so every value and intermediate
+ * product here is an exact integer and only the conversion to seconds is a
+ * floating-point division. `test/model.test.js` holds the widest span the range
+ * permits and the margin it leaves.
+ */
 function greatestCommonDivisor(left, right) {
   let a = Math.abs(left);
   let b = Math.abs(right);
@@ -76,31 +94,28 @@ export function cycleSpanSeconds(bpm, cycle) {
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  const spanInThirtySecondNotes = rhythms
-    .map((rhythm) => {
-      const count = Math.round(
+  const spanInBeats = rhythms
+    .map((rhythm) =>
+      Math.round(
         normaliseNumber(
           rhythm.signature?.count,
           4,
           METER_COUNT_LIMIT.minimum,
           METER_COUNT_LIMIT.maximum,
         ),
-      );
-      const unit = normaliseUnit(rhythm.signature?.unit, 4);
-      return count * (32 / unit);
-    })
+      ),
+    )
     .reduce(leastCommonMultiple);
-  const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
-  return (spanInThirtySecondNotes * quarterSeconds) / 8;
+  const beatSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
+  return spanInBeats * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
-  const unit = normaliseUnit(rhythm?.signature?.unit, 4);
   const subdivision = Math.round(
     normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
   );
-  return ((60 / safeBpm) * (4 / unit)) / subdivision;
+  return 60 / safeBpm / subdivision;
 }
 
 const UNIT_NAMES = lookup({
@@ -124,6 +139,10 @@ const SUBDIVISION_HINTS = lookup({
  * Names a Subdivision for accessible names and tooltips. Both maps are keyed
  * by values the caller supplies, so each side falls back to a readable phrase
  * rather than letting an unmapped value surface as "undefined".
+ *
+ * Every denominator the interface offers has a conventional note-value name, so
+ * the fallback is a guard against a caller's mistake rather than a Meter a
+ * musician can reach.
  */
 export function subdivisionLabel(subdivision, unit) {
   const unitName = UNIT_NAMES[unit] || "signature";
