@@ -370,11 +370,19 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
  *
  * A built-in name is not in use: `savePreset` refuses it outright rather than
  * replacing anything, so the honest answer is no.
+ *
+ * The list is not repaired here, and has to arrive repaired — `createSavedPresets`
+ * is the only door that produces one, and every caller comes through it. This is
+ * asked on every keystroke in the save field, and the list it is asked about has
+ * just been read and repaired to be handed over; repairing it a second time to
+ * answer a question about names would deep-repair every stored Configuration
+ * again for nothing. `sameConfiguration` above holds the same rule for the same
+ * reason.
  */
 export function presetNameInUse(savedPresets, nameCandidate) {
   const name = presetName(nameCandidate);
   if (!name || reservedPresetName(name)) return false;
-  return findPresetNamed(createSavedPresets(savedPresets), name) !== -1;
+  return findPresetNamed(savedPresets, name) !== -1;
 }
 
 export function removeSavedPreset(savedPresets, presetId) {

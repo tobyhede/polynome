@@ -78,7 +78,12 @@ select:focus-visible,
   outline-offset: 3px;
 }
 
-button:disabled {
+/* A control kept in the tab order to say why it will not act still has to look
+   the way one that cannot act looks. `aria-disabled` changes what the
+   accessibility tree is told and nothing about the rendering, so the treatment
+   is named for both. */
+button:disabled,
+button[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.28;
 }
@@ -157,7 +162,7 @@ h1 {
   text-transform: uppercase;
 }
 
-.chip-button:hover:not(:disabled),
+.chip-button:hover:not(:disabled, [aria-disabled="true"]),
 .preset-button:hover:not(:disabled),
 .sound-button:hover:not(:disabled),
 .icon-button.is-active {

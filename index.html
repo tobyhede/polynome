@@ -38,7 +38,14 @@
         </div>
         <nav class="header-actions" aria-label="Application panels">
           <button id="presets-toggle" class="chip-button" type="button" aria-expanded="false" aria-controls="preset-panel">Presets</button>
-          <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel">+ Save</button>
+          <!-- Marked unavailable rather than disabled while there is nothing to
+               save, so it keeps its place in the tab order and can be reached
+               and read. `aria-disabled` says a control will not act but never
+               says why, and a `title` on a button that already has text is a
+               description screen readers commonly skip — so the reason is a
+               described-by, and `app.js` writes both from one string. -->
+          <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel" aria-disabled="true" aria-describedby="preset-save-reason" title="No changes to save">+ Save</button>
+          <span id="preset-save-reason" class="sr-only">No changes to save</span>
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
         </nav>
       </header>
@@ -123,7 +130,6 @@
         <p id="status" class="sr-only" role="status" aria-live="polite">Stopped</p>
       </footer>
     </main>
-
 
     <noscript>This metronome requires JavaScript.</noscript>
     <script type="module" src="./app.js"></script>

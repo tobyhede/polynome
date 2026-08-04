@@ -183,14 +183,12 @@ test("every element app.js resolves by id exists in the shell", async () => {
  * silent when it names an element that is not there, so the reference has to
  * resolve rather than merely exist.
  *
- * The shell currently has none. The save hint was the last one, and it went
- * when the save form moved into its dialog: what it explained — that a name
- * already in use replaces that Preset rather than adding one — is now carried
- * by the submit button, which reads "Replace" from the moment the typed name
- * makes it true. A label the user is about to activate says it better than a
- * sentence beside a field, and it says it in the accessibility tree without a
- * reference to resolve. So this asserts no *dangling* reference rather than
- * requiring one to exist; the first description added is checked again.
+ * One has to exist, and it is the save chip's. `aria-disabled` says a control
+ * will not act and has no way of saying why; the chip is marked that way for as
+ * long as there is nothing to save, and the reason is the described-by it points
+ * at. Losing that reference would leave a control announced as unavailable with
+ * nothing anywhere saying what would make it available again — which is silent,
+ * and looks from the outside exactly like working code.
  */
 test("every aria-describedby names an element the shell emits", async () => {
   const html = await readFile("index.html", "utf8");
@@ -198,6 +196,7 @@ test("every aria-describedby names an element the shell emits", async () => {
     match[1].trim().split(/\s+/),
   ).flat();
 
+  assert.ok(references.length, "Expected the shell to describe a control");
   const missing = references.filter((id) => !new RegExp(`\\sid="${id}"`).test(html));
   assert.deepEqual(missing, []);
 });

@@ -58,6 +58,7 @@ const elements = {
   presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
   presetSavePanel: /** @type {HTMLElement} */ (document.querySelector("#save-panel")),
   presetSaveOpen: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-open")),
+  presetSaveReason: /** @type {HTMLElement} */ (document.querySelector("#preset-save-reason")),
   presetSaveClose: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-close")),
   presetSaveSubmit: /** @type {HTMLButtonElement} */ (
     document.querySelector("#preset-save-submit")
@@ -236,16 +237,26 @@ function renderPanels() {
   elements.presetSavePanel.hidden = !savePanelOpen;
   elements.presetSaveOpen.setAttribute("aria-expanded", String(savePanelOpen));
   elements.presetSaveOpen.classList.toggle("is-active", savePanelOpen);
-  // Nothing to save is not a reason to hide the way in, so this disables rather
-  // than removes: the control stays where the user learned it is, and says why
-  // it will not act.
+  // Nothing to save is not a reason to hide the way in, so this marks the chip
+  // unavailable rather than removing it: it stays where the user learned it is,
+  // and says why it will not act.
+  //
+  // `aria-disabled` rather than `disabled`, because the saying is the point and
+  // `disabled` reaches nobody with it. A disabled control leaves the tab order,
+  // so a keyboard user meets it as an absence rather than as a control with a
+  // reason, and `title` on a button that already has text is a description
+  // screen readers commonly skip. Marked unavailable, the chip keeps its place
+  // and its focus, and the reason is a described-by the accessibility tree
+  // carries. Nothing enforces it, so the click handler declines for itself.
   const unsaved = hasUnsavedChanges();
-  elements.presetSaveOpen.disabled = !unsaved && !savePanelOpen;
+  elements.presetSaveOpen.setAttribute("aria-disabled", String(!unsaved && !savePanelOpen));
   // Enabled is not a state anyone reads in a row of chips: it looks exactly like
   // the neighbour that is always live. Something to save is worth saying, so the
   // chip takes the accent for as long as there is.
   elements.presetSaveOpen.classList.toggle("is-live", unsaved);
-  elements.presetSaveOpen.title = unsaved ? "Save this setup as a preset" : "No changes to save";
+  const saveReason = unsaved ? "Save this setup as a preset" : "No changes to save";
+  elements.presetSaveOpen.title = saveReason;
+  elements.presetSaveReason.textContent = saveReason;
 }
 
 function renderTransport() {
@@ -1001,7 +1012,14 @@ elements.presetsClose.addEventListener("click", () => {
 });
 elements.helpToggle.addEventListener("click", () => {
   helpOpen = !helpOpen;
-  if (helpOpen) presetsOpen = false;
+  // Three panels, and the rule is not that one is open at a time: Presets and
+  // Save are two halves of the same subject and sit together. Help is a third
+  // subject, so opening it closes both — including a save part way through
+  // being named, which Escape and the close control already abandon.
+  if (helpOpen) {
+    presetsOpen = false;
+    savePanelOpen = false;
+  }
   renderPanels();
 });
 elements.bpm.addEventListener("change", (event) =>
@@ -1050,15 +1068,13 @@ elements.presetList.addEventListener("click", (event) => {
     // deletion being confirmed. Nothing is left to delete, but the button the
     // user just pressed is still on screen and owes them an answer.
     if (result.reason) {
-      savedPresets = result.presets;
-      renderPresetPanel();
+      adoptSavedPresets(result.presets);
       elements.presetsClose.focus();
       elements.status.textContent = `${preset.name} preset was already deleted`;
       return;
     }
-    savedPresets = result.presets;
+    adoptSavedPresets(result.presets);
     const persisted = writeSavedPresets(savedPresets);
-    renderPresetPanel();
     elements.presetsClose.focus();
     elements.status.textContent = persisted
       ? `${preset.name} preset deleted`
@@ -1091,6 +1107,55 @@ function rememberPresetOrigin(name, builtIn = false) {
 }
 
 /**
+ * Whether the Preset the origin names is still stored, still under that name,
+ * and still holding the snapshot it held when it was recorded. All three have to
+ * be true for the origin to mean anything: either tab can delete a Preset, and
+ * another tab can save over the name while leaving it there.
+ */
+function originIsStored() {
+  if (presetOrigin === null) return false;
+  return describePresets(presetOrigin.configuration, savedPresets).some(
+    ({ name, builtIn, selected }) =>
+      selected && builtIn === presetOrigin.builtIn && name === presetOrigin.name,
+  );
+}
+
+/**
+ * The origin is a claim about what storage holds, and storage moves under it. A
+ * Preset deleted here or in another tab leaves this pointing at something no
+ * Preset carries any more, and a stale origin reads as nothing to save — which
+ * is exactly backwards, because a Configuration whose Preset has just gone is
+ * the one most worth keeping. Left alone, the chip stays inert and the only way
+ * back to a save is an edit the user did not want to make.
+ *
+ * An origin that is still stored is kept rather than re-derived, so deleting
+ * some other Preset does not take the name the save field opens on with it.
+ */
+function reconcilePresetOrigin() {
+  if (originIsStored()) return;
+  presetOrigin =
+    describePresets(state, savedPresets)
+      .filter(({ selected }) => selected)
+      .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
+}
+
+/**
+ * Every route by which the stored Presets change under this tab — a deletion
+ * here, and any write another tab makes — ends here, because what follows is the
+ * same each time: the origin may have stopped naming anything, the list has to
+ * be redrawn, and the save chip's state is a function of the origin, so the
+ * header has to follow the list. Saving is the one write that does not come
+ * through here; it knows the origin it just created, and re-deriving would only
+ * find it again.
+ */
+function adoptSavedPresets(presets) {
+  savedPresets = presets;
+  reconcilePresetOrigin();
+  renderPresetPanel();
+  renderPanels();
+}
+
+/**
  * The name to open the save field on. A built-in Preset's name is reserved —
  * `savePreset` refuses it rather than replacing anything — so offering it back
  * would be offering a save that cannot succeed. Editing a built-in is how a
@@ -1116,25 +1181,33 @@ function describeSaveAction() {
   elements.presetSaveIconReplace.toggleAttribute("hidden", !replaces);
 }
 
+function saveIsOffered() {
+  return elements.presetSaveOpen.getAttribute("aria-disabled") !== "true";
+}
+
 function closeSavePanel({ focusToggle = true } = {}) {
   savePanelOpen = false;
   renderPanels();
-  if (!focusToggle) return;
-  // Closing can be what disables the toggle — it is live only while there is
-  // something to save — and a disabled element cannot hold focus, so the
-  // neighbour takes it rather than the document.
-  const target = elements.presetSaveOpen.disabled
-    ? elements.presetsToggle
-    : elements.presetSaveOpen;
-  target.focus();
+  // Closing can be what makes the toggle inert — it is live only while there is
+  // something to save — and it holds focus either way, because it is marked
+  // unavailable rather than disabled. Focus stays on the control the panel came
+  // from instead of being handed to a neighbour that had nothing to do with it.
+  if (focusToggle) elements.presetSaveOpen.focus();
 }
 
 elements.presetSaveOpen.addEventListener("click", () => {
+  // `aria-disabled` states, it does not enforce: the click still arrives, and a
+  // control that says it will not act has to be the one that does not.
+  if (!saveIsOffered()) return;
   savePanelOpen = !savePanelOpen;
   if (!savePanelOpen) {
     closeSavePanel({ focusToggle: false });
     return;
   }
+  // Help is a different subject wanting the same room. The preset panel is not:
+  // it is this panel's other half, and saving with it open is what puts the new
+  // Preset on screen where the save leaves focus.
+  helpOpen = false;
   // Prefilled with the Preset this Configuration came from, so saving an edited
   // version back over it is the default and renaming is the deliberate act. An
   // untouched name is what carries the edits onto the Preset the user started
@@ -1177,12 +1250,13 @@ elements.presetSave.addEventListener("submit", (event) => {
   // Only when the panel is open. Moving focus into a panel the user cannot see
   // would strand them, and saving deliberately does not open it — the status
   // line is the confirmation, and a panel that opens itself takes the screen.
-  // Otherwise focus goes nowhere useful, so it goes to the toggle it came from,
-  // which the save has just disabled; the presets toggle is the live neighbour.
+  // Otherwise focus stays on the chip the save was started from. The save has
+  // just made it inert, and it can still hold focus and say so, because it is
+  // marked unavailable rather than disabled.
   if (presetsOpen) {
     focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
   } else {
-    elements.presetsToggle.focus();
+    elements.presetSaveOpen.focus();
   }
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
@@ -1485,13 +1559,12 @@ window.addEventListener("storage", (event) => {
   if (event.key !== null && event.key !== PRESET_STORAGE_KEY) return;
   const presets = readSavedPresets();
   if (presets === null) return;
-  savedPresets = presets;
   // An armed deletion whose Preset another tab has already removed has nothing
   // left to confirm, and leaving it armed would keep state pointing at nothing.
   if (!presets.some(({ id }) => id === pendingDeletePresetId)) {
     pendingDeletePresetId = null;
   }
-  renderPresetPanel();
+  adoptSavedPresets(presets);
 });
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,
 // and hiding is the last moment a mobile browser reliably hands over.
@@ -1509,10 +1582,8 @@ elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
  * A Configuration restored from storage may already be one of the stored
  * Presets exactly, and on that reading there is nothing to save. Deriving it
  * once here costs one pass over the stored Presets at startup and keeps a
- * reload from re-offering a save the user already made.
+ * reload from re-offering a save the user already made. There is no origin yet
+ * to keep, so the reconciliation below is that derivation.
  */
-presetOrigin =
-  describePresets(state, savedPresets)
-    .filter(({ selected }) => selected)
-    .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
+reconcilePresetOrigin();
 renderInterface();
