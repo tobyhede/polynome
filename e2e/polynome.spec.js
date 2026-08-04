@@ -1125,6 +1125,67 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
 }
 
 /**
+ * Even spacing means the grid no longer says where a beat starts, and the first
+ * step of a bar cannot say it either: its voice is the listener's to change, and
+ * a downbeat switched off is the dimmest circle in the row. So each beat carries
+ * its number, under the step it starts on.
+ *
+ * The numbers hang below their row, which is what the row gap has to clear —
+ * at the column gap's 10px the first row's numbers land on the second row's
+ * steps. Sixteen steps of four is where that shows, because it is the widest
+ * grid that still wraps.
+ */
+test("every beat is numbered under its first step, clear of the row below", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await setSubdivision(page, 4);
+  await expect(page.locator(".rhythm-card .beat-number")).toHaveCount(4);
+  await settleLayout(page);
+
+  const measured = await page.evaluate(() => {
+    const card = document.querySelector(".rhythm-card");
+    const box = (element) => element.getBoundingClientRect();
+    return {
+      numbers: [...card.querySelectorAll(".beat-number")].map((number) => ({
+        text: number.textContent,
+        hidden: number.getAttribute("aria-hidden"),
+        centre: (box(number).left + box(number).right) / 2,
+        bottom: box(number).bottom,
+        // The step this number names, which it has to sit under rather than
+        // merely near.
+        stepCentre: (() => {
+          const step = number.parentElement.querySelector(".step");
+          return (box(step).left + box(step).right) / 2;
+        })(),
+      })),
+      stepTops: [...card.querySelectorAll(".step")].map((step) => box(step).top),
+      cardBottom: box(card.querySelector(".steps")).bottom,
+    };
+  });
+
+  expect(measured.numbers.map(({ text }) => text)).toEqual(["1", "2", "3", "4"]);
+  // Decoration: every step already names its own position, and four loose
+  // numerals inside a named group are noise a screen reader has to read past.
+  expect(measured.numbers.map(({ hidden }) => hidden)).toEqual(["true", "true", "true", "true"]);
+
+  for (const number of measured.numbers) {
+    expect(number.centre, `beat ${number.text} is not over its own step`).toBeCloseTo(
+      number.stepCentre,
+      0,
+    );
+    // Nothing on a later row may start above where this number ends.
+    const below = measured.stepTops.filter((top) => top > number.bottom - 1);
+    for (const top of below) {
+      expect(top, `beat ${number.text} overlaps the row beneath it`).toBeGreaterThanOrEqual(
+        number.bottom,
+      );
+    }
+    expect(number.bottom, `beat ${number.text} overflows the step row`).toBeLessThanOrEqual(
+      measured.cardBottom,
+    );
+  }
+});
+
+/**
  * The label hangs above the number's box, but what a reader sees is the distance
  * to the ink — and half the leading, the block padding and the display font's
  * own ascent above its capitals all sit between the two, every one of them a

@@ -849,21 +849,30 @@ h1.is-glitching {
    column count is what makes the rows equal: beats cannot pack greedily into a
    fixed number of columns. */
 .steps {
+  /* One length for the step, read by the beat number below it as well, so the
+     breakpoint changes the size in one place rather than in each rule that has
+     to agree with it. */
+  --step-size: 58px;
+
   /* Grid and flex items are min-content wide by default, which would let a wide
      beat push the card past the shell and hand layoutSteps() a width the screen
      does not have. */
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--beats-per-row, 1), max-content);
-  /* One gap everywhere, between beats exactly as inside them. Setting beats
-     further apart than their own steps drew a grouping the rhythm does not
-     have: at a Subdivision of two it is the engraved form of a swung pair, and
-     the onsets it stands over are evenly spaced. A row still breaks only
-     between beats — `.beat` is what guarantees that, not the gap. */
-  gap: 10px;
+  /* One column gap everywhere, between beats exactly as inside them. Setting
+     beats further apart than their own steps drew a grouping the rhythm does
+     not have: at a Subdivision of two it is the engraved form of a swung pair,
+     and the onsets it stands over are evenly spaced. A row still breaks only
+     between beats — `.beat` is what guarantees that, not the gap.
+
+     The row gap is the wider one because the beat numbers hang below their row;
+     at the column gap's 10px the first row's numbers land on the second row's
+     steps. The bottom padding is opened for the last row's numbers. */
+  gap: 26px 10px;
   align-items: center;
   justify-content: start;
-  padding: 14px 16px 18px;
+  padding: 14px 16px 30px;
 }
 
 /* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
@@ -886,15 +895,35 @@ h1.is-glitching {
 
 /* A beat is atomic: a row break can only fall between beats, never inside one. */
 .beat {
+  position: relative;
   display: flex;
   gap: 10px;
+}
+
+/* Set like the tempo tick labels, which is the same job: a small figure naming
+   a position on a scale. Absolutely positioned, so it is out of the flex line
+   and the beat's own steps are laid out as though it were not there — and boxed
+   to one step's width so it centres on the step it names whatever the beat's
+   own width is. */
+.beat-number {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: var(--step-size);
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
 }
 
 .step {
   --ghost: color-mix(in oklab, var(--line-strong), transparent 28%);
 
-  width: 58px;
-  height: 58px;
+  width: var(--step-size);
+  height: var(--step-size);
   padding: 0;
   border: 1.5px solid color-mix(in oklab, var(--accent), transparent 52%);
   border-radius: 50%;
@@ -1313,12 +1342,9 @@ h1.is-glitching {
   }
 
   .steps {
-    padding-inline: 12px;
-  }
+    --step-size: 52px;
 
-  .step {
-    width: 52px;
-    height: 52px;
+    padding-inline: 12px;
   }
 
   .repeat-dots {
