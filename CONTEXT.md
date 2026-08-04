@@ -40,16 +40,25 @@ _Avoid_: Count, loop
 An independently repeating meter-relative grid and pattern that belongs to exactly one cycle, with its own sound, level, and stereo position.
 _Avoid_: Track, voice
 
+**Primary beat**:
+The shared pulse whose rate is the Configuration's BPM. Every Rhythm layer has
+one Signature unit per Primary beat before Subdivision adds pulses within it.
+_Avoid_: Click, quarter-note clock
+
 **Meter**:
-A repeating span written as a numerator and denominator.
+A repeating span written as a numerator and denominator. The numerator counts
+primary beats; the denominator names their written unit without changing their
+rate. Numerators range from 1–16 and denominators are 1, 2, 4, or 8.
 _Avoid_: Pattern length, subdivision
 
 **Signature unit**:
-One `1/denominator` duration within a meter; a meter contains `numerator` signature units. It is not always the perceived beat.
+One primary beat written as `1/denominator`; a meter contains `numerator`
+signature units. Its duration is `60 / BPM` regardless of denominator, and it
+is not always the perceived beat.
 _Avoid_: Beat
 
 **Subdivision**:
-The number of equal pulses within each signature unit of a rhythm layer's meter. A subdivision of one leaves the signature unit undivided; in `/4` meters this produces quarter-note pulses.
+The number of equal pulses within each signature unit of a rhythm layer's meter. A subdivision of one leaves the primary beat undivided.
 _Avoid_: Total steps, pulses per cycle
 
 **Meter-relative grid**:

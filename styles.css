@@ -988,7 +988,6 @@ h1.is-glitching {
   text-align: center;
 }
 
-.signature-input input,
 .signature-input select,
 .notation-select {
   height: 44px;
@@ -998,7 +997,6 @@ h1.is-glitching {
   color: var(--ink);
 }
 
-.signature-input input,
 .signature-input select {
   min-width: 0;
   padding: 7px;

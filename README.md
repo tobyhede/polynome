@@ -82,7 +82,7 @@ realign.
 
 Each layer has:
 
-- a meter such as `1/4`, `4/4`, or `7/8`
+- a meter with a numerator from 1–16 and denominator of 1, 2, 4, or 8
 - a subdivision of 1–5 equal pulses within each signature unit
 - exactly `signature count × subdivision` editable pattern positions
 - a pattern whose steps control click amplitude at 0, 0.25, 0.5, or 1
@@ -91,10 +91,12 @@ Each layer has:
 Examples:
 
 - `1(4/4)`: one cycle containing one 4/4 rhythm.
-- `1(4/4 + 3/4)`: one cycle containing simultaneous 4/4 and 3/4 rhythms; their downbeats realign after 12 quarter notes.
+- `1(4/4 + 3/4)`: one cycle containing simultaneous 4/4 and 3/4 rhythms; their downbeats realign after 12 primary beats.
 - `4(4/4), 3(3/4)`: four complete 4/4 cycles followed by three complete 3/4 cycles.
 
-Tempo is expressed as BPM against the fixed quarter-note reference used by the timing model. The interface labels it simply as `BPM`.
+Tempo is expressed as primary beats per minute. Every Rhythm layer shares that
+beat duration; its denominator names the written beat unit without rescaling
+the audible rate, and Subdivision adds equal pulses within each beat.
 
 ## Timing design
 
@@ -128,7 +130,7 @@ e2e/                  Playwright browser interaction tests
 
 ## Current limitations
 
-- Tempo reference is fixed to the quarter note.
+- Meter denominators describe the written beat unit but do not alter its audible rate.
 - Changes to sequence timing or structure restart the shared transport when playing; step-level and mix edits do not.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.

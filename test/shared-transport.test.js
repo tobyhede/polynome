@@ -291,7 +291,7 @@ test("5/4 with one pulse per quarter plans five positions per meter", () => {
   );
 });
 
-test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
+test("7/8 at 60 BPM plans seven primary beats one second apart", () => {
   const layer = createLayer({
     id: "seven-eight",
     signature: { count: 7, unit: 8 },
@@ -302,9 +302,30 @@ test("7/8 with one pulse per eighth plans seven eighth-note positions", () => {
   transport.start(sequence(60, [layer]), 0);
 
   assert.deepEqual(
-    transport.plan(0, 3.5).map((event) => event.audioTime),
-    [0, 0.5, 1, 1.5, 2, 2.5, 3],
+    transport.plan(0, 7).map((event) => event.audioTime),
+    [0, 1, 2, 3, 4, 5, 6],
   );
+});
+
+/**
+ * BPM names the shared primary beat. The denominator describes that beat in
+ * the written Meter but does not give one layer a faster clock than another.
+ * Numerators still determine when independently repeating Meters return to a
+ * downbeat together.
+ */
+test("different Meter denominators share the primary beat and numerator span", () => {
+  const whole = createLayer({ id: "four-one", signature: { count: 4, unit: 1 } });
+  const quarter = createLayer({ id: "two-four", signature: { count: 2, unit: 4 } });
+  const transport = new SharedTransport();
+  const at = (time) => Number(time.toFixed(6));
+
+  transport.start(sequence(60, [whole, quarter]), 0);
+  const events = transport.plan(0, 5);
+  const times = (id) =>
+    events.filter((event) => event.layerId === id).map((event) => at(event.audioTime));
+
+  assert.deepEqual(times("four-one"), [0, 1, 2, 3, 4]);
+  assert.deepEqual(times("two-four"), [0, 1, 2, 3, 4]);
 });
 
 test("a computed fractional event exactly at the horizon remains excluded", () => {
@@ -319,13 +340,13 @@ test("a computed fractional event exactly at the horizon remains excluded", () =
   transport.start(sequence(30, [layer]), 12345.678);
 
   assert.deepEqual(
-    transport.plan(12345.67, 12351.011333333334).map((event) => ({
+    transport.plan(12345.67, 12347.011333333334).map((event) => ({
       absoluteStep: event.absoluteStep,
       audioTime: event.audioTime,
     })),
     [
       { absoluteStep: 0, audioTime: 12345.678 },
-      { absoluteStep: 1, audioTime: 12348.344666666666 },
+      { absoluteStep: 1, audioTime: 12346.344666666666 },
     ],
   );
 });
@@ -517,7 +538,7 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   transport.start(sequence(96, [layer]), 0.06);
   const event = transport.plan(0, 1).find((candidate) => candidate.absoluteStep === 2);
 
-  assert.equal(event.audioTime, 0.8933333333333333);
+  assert.equal(event.audioTime, 0.4766666666666667);
   assert.equal(event.patternPosition, 2);
   assert.equal(
     transport.patternPosition("fractional-playhead", event.audioTime),

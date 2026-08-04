@@ -32,6 +32,10 @@ class RoutingEngine extends MetronomeEngine {
     this.calls.push(["updateStepLevels", configuration]);
   }
 
+  updateConfiguration(configuration) {
+    this.calls.push(["updateConfiguration", configuration]);
+  }
+
   updateMix(configuration) {
     this.calls.push(["updateMix", configuration]);
   }
@@ -80,6 +84,16 @@ test("a mix consequence never restarts the transport", async () => {
   }
 });
 
+test("a configuration-only consequence updates state without touching audio", async () => {
+  for (const playing of [true, false]) {
+    const engine = new RoutingEngine(playing);
+
+    await engine.applyConsequence("update-configuration", configuration);
+
+    assert.deepEqual(engine.calls, [["updateConfiguration", configuration]]);
+  }
+});
+
 test("a no-op consequence leaves the transport untouched", async () => {
   const engine = new RoutingEngine(true);
 
@@ -101,5 +115,6 @@ test("only the restart path yields a promise the caller can catch", () => {
   const stopped = new RoutingEngine(false);
   assert.equal(stopped.applyConsequence("update-mix", configuration), null);
   assert.equal(stopped.applyConsequence("update-step-levels", configuration), null);
+  assert.equal(stopped.applyConsequence("update-configuration", configuration), null);
   assert.equal(stopped.applyConsequence("none", configuration), null);
 });

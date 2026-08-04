@@ -1,6 +1,7 @@
 import {
   METER_COUNT_LIMIT,
-  NOTE_UNITS as METER_UNITS,
+  METER_UNITS,
+  normaliseMeterUnit,
   normaliseNumber,
   STEP,
   SUBDIVISION_LIMIT,
@@ -20,6 +21,7 @@ function choiceRange({ minimum, maximum }) {
 const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
 const SOUNDS = Object.freeze(["high", "low", "wood"]);
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
+const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
 const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
@@ -66,9 +68,7 @@ function createRhythm(overrides = {}) {
         METER_COUNT_LIMIT.maximum,
       ),
     ),
-    unit: METER_UNITS.includes(Number(overrides.signature?.unit))
-      ? Number(overrides.signature.unit)
-      : 4,
+    unit: normaliseMeterUnit(overrides.signature?.unit),
   };
   const subdivision = Math.round(
     normaliseNumber(overrides.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
@@ -446,6 +446,7 @@ export function describeConfiguration(configuration) {
     selectedPreset: selectedPreset(valid),
     choices: {
       presetNames: [...PRESETS],
+      meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
       subdivisions: [...SUBDIVISIONS],
       sounds: [...SOUNDS],
@@ -521,8 +522,17 @@ function nextStepLevel(level) {
   );
 }
 
+/**
+ * A control carries a numeral, which is narrower than what `Number` reads:
+ * `0x10`, `0b100`, `0o10` and `1e1` are all literals a source file may hold and
+ * no control ever produces. The gap belongs to every field, so it is closed at
+ * the shared Configuration boundary. Surrounding space is not part of it: that
+ * is a plain numeral a programmatic caller may pass.
+ */
+const NUMERAL = /^-?\d+(\.\d+)?$/;
+
 function formNumber(value) {
-  if (typeof value === "string" && value.trim() === "") return null;
+  if (typeof value === "string" && !NUMERAL.test(value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -756,7 +766,7 @@ const COMMANDS = Object.freeze({
     leavesUnchanged: (current, edit) =>
       findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
     apply(current, edit) {
-      return changeRhythm(current, edit, "restart-transport-run", (rhythm) => ({
+      return changeRhythm(current, edit, "update-configuration", (rhythm) => ({
         ...rhythm,
         signature: { ...rhythm.signature, unit: formNumber(edit.unit) },
       }));

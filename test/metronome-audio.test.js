@@ -371,9 +371,9 @@ const configurationOf = (bpm, rhythms) =>
 const pulsePerSecond = () =>
   configurationOf(60, [{ signature: { count: 1, unit: 4 }, subdivision: 1 }]);
 
-/** A meter-relative grid with one rhythm event every 50 ms at 150 bpm. */
+/** A subdivided primary-beat grid with one rhythm event every 50 ms. */
 const fiftyMillisecondGrid = () =>
-  configurationOf(150, [{ signature: { count: 4, unit: 32 }, subdivision: 1 }]);
+  configurationOf(300, [{ signature: { count: 4, unit: 8 }, subdivision: 4 }]);
 
 /** Audio times are sums of binary fractions; a nanosecond is not a defect. */
 const roundSeconds = (value) => Math.round(value * 1e6) / 1e6;

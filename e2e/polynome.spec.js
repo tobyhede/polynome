@@ -63,6 +63,25 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
 });
 
+test("storage from the wider meter domain is retired instead of repaired", async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem("polynome-configuration", JSON.stringify({ bpm: 132 }));
+    localStorage.setItem("polynome-presets", JSON.stringify([]));
+  });
+
+  await page.reload();
+
+  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("96");
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        configuration: localStorage.getItem("polynome-configuration"),
+        presets: localStorage.getItem("polynome-presets"),
+      })),
+    )
+    .toEqual({ configuration: null, presets: null });
+});
+
 for (const [name, accessibleName] of [
   ["identity", "4/4 Edit 4/4 rhythm"],
   ["edit button", "Edit 4/4"],
@@ -125,6 +144,71 @@ test("a newly added rhythm opens its settings", async ({ page }) => {
   await expect(rhythms.nth(1).locator(".rhythm-identity")).toHaveAttribute("aria-expanded", "true");
   await expect(rhythms.nth(1).locator(".rhythm-settings")).toBeVisible();
   await expect(addRhythm).toBeFocused();
+});
+
+test("Meter selects expose the complete constrained signature vocabulary", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const numerator = page.getByRole("combobox", { name: "4/4 meter numerator" });
+  const denominator = page.getByRole("combobox", { name: "4/4 meter denominator" });
+
+  await expect(numerator.locator("option")).toHaveText(
+    Array.from({ length: 16 }, (_, index) => String(index + 1)),
+  );
+  await expect(denominator.locator("option")).toHaveText(["1", "2", "4", "8"]);
+  await expect(numerator).toHaveValue("4");
+  await expect(denominator).toHaveValue("4");
+
+  await numerator.focus();
+  await numerator.selectOption("7");
+  await expect(page.getByRole("button", { name: "Edit 7/4", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "7/4 meter numerator" })).toBeFocused();
+  // Both components announce what was committed, not the denominator alone.
+  await expect(page.locator("#status")).toHaveText("Meter 7/4");
+
+  const updatedDenominator = page.getByRole("combobox", {
+    name: "7/4 meter denominator",
+  });
+  await updatedDenominator.focus();
+  await updatedDenominator.selectOption("8");
+
+  await expect(page.getByRole("button", { name: "Edit 7/8", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "7/8 meter denominator" })).toBeFocused();
+  await expect(page.locator("#status")).toHaveText("Meter 7/8");
+});
+
+/**
+ * A numerator committed during playback restarts the Transport, and the restart
+ * reports "Playing" through the same live region the Meter announcement uses.
+ * The committed Meter has to be the message left standing, which holds only
+ * because the restart reaches its event synchronously; a restart that ever
+ * began awaiting first would overwrite the announcement without failing
+ * anything else.
+ */
+test("a Meter committed during playback announces the Meter, not the restart", async ({ page }) => {
+  // Not `getByRole("status")`: an open rhythm's level and balance outputs carry
+  // that role too, so only the transport's own region is addressed by id.
+  const status = page.locator("#status");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(status).toHaveText("Playing");
+
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("5");
+
+  await expect(page.getByRole("button", { name: "Edit 5/4", exact: true })).toBeVisible();
+  await expect(status).toHaveText("Meter 5/4");
+});
+
+test("the widest rhythm grid is reachable through the constrained selects", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+
+  await page.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("16");
+  await page.getByRole("combobox", { name: "16/4 meter denominator" }).selectOption("8");
+  await page.getByRole("button", { name: "16/8 subdivision" }).click();
+  await page.getByRole("option").last().click();
+
+  await expect(
+    page.getByRole("group", { name: "16/8 step levels" }).getByRole("button"),
+  ).toHaveCount(80);
 });
 
 test("a step control cycles full, half, quarter, off and back", async ({ page }) => {
@@ -218,7 +302,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Shared");
 
-  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
   await savePreset(page, "Later");
 
   await expect(presetButton(page, "Later")).toBeVisible();
@@ -237,9 +321,9 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("polynome-presets"));
+    const stored = JSON.parse(localStorage.getItem("polynome-presets-v2"));
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
-    localStorage.setItem("polynome-presets", JSON.stringify(stored));
+    localStorage.setItem("polynome-presets-v2", JSON.stringify(stored));
   });
   await deletePreset(page, "Doomed");
 
@@ -346,7 +430,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Ghost");
-  await page.evaluate(() => localStorage.setItem("polynome-presets", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
 
   await deletePreset(page, "Ghost");
 
@@ -576,9 +660,7 @@ async function setSignature(page, count) {
     .getByRole("button", { name: /^Edit \d+\/\d+$/ })
     .first()
     .click();
-  const numerator = page.getByRole("spinbutton", { name: /meter numerator$/ });
-  await numerator.fill(String(count));
-  await numerator.blur();
+  await page.getByRole("combobox", { name: /meter numerator$/ }).selectOption(String(count));
 }
 
 async function setSubdivision(page, subdivision) {
@@ -616,7 +698,6 @@ test("a prime meter never splits into unequal rows", async ({ page }) => {
 for (const { beats, subdivision, steps } of [
   { beats: 8, subdivision: 4, steps: 32 },
   { beats: 16, subdivision: 2, steps: 32 },
-  { beats: 32, subdivision: 1, steps: 32 },
 ]) {
   test(`${beats} beats of ${subdivision} never puts more than sixteen steps on a row`, async ({
     page,
@@ -683,6 +764,8 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
   await expect(page.getByRole("spinbutton", { name: "BPM" })).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Cycle", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "4/4 meter denominator" })).toBeVisible();
 
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
