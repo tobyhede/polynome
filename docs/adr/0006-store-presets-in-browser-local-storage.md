@@ -1,6 +1,6 @@
 # Store Presets in browser local storage
 
-Saved Presets are held in `localStorage` under `polynome-presets`, separately from the current Configuration under `polynome-configuration`. Both are plain JSON written by the page that owns the tab. The application keeps its zero runtime dependencies and adds no account, sync service, or backend.
+Saved Presets are held in `localStorage` under `polynome-presets-v2`, separately from the current Configuration under `polynome-configuration-v2`. Both are plain JSON written by the page that owns the tab. The application keeps its zero runtime dependencies and adds no account, sync service, or backend. The v2 keys make an explicit clean break from the wider meter domain stored under the original keys: those values are retired rather than silently repaired into different rhythms.
 
 ## Consequences
 
