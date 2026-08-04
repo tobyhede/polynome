@@ -140,6 +140,8 @@ e2e/                  Playwright browser interaction tests
 - Meter denominators describe the written beat unit but do not alter its audible rate.
 - Changing a meter numerator or a subdivision resets that layer's pattern to the
   default voices for the new grid, and there is no undo. Save a preset first.
+- Switching a layer's display mode resets its pattern the same way, and there is
+  no undo.
 - Changes to sequence timing or structure restart the shared transport when playing; Step-voice and mix edits do not.
 - Clicks are synthesized rather than sampled.
 - No swing, MIDI, tempo automation, or shareable URLs yet.

@@ -30,18 +30,22 @@ choice, and the first consequence below is where its cost is paid.
 - Toggling the view marks the Configuration unsaved and lights the `+ Save` chip,
   because `sameRhythm` compares the field. A listener who only wanted to look at
   a layer differently is offered a save they did not ask for. That is the price
-  of the view surviving a reload, and it is paid in a chip taking the accent
-  rather than in anything changing under them.
+  of the view surviving a reload, and it is the smaller of the two things a mode
+  change costs; the third consequence below is the other.
 - The same comparison clears the Preset selection. Two Presets differing only in
   their view are two different Presets, and one recalled while the interface is
   in the other view applies its own — the view is part of what a Preset is a
   snapshot of, so recalling one restores how it was being looked at. The preset
   panel's notation summary does not mention the view, so those two Presets read
   identically in the list and only their names tell them apart.
-- `set-display-mode` takes the `update-configuration` consequence, the narrowest
-  one there is: nothing audible depends on the view, so a run in progress is
-  neither restarted nor repatched. Changing the view while playing is exactly as
-  quiet as changing a meter denominator.
+- `set-display-mode` takes the `update-step-voices` consequence rather than the
+  quiet `update-configuration` a view might be expected to take, because changing
+  the mode writes the canonical pattern outright and discards whatever the layer
+  held. A listener who has placed voices by hand and then reaches for the other
+  set of controls hears the difference, and there is no undo. Repatching is the
+  narrowest response that satisfies it: the meter-relative grid is untouched, so
+  a Transport run in progress keeps its origin and its position and only the
+  voices it plays are replaced.
 - Repair replaces an unrecognised value with `beat` as it does everywhere else.
   Nothing migrates a Configuration stored before the field existed, per the rule
   in `AGENTS.md`: an absent field is an unrecognised value and gets the default.
