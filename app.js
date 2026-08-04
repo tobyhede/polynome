@@ -556,7 +556,7 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
     >
       <article class="cycle-card" hidden=${cycleCount === 1}>
         <div class="card-heading cycle-heading">
-          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span>${cycle.repetitions}</span></h2>
+          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span></h2>
           <button
             type="button"
             class="icon-button remove-button"

@@ -26,11 +26,22 @@ const AA_NORMAL_TEXT = 4.5;
  * slider runs, so it has to meet the ratio like any other label.
  */
 const DECORATIVE_RULES = new Set([
-  ".panel-heading h2 .panel-divider",
   ".cycle-heading h2 .cycle-divider",
+  ".panel-heading h2 .panel-divider",
   '.rhythm-identity > span[aria-hidden="true"]',
   ".signature-input > span",
 ]);
+
+/**
+ * A grouped rule is exempt only when every selector in the group is. One
+ * ornament sharing a declaration with something a sighted user reads makes the
+ * whole rule answerable for the ratio, which is the safe way around: grouping
+ * can widen what a colour applies to, and the exemption must not follow it
+ * there unnoticed.
+ */
+function decorative(prelude) {
+  return prelude.split(",").every((selector) => DECORATIVE_RULES.has(selector.trim()));
+}
 
 function channelLuminance(component) {
   const channel = component / 255;
@@ -208,7 +219,7 @@ test("text colours meet WCAG AA against every surface", async () => {
 
   const failures = [];
   for (const { selector, declarations } of cssRules(css)) {
-    if (DECORATIVE_RULES.has(selector)) continue;
+    if (decorative(selector)) continue;
     const declared = declarations.match(/(^|[;{\s])color\s*:\s*var\((--[\w-]+)\)/);
     const foreground = declared && tokens.get(declared[2]);
     if (!foreground) continue;
