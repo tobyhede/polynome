@@ -11,9 +11,46 @@ function presetButton(page, name) {
   return page.getByRole("button", { name: new RegExp(`^${name}\\b`) });
 }
 
+/**
+ * Whether + Save is being offered. It is marked unavailable rather than
+ * disabled — it stays in the tab order to say why it will not act — so the
+ * attribute is what carries the state, and asserting on it names the mechanism
+ * instead of trusting a matcher's reading of it.
+ */
+function saveOffered(page) {
+  return expect(page.getByRole("button", { name: "+ Save" })).toHaveAttribute(
+    "aria-disabled",
+    "false",
+  );
+}
+
+function saveNotOffered(page) {
+  return expect(page.getByRole("button", { name: "+ Save" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+}
+
+/**
+ * + Save is live only while the current Configuration differs from the Preset it
+ * came from, so a test that wants to save has to have changed something first.
+ * Nudging the tempo is the cheapest edit that does not disturb the Sequence any
+ * assertion is about, and it is skipped when there is already something to save.
+ *
+ * Saving is reachable whether or not the preset panel is open, so this does not
+ * open it. The submit reads "Replace" once the typed name is one already stored.
+ */
 async function savePreset(page, name) {
-  await page.getByRole("textbox", { name: "Save current preset" }).fill(name);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const open = page.getByRole("button", { name: "+ Save" });
+  if ((await open.getAttribute("aria-disabled")) === "true") {
+    const bpm = page.getByLabel("Tempo in beats per minute");
+    await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+  }
+  await saveOffered(page);
+  await open.click();
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  await panel.getByRole("textbox", { name: "Preset name" }).fill(name);
+  await panel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
   await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
 }
 
@@ -293,7 +330,7 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
 });
 
 test("sound customization clears preset selection and persists", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   // A preset button carries its name and a notation preview, so its accessible
   // name is the whole summary; the identifier is what stays stable.
   const preset = page.locator('[data-preset-id="built-in-4-4"]');
@@ -309,7 +346,7 @@ test("sound customization clears preset selection and persists", async ({ page }
   await expect(preset).not.toHaveClass(/\bis-selected\b/);
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(page.locator('[data-preset-id="built-in-4-4"]')).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -333,7 +370,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 test("saving writes what storage holds now, not what this tab read at startup", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Shared");
 
   await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
@@ -343,7 +380,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await expect(presetButton(page, "Shared")).toHaveCount(0);
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Later")).toBeVisible();
   await expect(presetButton(page, "Shared")).toHaveCount(0);
 });
@@ -351,7 +388,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
 test("deleting removes one preset without dropping presets this tab never saw", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
@@ -366,7 +403,7 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await expect(presetButton(page, "Keeper")).toBeVisible();
 
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Doomed")).toHaveCount(0);
   await expect(presetButton(page, "Keeper")).toBeVisible();
 });
@@ -378,8 +415,8 @@ test("an open preset panel follows another tab's saves and deletions", async ({
   const heading = page.getByRole("heading", { name: /^Presets/ });
   const other = await context.newPage();
   await other.goto("/");
-  await page.getByRole("button", { name: "Presets" }).click();
-  await other.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
 
   await savePreset(other, "Rehearsal");
   await expect(presetButton(page, "Rehearsal")).toBeVisible();
@@ -395,17 +432,17 @@ test("a preset deleted in another tab stays deleted when this tab saves", async 
   context,
 }) => {
   const other = await context.newPage();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Retired");
 
   await other.goto("/");
-  await other.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
   await deletePreset(other, "Retired");
   await expect(presetButton(other, "Retired")).toHaveCount(0);
 
   await savePreset(page, "Current");
   await page.reload();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Current")).toBeVisible();
   await expect(presetButton(page, "Retired")).toHaveCount(0);
 });
@@ -422,7 +459,7 @@ test("deleting a preset confirms in place without a browser dialog", async ({ pa
     dialogs.push(dialog.message());
     dialog.dismiss();
   });
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Scratch");
 
   await page.getByRole("button", { name: "Delete Scratch preset" }).click();
@@ -440,7 +477,7 @@ test("deleting a preset confirms in place without a browser dialog", async ({ pa
 });
 
 test("an armed delete is dismissed by Escape and by a click elsewhere", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Scratch");
   const remove = page.getByRole("button", { name: "Delete Scratch preset" });
   const confirm = page.getByRole("button", { name: "Confirm deleting Scratch preset" });
@@ -462,7 +499,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 });
 
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Ghost");
   await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
 
@@ -480,9 +517,13 @@ test("deleting a preset another tab already removed says so and clears it", asyn
  */
 test("a hidden preset panel is not rebuilt while the tempo changes", async ({ page }) => {
   const heading = page.getByRole("heading", { name: /^Presets/ });
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
-  await page.getByRole("button", { name: "Presets" }).click();
+  // Saving requires an edit, and the edit available to `savePreset` is the
+  // tempo, so the arithmetic below starts from a value this test states rather
+  // than from whatever it was left at.
+  await page.getByRole("spinbutton", { name: "BPM" }).fill("96");
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toBeHidden();
 
   await page.evaluate(() => {
@@ -499,7 +540,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Watched")).toBeVisible();
   await expect(heading).toContainText("3");
 });
@@ -525,16 +566,22 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     });
     const page = await denied.newPage();
     const status = page.getByRole("status");
-    const name = page.getByRole("textbox", { name: "Save current preset" });
-    const save = page.getByRole("button", { name: "Save", exact: true });
+    const panel = page.getByRole("region", { name: /^Save preset/ });
+    const openSave = page.getByRole("button", { name: "+ Save" });
+    const name = panel.getByRole("textbox", { name: "Preset name" });
+    const save = panel.getByRole("button", { name: /^(?:Save|Replace)$/ });
     await page.goto("/");
-    await page.getByRole("button", { name: "Presets" }).click();
+    await page.getByRole("button", { name: "Presets", exact: true }).click();
 
+    await page.getByLabel("Tempo in beats per minute").fill("101");
+    await openSave.click();
     await name.fill("First");
     await save.click();
     await expect(status).toHaveText("Preset could not be saved in this browser");
     await expect(presetButton(page, "First")).toBeVisible();
 
+    await page.getByLabel("Tempo in beats per minute").fill("102");
+    await openSave.click();
     await name.fill("Second");
     await save.click();
     await expect(presetButton(page, "Second")).toBeVisible();
@@ -556,7 +603,7 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
  * identical DOM on every pointer move of a drag.
  */
 test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
   const builtIn = page.locator('[data-preset-id="built-in-4-4"]');
   await builtIn.click();
@@ -583,20 +630,21 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
  * The rebuild that adopts another tab's deletion destroys whatever the user had
  * focused. Restoring by identifier finds nothing when the identifier is what was
  * deleted, and focus falls to the document, which is where a keyboard user least
- * expects to be. The save field is where deleting in this tab already leaves it.
+ * expects to be. The panel's close control is where deleting in this tab already
+ * leaves it, and unlike a Preset card it is always there to receive focus.
  */
 test("focus survives another tab deleting the preset it was on", async ({ page, context }) => {
   const other = await context.newPage();
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Doomed");
   await page.getByRole("button", { name: "Delete Doomed preset" }).focus();
 
   await other.goto("/");
-  await other.getByRole("button", { name: "Presets" }).click();
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
   await deletePreset(other, "Doomed");
 
   await expect(presetButton(page, "Doomed")).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: "Save current preset" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Close presets" })).toBeFocused();
 });
 
 /**
@@ -606,7 +654,7 @@ test("focus survives another tab deleting the preset it was on", async ({ page, 
  * pair shows it: the glyph all but disappears on the card the user just picked.
  */
 test("the delete glyph stays readable on a selected preset", async ({ page }) => {
-  await page.getByRole("button", { name: "Presets" }).click();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Chosen");
   const preset = presetButton(page, "Chosen");
   await preset.click();
@@ -632,6 +680,27 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
     });
 
   expect(ratio).toBeGreaterThanOrEqual(4.5);
+});
+
+/**
+ * The preset count and a cycle's repetition count are the same number in the
+ * same heading, and both cross ten while the heading around them holds still.
+ * Tabular figures are what stop the width shifting under them, so a panel that
+ * borrowed the cycle card's heading has to have borrowed those with it.
+ *
+ * Each is located as the number a reader sees rather than by the rule that
+ * styles it: a heading whose digits jitter fails this however the selector that
+ * was meant to reach them is written.
+ */
+test("both heading counts are set in tabular figures", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  const presetCount = page.locator("#preset-count");
+  const repetitions = page.locator(".cycle-heading h2 span").last();
+
+  await expect(presetCount).toHaveText("2");
+  await expect(presetCount).toHaveCSS("font-variant-numeric", "tabular-nums");
+  await expect(repetitions).toHaveText("1");
+  await expect(repetitions).toHaveCSS("font-variant-numeric", "tabular-nums");
 });
 
 test("beats wrap into equal rows at every width", async ({ page }) => {
@@ -922,4 +991,374 @@ test("the travelling tempo readout stays inside the transport card", async ({ pa
       expect(viewport.scroll, `${where} widened the page`).toBeLessThanOrEqual(viewport.client);
     }
   }
+});
+
+/**
+ * Saving is offered only when there is something to save. Applying a Preset and
+ * saving one both leave the Configuration equal to a stored Preset, and offering
+ * to write a copy of what is already there invites a duplicate under a second
+ * name. The rule is the same in both directions, so both are walked here.
+ */
+test("saving is offered only while the setup differs from the preset it came from", async ({
+  page,
+}) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+
+  // The default Configuration is the 4/4 preset exactly, adopted at startup.
+  await saveNotOffered(page);
+
+  await tempo.fill("120");
+  await saveOffered(page);
+
+  // Back to what the preset holds: the edit undid itself, so there is again
+  // nothing to save. Nothing records that an edit happened, only what it left.
+  await tempo.fill("96");
+  await saveNotOffered(page);
+
+  await tempo.fill("132");
+  await savePreset(page, "Brisk");
+  await saveNotOffered(page);
+
+  await tempo.fill("133");
+  await saveOffered(page);
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await presetButton(page, "Brisk").click();
+  await expect(bpm).toHaveValue("132");
+  await saveNotOffered(page);
+});
+
+/**
+ * A Preset the Configuration came from can stop existing while the Configuration
+ * it produced is still on screen — deleted here, or deleted in another tab — and
+ * what is left is a setup stored nowhere. That is the state most worth saving,
+ * and a record of an origin that no longer exists is what silently reads as
+ * nothing to save: the chip stays inert, and the only way back to a save is an
+ * edit the user did not want to make. Both routes to the deletion are walked,
+ * because they are separate code paths and only one of them is a click.
+ */
+test("deleting the preset the setup came from offers the save again", async ({ page, context }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const presets = page.getByRole("button", { name: "Presets", exact: true });
+
+  await tempo.fill("137");
+  await savePreset(page, "Doomed");
+  await saveNotOffered(page);
+
+  await presets.click();
+  await deletePreset(page, "Doomed");
+  await expect(presetButton(page, "Doomed")).toHaveCount(0);
+  await saveOffered(page);
+
+  // The same Configuration, now saved again, and removed by a tab that is not
+  // this one. Nothing here is clicked, so only the storage event can notice.
+  await savePreset(page, "Doomed");
+  await saveNotOffered(page);
+
+  const other = await context.newPage();
+  await other.goto("/");
+  await other.getByRole("button", { name: "Presets", exact: true }).click();
+  await deletePreset(other, "Doomed");
+
+  await expect(presetButton(page, "Doomed")).toHaveCount(0);
+  await saveOffered(page);
+});
+
+/**
+ * Deleting some other Preset is not a reason to forget which one this setup came
+ * from. The origin survives it, and the field still opens on the name a save
+ * would replace — the count is what proves nothing was duplicated.
+ */
+test("deleting another preset leaves the name the save field opens on", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+
+  await tempo.fill("138");
+  await savePreset(page, "Spare");
+  await tempo.fill("139");
+  await savePreset(page, "Kept");
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(heading).toContainText("4");
+
+  await deletePreset(page, "Spare");
+  await expect(heading).toContainText("3");
+  await saveNotOffered(page);
+
+  await tempo.fill("140");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  await expect(panel.getByRole("textbox", { name: "Preset name" })).toHaveValue("Kept");
+  await panel.getByRole("button", { name: "Replace" }).click();
+  await expect(heading).toContainText("3");
+});
+
+/**
+ * The field opens holding the Preset this Configuration came from, so carrying
+ * an edit back onto it is the default and renaming is the deliberate act. That
+ * replaces rather than duplicates — the count is what proves it — and the
+ * submit says which of the two it is about to do before it is pressed.
+ */
+test("the save field opens on the preset the setup came from", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+
+  await tempo.fill("144");
+  await savePreset(page, "Fast");
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(heading).toContainText("3");
+
+  await tempo.fill("145");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("Fast");
+  await expect(name).toBeFocused();
+  await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
+
+  await panel.getByRole("button", { name: "Replace" }).click();
+  await expect(page.getByRole("status")).toHaveText("Fast preset saved");
+  await expect(panel).toBeHidden();
+  await expect(heading).toContainText("3");
+  await presetButton(page, "Fast").click();
+  await expect(bpm).toHaveValue("145");
+});
+
+/**
+ * The panel replaced a native dialog, which answered Escape without being asked.
+ * Closing must not save: the field is left holding an edited name and the stored
+ * Preset has to be untouched by it.
+ */
+test("closing the save panel abandons what was typed", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const openSave = page.getByRole("button", { name: "+ Save" });
+
+  await tempo.fill("150");
+  await savePreset(page, "Kept");
+  await tempo.fill("151");
+
+  await openSave.click();
+  await panel.getByRole("textbox", { name: "Preset name" }).fill("Discarded");
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+
+  await openSave.click();
+  await panel.getByRole("button", { name: "Close save preset" }).click();
+  await expect(panel).toBeHidden();
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(presetButton(page, "Discarded")).toHaveCount(0);
+  await expect(presetButton(page, "Kept")).toBeVisible();
+  await presetButton(page, "Kept").click();
+  await expect(bpm).toHaveValue("150");
+});
+
+/**
+ * A built-in Preset's name is reserved, so `savePreset` refuses it rather than
+ * replacing anything. Editing a built-in and pressing save must not open on a
+ * name that cannot be written — the whole point of that edit is to start a
+ * Preset of the user's own.
+ */
+test("editing a built-in preset opens the save field empty", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+
+  await tempo.fill("128");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("");
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+
+  await name.fill("Mine");
+  await panel.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Mine preset saved");
+
+  // Saved under its own name, the Preset now offers itself back for replacing.
+  await tempo.fill("129");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await expect(name).toHaveValue("Mine");
+});
+
+/**
+ * Available is read as "this control exists", not as "this control has something
+ * to do", and the two look identical in a row of chips. An edit that leaves the
+ * header exactly as it was is an edit nothing on screen acknowledges, so the
+ * chip carries a live treatment for as long as there is something to save —
+ * from the first edit until the save or the preset that makes it moot.
+ */
+test("the save chip reads as live for as long as there is something to save", async ({ page }) => {
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  const tempo = page.getByLabel("Tempo in beats per minute");
+
+  // The default Configuration is the 4/4 preset exactly: nothing to save, and
+  // nothing to advertise.
+  await saveNotOffered(page);
+  await expect(openSave).not.toHaveClass(/\bis-live\b/);
+
+  await tempo.fill("120");
+  await saveOffered(page);
+  await expect(openSave).toHaveClass(/\bis-live\b/);
+
+  await savePreset(page, "Kept");
+  await saveNotOffered(page);
+  await expect(openSave).not.toHaveClass(/\bis-live\b/);
+});
+
+/**
+ * The chip is marked unavailable rather than disabled, so that the reason it
+ * will not act reaches the people a disabled control tells least: it keeps its
+ * place in the tab order, and the reason is a description rather than a tooltip
+ * a pointer is needed to find. Nothing about `aria-disabled` stops a click, so
+ * the click has to decline for itself — the panel staying shut is what proves
+ * it does.
+ */
+test("the inert save chip is reachable, says why, and does not act", async ({ page }) => {
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const reason = page.locator("#preset-save-reason");
+
+  await saveNotOffered(page);
+  await expect(openSave).toHaveAttribute("aria-describedby", "preset-save-reason");
+  await expect(reason).toHaveText("No changes to save");
+
+  // Focusable, which a disabled button is not: this is the whole reason for
+  // marking it rather than disabling it.
+  await openSave.focus();
+  await expect(openSave).toBeFocused();
+
+  // Activated from the keyboard rather than clicked, and not only because
+  // Playwright declines to click what it reads as disabled. Being reachable is
+  // what puts a keyboard user on this control at all, so pressing it is the
+  // press that has to be declined — `aria-disabled` states and does not enforce,
+  // and the browser delivers the activation either way.
+  await page.keyboard.press("Enter");
+  await expect(panel).toBeHidden();
+  await expect(openSave).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await saveOffered(page);
+  await expect(reason).toHaveText("Save this setup as a preset");
+  await openSave.click();
+  await expect(panel).toBeVisible();
+});
+
+/**
+ * The word came off the submit, so for a reader who can see it the glyph is the
+ * only thing left saying which of the two acts is about to happen: a check
+ * writes a Preset that is not there, the arrow writes over one that is. The
+ * control's name carries the same distinction where a glyph carries none, and
+ * both have to follow the typed name rather than one of them.
+ */
+test("the submit shows in a glyph and in its name which of the two acts it will perform", async ({
+  page,
+}) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+  const check = panel.locator("#preset-save-icon-save");
+  const arrow = panel.locator("#preset-save-icon-replace");
+
+  await tempo.fill("120");
+  await savePreset(page, "Rehearsal");
+
+  await tempo.fill("121");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  // It opens on the Preset this Configuration came from, which is a name already
+  // stored, so this is a replacement before a key is pressed.
+  await expect(name).toHaveValue("Rehearsal");
+  await expect(arrow).toBeVisible();
+  await expect(check).toBeHidden();
+  await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
+
+  await name.fill("Rehearsal 2");
+  await expect(check).toBeVisible();
+  await expect(arrow).toBeHidden();
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+});
+
+/**
+ * The panel is as wide as the page, and a name field that took all of it put its
+ * submit ten pixels inside the close control above — two unrelated actions in
+ * one crowded corner. A name is short, so the field is bounded and the submit is
+ * an icon beside it: one square the height of the field, and the row ends well
+ * before the column the close control sits in.
+ */
+test("the save row is a bounded field and a square icon clear of the close control", async ({
+  page,
+}) => {
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByRole("button", { name: "+ Save" }).click();
+
+  const field = await panel.getByRole("textbox", { name: "Preset name" }).boundingBox();
+  const submit = await panel.getByRole("button", { name: /^(?:Save|Replace)$/ }).boundingBox();
+  const close = await panel.getByRole("button", { name: "Close save preset" }).boundingBox();
+
+  // Compared to the pixel rather than to the float: a field's height is padding
+  // plus a line box, and a font metric that lands a fraction differently on
+  // another platform is not the crowded corner this is here to catch.
+  expect(submit.height).toBeCloseTo(field.height, 0);
+  expect(submit.width).toBeCloseTo(submit.height, 0);
+  expect(field.width).toBeLessThanOrEqual(360);
+  expect(submit.x + submit.width).toBeLessThan(close.x - 24);
+});
+
+/**
+ * A save closes the panel it was made from and makes the control that opened it
+ * inert — what was just written is what this Configuration now is, so there is
+ * nothing left to save. The submit focus was on goes with the panel, so both
+ * branches have to place focus rather than let it fall to the document.
+ */
+test("saving keeps focus on a control rather than dropping it", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const presets = page.getByRole("button", { name: "Presets", exact: true });
+  const openSave = page.getByRole("button", { name: "+ Save" });
+
+  // Closed: focus returns to the chip the save was started from, which is inert
+  // now and holds focus anyway, because it is marked rather than disabled.
+  await tempo.fill("112");
+  await savePreset(page, "Unwatched");
+  await saveNotOffered(page);
+  await expect(openSave).toBeFocused();
+
+  // Open: the Preset the save just produced is on screen and is what the user
+  // is most likely to act on next.
+  await presets.click();
+  await tempo.fill("113");
+  await savePreset(page, "Watched");
+  await expect(presetButton(page, "Watched")).toBeFocused();
+});
+
+/**
+ * Three panels and two rules. Presets and Save are halves of one subject and sit
+ * together — the save leaves focus on the new Preset, which requires the list to
+ * be there. Help is a third subject and takes the same room, so it closes both,
+ * and neither can be left rendered behind it.
+ */
+test("help replaces the preset and save panels, which sit together", async ({ page }) => {
+  const presets = page.getByRole("button", { name: "Presets", exact: true });
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  const presetPanel = page.locator("#preset-panel");
+  const savePanel = page.locator("#save-panel");
+  const helpPanel = page.locator("#help-panel");
+
+  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await presets.click();
+  await openSave.click();
+  await expect(presetPanel).toBeVisible();
+  await expect(savePanel).toBeVisible();
+
+  await page.getByRole("button", { name: "Help" }).click();
+  await expect(helpPanel).toBeVisible();
+  await expect(presetPanel).toBeHidden();
+  await expect(savePanel).toBeHidden();
+  await expect(openSave).toHaveAttribute("aria-expanded", "false");
+
+  // And back the other way: opening a save closes the help it replaced.
+  await openSave.click();
+  await expect(savePanel).toBeVisible();
+  await expect(helpPanel).toBeHidden();
 });

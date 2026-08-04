@@ -26,11 +26,22 @@ const AA_NORMAL_TEXT = 4.5;
  * slider runs, so it has to meet the ratio like any other label.
  */
 const DECORATIVE_RULES = new Set([
-  ".top-panel h2 .panel-divider",
   ".cycle-heading h2 .cycle-divider",
+  ".panel-heading h2 .panel-divider",
   '.rhythm-identity > span[aria-hidden="true"]',
   ".signature-input > span",
 ]);
+
+/**
+ * A grouped rule is exempt only when every selector in the group is. One
+ * ornament sharing a declaration with something a sighted user reads makes the
+ * whole rule answerable for the ratio, which is the safe way around: grouping
+ * can widen what a colour applies to, and the exemption must not follow it
+ * there unnoticed.
+ */
+function decorative(prelude) {
+  return prelude.split(",").every((selector) => DECORATIVE_RULES.has(selector.trim()));
+}
 
 function channelLuminance(component) {
   const channel = component / 255;
@@ -118,11 +129,12 @@ function* genericsNamedByAriaLabel(source) {
  * quote encloses, and a scanner that ended the tag there would hand this rule
  * half a tag: every attribute past the comparison disappears, the `aria-label`
  * among them, and the check reports nothing while looking like it ran.
+ *
+ * The fixture below stands in for a line of `app.js` as the scanner reads it,
+ * so its placeholder has to survive as characters rather than be interpolated.
  */
 test("a `>` inside an interpolated attribute value does not end the tag", () => {
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder is the
-  // fixture. This string stands in for a line of `app.js` as the scanner reads
-  // it, so the `${...}` has to survive as characters rather than be interpolated.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder is the fixture
   const source = '<div hidden=${count > 1} aria-label="Levels"></div>';
 
   assert.deepEqual(
@@ -170,6 +182,13 @@ test("every element app.js resolves by id exists in the shell", async () => {
  * nobody who cannot, unless the field points at it. `aria-describedby` is also
  * silent when it names an element that is not there, so the reference has to
  * resolve rather than merely exist.
+ *
+ * One has to exist, and it is the save chip's. `aria-disabled` says a control
+ * will not act and has no way of saying why; the chip is marked that way for as
+ * long as there is nothing to save, and the reason is the described-by it points
+ * at. Losing that reference would leave a control announced as unavailable with
+ * nothing anywhere saying what would make it available again — which is silent,
+ * and looks from the outside exactly like working code.
  */
 test("every aria-describedby names an element the shell emits", async () => {
   const html = await readFile("index.html", "utf8");
@@ -200,7 +219,7 @@ test("text colours meet WCAG AA against every surface", async () => {
 
   const failures = [];
   for (const { selector, declarations } of cssRules(css)) {
-    if (DECORATIVE_RULES.has(selector)) continue;
+    if (decorative(selector)) continue;
     const declared = declarations.match(/(^|[;{\s])color\s*:\s*var\((--[\w-]+)\)/);
     const foreground = declared && tokens.get(declared[2]);
     if (!foreground) continue;

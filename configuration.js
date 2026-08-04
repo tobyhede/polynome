@@ -241,7 +241,20 @@ function sameCycle(cycle, candidate) {
   );
 }
 
-function sameConfiguration(configuration, candidate) {
+/**
+ * Whether two Configurations hold the same music. Identifiers are deliberately
+ * not compared: they are regenerated on load and on every applied Preset, so
+ * two values that sound identical differ by them constantly. The interface asks
+ * in order to know whether the current Configuration still is the Preset it came
+ * from, and so whether there is anything left to save.
+ *
+ * Neither argument is repaired here. Both reach this through a door that
+ * already did — `createConfiguration` for the live one, `createSavedPresets`
+ * for a stored Preset's — and repeating the pass on every render to answer a
+ * question about two values the caller is holding is the cost this exists to
+ * avoid.
+ */
+export function sameConfiguration(configuration, candidate) {
   return (
     sameFields(configuration, candidate) &&
     configuration.bpm === candidate.bpm &&
@@ -346,6 +359,30 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
     preset,
     reason: null,
   };
+}
+
+/**
+ * Whether saving under this name would replace a stored Preset rather than add
+ * one. The interface asks so it can label the action before the user commits to
+ * it; the answer has to come from here, because the trimming and the
+ * case-folding that decide it are the same rules `savePreset` applies and a
+ * second copy of them would drift.
+ *
+ * A built-in name is not in use: `savePreset` refuses it outright rather than
+ * replacing anything, so the honest answer is no.
+ *
+ * The list is not repaired here, and has to arrive repaired — `createSavedPresets`
+ * is the only door that produces one, and every caller comes through it. This is
+ * asked on every keystroke in the save field, and the list it is asked about has
+ * just been read and repaired to be handed over; repairing it a second time to
+ * answer a question about names would deep-repair every stored Configuration
+ * again for nothing. `sameConfiguration` above holds the same rule for the same
+ * reason.
+ */
+export function presetNameInUse(savedPresets, nameCandidate) {
+  const name = presetName(nameCandidate);
+  if (!name || reservedPresetName(name)) return false;
+  return findPresetNamed(savedPresets, name) !== -1;
 }
 
 export function removeSavedPreset(savedPresets, presetId) {

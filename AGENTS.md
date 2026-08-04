@@ -41,6 +41,12 @@ Interface state stays in module scope. Preact is here to reconcile, not to own s
 
 `render` is Preact's. The application's own whole-interface render is `renderInterface`, and the per-region ones are `renderPanels`, `renderTransport`, `renderPresetPanel`, `renderCycles` and `renderFooter`.
 
+### The Preset origin
+
+`presetOrigin` records which Preset the current Configuration came from and the snapshot it held at that moment. Two things read it: what the save field opens on, and whether there is anything to save at all, which is what makes the `+ Save` chip live. `sameConfiguration` answers the second against the one remembered snapshot rather than against every stored Preset, because it is asked on every render, including every pointer move of a tempo drag.
+
+It is a claim about what storage holds, so it stops being true when storage moves: deleting a Preset — here or in another tab — leaves it naming something no Preset carries any more, and a stale origin reads as nothing to save, which is exactly backwards. Every write to the stored Presets that this tab did not itself make goes through `adoptSavedPresets`, which reconciles the origin, redraws the list and repaints the header together. Saving is the one write that does not, because it knows the origin it just created. Add a fourth route to changing `savedPresets` and it goes through `adoptSavedPresets` too.
+
 Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup destroys focus, which is what made `focusSelector`, `renderPresetSelection` and three `requestAnimationFrame` focus deferrals necessary; the e2e suite asserts those regions are not rebuilt and that focus survives a Preset being deleted from another tab.
 
 `model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
