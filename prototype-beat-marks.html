@@ -2,15 +2,24 @@
 <!--
   PROTOTYPE — throwaway. Not linked from the app and not part of any build.
 
-  Question: how do we mark where a beat starts in the step grid, now that the
-  steps are evenly spaced and the gap no longer says it?
+  Round two. Round one chose beat numbers and they shipped; in the grid they
+  read as too busy. The question now is whether the mark can be quiet at rest
+  and name itself only when it is being asked — a dot that becomes a number.
 
-  Five variants on `?variant=`, switched from the bar at the bottom or with the
-  left and right arrow keys. The card markup below is the real renderer's own
-  output, scraped from the running app, so the density and the step treatments
-  are the real ones; only the mark is prototyped. Every variant is shown at a
-  Subdivision of 2 and of 4, because 4 is where the row wraps and a mark has to
-  survive a row break.
+  What CSS can and cannot do here, since it decides the shape of every variant
+  below:
+    - A true shape morph, dot geometry into glyph geometry, is not possible.
+      Glyphs are not paths CSS can interpolate.
+    - `content` is not animatable, so a text swap is discrete. The number has
+      to be present the whole time and revealed, not substituted.
+    - What is possible: one box holding the number at `color: transparent`,
+      with the dot drawn as a `box-shadow` on that same box. Transition the
+      colour and the shadow's spread together and the dot resolves into the
+      digit. `.beat-number` is already absolutely positioned, so nothing the
+      growth does costs any layout.
+
+  Five variants on `?variant=`, over the real stylesheet and the real
+  renderer's own scraped markup, at a Subdivision of 2 and of 4.
 -->
 <html lang="en">
   <head>
@@ -22,28 +31,10 @@
       /* ---- prototype chrome, not part of any variant ---- */
       .proto-shell {
         display: grid;
-        gap: 34px;
+        gap: 30px;
         max-width: 980px;
         margin: 0 auto;
-        padding: 28px 20px 120px;
-      }
-      .proto-case > h2 {
-        margin: 0 0 10px;
-        color: var(--muted);
-        font-size: 0.62rem;
-        font-weight: 700;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-      }
-      .proto-note {
-        margin: 0 0 22px;
-        color: var(--muted);
-        font-size: 0.78rem;
-        line-height: 1.6;
-      }
-      .proto-note strong {
-        color: var(--ink);
-        font-weight: 640;
+        padding: 24px 20px 120px;
       }
       .proto-picker {
         display: flex;
@@ -68,7 +59,24 @@
         color: #0c0c0d;
         font-weight: 700;
       }
-
+      .proto-case > h2 {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+      .proto-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.78rem;
+        line-height: 1.6;
+      }
+      .proto-note strong {
+        color: var(--ink);
+        font-weight: 640;
+      }
       .proto-bar {
         position: fixed;
         bottom: 18px;
@@ -93,126 +101,95 @@
         background: #0c0c0d;
         color: #e9e7e1;
         cursor: pointer;
-        font-size: 0.9rem;
       }
       .proto-bar span {
-        min-width: 250px;
+        min-width: 300px;
         text-align: center;
         font-weight: 640;
       }
 
-      /* ============================================================
-         VARIANT 1 — ruler
-         A hairline under every step, taller where a beat starts. This is the
-         `.bpm-ticks` major/minor idiom from the transport panel, reused: the
-         app already draws a scale this way, so it is not new vocabulary.
-         ============================================================ */
-      /* The row gap has to open for any mark drawn under a row: at the stock
-         10px the first row's ticks land on the second row's circles. */
-      [data-variant="1"] .steps {
-        row-gap: 26px;
-        padding-bottom: 30px;
+      /* ---- shared by every dot variant ----------------------------------
+         Two marks sharing one centre: the digit, held in the box at
+         `color: transparent`, and a dot drawn by the box's own pseudo-element.
+         Revealing the number fades the colour in while the dot fades out and
+         blooms past it. The box keeps the digit's size throughout, so the row
+         gap is sized once and nothing reflows when the state changes — which
+         is the whole reason this can be a transition rather than a swap. */
+      [data-variant="2"] .beat-number,
+      [data-variant="3"] .beat-number,
+      [data-variant="4"] .beat-number {
+        color: transparent;
+        transition: color 160ms ease;
       }
-      [data-variant="1"] .beat {
-        position: relative;
-      }
-      [data-variant="1"] .step {
-        position: relative;
-      }
-      [data-variant="1"] .step::after {
+      [data-variant="2"] .beat-number::before,
+      [data-variant="3"] .beat-number::before,
+      [data-variant="4"] .beat-number::before {
         content: "";
         position: absolute;
-        top: calc(100% + 8px);
+        top: 50%;
         left: 50%;
-        width: 1px;
+        width: 4px;
         height: 4px;
-        transform: translateX(-50%);
+        margin: -2px 0 0 -2px;
+        border-radius: 50%;
         background: var(--line-strong);
-        opacity: 0.5;
+        transition:
+          opacity 160ms ease,
+          transform 160ms ease;
       }
-      [data-variant="1"] .beat > .step:first-child::after {
-        height: 9px;
-        opacity: 0.9;
-      }
-
-      /* ============================================================
-         VARIANT 2 — beat numbers
-         The beat's own number under the step it starts on, set like the tempo
-         tick labels. Says which beat, not merely that one starts here.
-         ============================================================ */
-      [data-variant="2"] .steps {
-        row-gap: 28px;
-        padding-bottom: 32px;
-      }
-      [data-variant="2"] .beat {
-        position: relative;
-      }
-      [data-variant="2"] .beat::after {
-        content: attr(data-beat);
-        position: absolute;
-        top: calc(100% + 9px);
-        /* Centred on the first step rather than on the beat, so the number sits
-           over the onset it names however wide the beat is. */
-        left: 29px;
-        transform: translateX(-50%);
-        color: var(--muted);
-        font-size: 0.6rem;
-        font-weight: 640;
-        font-variant-numeric: tabular-nums;
-        line-height: 1;
-      }
-
-      /* ============================================================
-         VARIANT 3 — beam
-         A rule spanning each beat's own steps, drawn under them. Groups by
-         extent rather than by point: you read the beat's width, not its edge.
-         ============================================================ */
-      [data-variant="3"] .steps {
-        row-gap: 26px;
-        padding-bottom: 28px;
-      }
-      [data-variant="3"] .beat {
-        position: relative;
-      }
-      [data-variant="3"] .beat::after {
-        content: "";
-        position: absolute;
-        top: calc(100% + 9px);
-        left: 6px;
-        right: 6px;
-        height: 1.5px;
-        border-radius: 1px;
-        background: var(--line-strong);
-      }
-      [data-variant="3"] .beat:first-child::after {
-        background: color-mix(in oklab, var(--accent), transparent 40%);
-      }
-
-      /* ============================================================
-         VARIANT 4 — bands
-         No mark at all: each beat sits on its own plaque, alternating with the
-         card. Zones the row rather than annotating it.
-         ============================================================ */
+      /* Tighter than the shipped numbers, because at rest the mark is 4px of
+         ink rather than a 10px digit. The reveal grows into that space. */
+      [data-variant="2"] .steps,
+      [data-variant="3"] .steps,
       [data-variant="4"] .steps {
-        row-gap: 16px;
+        row-gap: 20px;
+        padding-bottom: 24px;
       }
-      [data-variant="4"] .beat {
-        padding: 6px;
-        border-radius: 4px;
+
+      /* ============================================================
+         VARIANT 2 — dot only. It never becomes anything.
+         ============================================================ */
+
+      /* ============================================================
+         VARIANT 3 — dot, resolving on hover or keyboard focus anywhere in the
+         grid. Quiet until looked at, and every beat answers together.
+         `hover: hover` gates it: a touch screen has no hover to resolve on and
+         would be left with variant 2 for good.
+         ============================================================ */
+      @media (hover: hover) {
+        [data-variant="3"] .steps:hover .beat-number {
+          color: var(--muted);
+        }
+        [data-variant="3"] .steps:hover .beat-number::before {
+          opacity: 0;
+          transform: scale(3);
+        }
       }
-      /* Alternating by beat index, which is the only thing CSS can see here.
-         Note what that does on a wrapped row: with two beats to a row, beats 1
-         and 3 are both in the left column, so the shading reads as a column
-         stripe rather than as beat grouping. */
-      [data-variant="4"] .beat:nth-child(odd) {
-        background: var(--soft);
+      [data-variant="3"] .steps:focus-within .beat-number {
+        color: var(--muted);
+      }
+      [data-variant="3"] .steps:focus-within .beat-number::before {
+        opacity: 0;
+        transform: scale(3);
+      }
+
+      /* ============================================================
+         VARIANT 4 — dot, resolving on the beat that is playing. `:has()` reads
+         the playhead class the visual playhead already writes onto a step, so
+         this needs no JavaScript at all. Works on a touch screen, and answers
+         "where am I in the bar" at the moment that is the question.
+         ============================================================ */
+      [data-variant="4"] .beat:has(.step.is-current) .beat-number {
+        color: var(--accent);
+      }
+      [data-variant="4"] .beat:has(.step.is-current) .beat-number::before {
+        opacity: 0;
+        transform: scale(3);
       }
     </style>
   </head>
   <body>
     <div class="proto-shell app-shell" data-variant="0">
-      <!-- In flow as well as fixed: a floating bar is easy to miss, and picking
-           a variant directly beats cycling to it. -->
       <div class="proto-picker" id="proto-picker"></div>
       <p class="proto-note" id="proto-description"></p>
 
@@ -236,43 +213,37 @@
     <script type="module">
       const VARIANTS = [
         {
-          name: "0 — baseline, no mark",
-          note: "<strong>What is on main now.</strong> Even spacing, and nothing says where a beat starts. At a subdivision of 2 you can count it; at 4, wrapped, you cannot.",
+          name: "0 — no mark",
+          note: "<strong>Before any of this.</strong> Even spacing and nothing else. Nothing says where a beat starts, and at a subdivision of 4, wrapped, you cannot work it out.",
         },
         {
-          name: "1 — ruler",
-          note: "<strong>A hairline under every step, taller at a beat start.</strong> The transport panel's own tick row, reused — minor marks for the steps between, major for the beat. Cheapest in new vocabulary, but it draws a mark under all sixteen steps to say something about four of them.",
+          name: "1 — numbers, as shipped",
+          note: "<strong>What is on the branch now.</strong> Every beat named, always. It answers the question, and it is the busiest thing in the card — sixteen circles and four numerals competing at one weight.",
         },
         {
-          name: "2 — beat numbers",
-          note: "<strong>The beat's number under the step it starts on.</strong> Set like the tempo tick labels. The only variant that says <em>which</em> beat, which is what a wrapped row costs you, and the only one that stays meaningful when the downbeat is switched off.",
+          name: "2 — dot only",
+          note: "<strong>The mark reduced to a point.</strong> Says a beat starts here and nothing else. Quietest of the five, and the only one with nothing to reveal — you never learn <em>which</em> beat, which is the thing a wrapped row costs you.",
         },
         {
-          name: "3 — beam",
-          note: "<strong>A rule spanning each beat's steps.</strong> Groups by extent rather than by point, so you read a beat's width directly. Reads as engraved beaming — the risk is that a beam is a notation mark with its own meaning, and this is not notation.",
+          name: "3 — dot → number on hover",
+          note: "<strong>Dots at rest, numbers when the grid is looked at.</strong> Hover or keyboard focus anywhere in the row resolves every dot at once. Gated on <code>hover: hover</code>, so a phone is left with variant 2 and never sees a number — which is where most of this app is used.",
         },
         {
-          name: "4 — bands",
-          note: "<strong>Each beat on its own plaque, alternating.</strong> No mark at all: the row is zoned rather than annotated. Strongest grouping of the four, and the heaviest — it puts a second surface inside a card that already has one.",
+          name: "4 — dot → number on the playing beat",
+          note: "<strong>Dots at rest; the beat being played names itself.</strong> Pure CSS — <code>:has(.step.is-current)</code> reads the class the visual playhead already writes every frame. Works on touch, costs nothing while stopped, and answers 'where am I in the bar' at the moment that is the question.",
         },
       ];
 
-      const markup = await fetch("./prototype-beat-marks.json").then((response) =>
-        response.json(),
-      );
+      const markup = await fetch("./prototype-beat-marks.json").then((r) => r.json());
 
       for (const subdivision of ["2", "4"]) {
         const host = document.querySelector(`#case-${subdivision}`);
         host.innerHTML = markup[subdivision];
-        // The real renderer does not emit this yet — numbering the beats is
-        // exactly the change variant 2 would need in `Beats()`.
-        host.querySelectorAll(".beat").forEach((beat, index) => {
-          beat.dataset.beat = String(index + 1);
-        });
-        // `layoutSteps()` normally writes this after measuring. Four beats of
-        // four is sixteen steps, which is the row limit, so it wraps to two.
         const steps = host.querySelector(".steps");
         steps.style.setProperty("--beats-per-row", subdivision === "4" ? "2" : "4");
+        // Stands in for a transport run, so variant 4 has a playhead to read.
+        // The real class is written onto a step every animation frame.
+        steps.querySelectorAll(".beat")[1]?.querySelector(".step")?.classList.add("is-current");
       }
 
       const shell = document.querySelector(".proto-shell");
