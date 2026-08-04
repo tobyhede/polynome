@@ -64,6 +64,12 @@ const elements = {
   presetSaveSubmit: /** @type {HTMLButtonElement} */ (
     document.querySelector("#preset-save-submit")
   ),
+  presetSaveIconSave: /** @type {SVGElement} */ (
+    document.querySelector("#preset-save-icon-save")
+  ),
+  presetSaveIconReplace: /** @type {SVGElement} */ (
+    document.querySelector("#preset-save-icon-replace")
+  ),
   presetName: /** @type {HTMLInputElement} */ (document.querySelector("#preset-name")),
   helpToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#help-toggle")),
   helpPanel: /** @type {HTMLElement} */ (document.querySelector("#help-panel")),
@@ -240,6 +246,10 @@ function renderPanels() {
   // it will not act.
   const unsaved = hasUnsavedChanges();
   elements.presetSaveOpen.disabled = !unsaved && !savePanelOpen;
+  // Enabled is not a state anyone reads in a row of chips: it looks exactly like
+  // the neighbour that is always live. Something to save is worth saying, so the
+  // chip takes the accent for as long as there is.
+  elements.presetSaveOpen.classList.toggle("is-live", unsaved);
   elements.presetSaveOpen.title = unsaved
     ? "Save this setup as a preset"
     : "No changes to save";
@@ -1098,14 +1108,19 @@ function nameToSaveUnder() {
 }
 /**
  * Saving under a name already in use replaces that Preset's snapshot. A
- * sentence under the field used to say so and nobody read it; the submit button
- * says it instead, at the moment the typed name makes it true.
+ * sentence under the field used to say so and nobody read it; the submit says it
+ * instead, at the moment the typed name makes it true — as a glyph for a reader
+ * who can see it and as the control's own name for one who cannot.
  */
 function describeSaveAction() {
-  elements.presetSaveSubmit.textContent =
-    presetNameInUse(storedSavedPresets(), elements.presetName.value)
-      ? "Replace"
-      : "Save";
+  const replaces = presetNameInUse(storedSavedPresets(), elements.presetName.value);
+  elements.presetSaveSubmit.setAttribute("aria-label", replaces ? "Replace" : "Save");
+  elements.presetSaveSubmit.title = replaces ? "Replace preset" : "Save preset";
+  // `hidden` as a property belongs to HTMLElement, and these are SVG: assigning
+  // it there sets a plain expando that never reaches the attribute the
+  // stylesheet reads, and the glyph never changes.
+  elements.presetSaveIconSave.toggleAttribute("hidden", replaces);
+  elements.presetSaveIconReplace.toggleAttribute("hidden", !replaces);
 }
 
 function closeSavePanel({ focusToggle = true } = {}) {

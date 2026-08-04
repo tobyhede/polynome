@@ -1098,6 +1098,85 @@ test("editing a built-in preset opens the save field empty", async ({ page }) =>
 });
 
 /**
+ * Enabled is read as "this control exists", not as "this control has something
+ * to do", and the two look identical in a row of chips. An edit that leaves the
+ * header exactly as it was is an edit nothing on screen acknowledges, so the
+ * chip carries a live treatment for as long as there is something to save —
+ * from the first edit until the save or the preset that makes it moot.
+ */
+test("the save chip reads as live for as long as there is something to save", async ({ page }) => {
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  const tempo = page.getByLabel("Tempo in beats per minute");
+
+  // The default Configuration is the 4/4 preset exactly: nothing to save, and
+  // nothing to advertise.
+  await expect(openSave).toBeDisabled();
+  await expect(openSave).not.toHaveClass(/\bis-live\b/);
+
+  await tempo.fill("120");
+  await expect(openSave).toBeEnabled();
+  await expect(openSave).toHaveClass(/\bis-live\b/);
+
+  await savePreset(page, "Kept");
+  await expect(openSave).toBeDisabled();
+  await expect(openSave).not.toHaveClass(/\bis-live\b/);
+});
+
+/**
+ * The word came off the submit, so for a reader who can see it the glyph is the
+ * only thing left saying which of the two acts is about to happen: a check
+ * writes a Preset that is not there, the arrow writes over one that is. The
+ * control's name carries the same distinction where a glyph carries none, and
+ * both have to follow the typed name rather than one of them.
+ */
+test("the submit shows in a glyph and in its name which of the two acts it will perform", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  const name = panel.getByRole("textbox", { name: "Preset name" });
+  const check = panel.locator("#preset-save-icon-save");
+  const arrow = panel.locator("#preset-save-icon-replace");
+
+  await tempo.fill("120");
+  await savePreset(page, "Rehearsal");
+
+  await tempo.fill("121");
+  await page.getByRole("button", { name: "+ Save" }).click();
+  // It opens on the Preset this Configuration came from, which is a name already
+  // stored, so this is a replacement before a key is pressed.
+  await expect(name).toHaveValue("Rehearsal");
+  await expect(arrow).toBeVisible();
+  await expect(check).toBeHidden();
+  await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
+
+  await name.fill("Rehearsal 2");
+  await expect(check).toBeVisible();
+  await expect(arrow).toBeHidden();
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+});
+
+/**
+ * The panel is as wide as the page, and a name field that took all of it put its
+ * submit ten pixels inside the close control above — two unrelated actions in
+ * one crowded corner. A name is short, so the field is bounded and the submit is
+ * an icon beside it: one square the height of the field, and the row ends well
+ * before the column the close control sits in.
+ */
+test("the save row is a bounded field and a square icon clear of the close control", async ({ page }) => {
+  const panel = page.getByRole("region", { name: /^Save preset/ });
+  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByRole("button", { name: "+ Save" }).click();
+
+  const field = await panel.getByRole("textbox", { name: "Preset name" }).boundingBox();
+  const submit = await panel.getByRole("button", { name: /^(?:Save|Replace)$/ }).boundingBox();
+  const close = await panel.getByRole("button", { name: "Close save preset" }).boundingBox();
+
+  expect(submit.height).toBe(field.height);
+  expect(submit.width).toBe(submit.height);
+  expect(field.width).toBeLessThanOrEqual(360);
+  expect(submit.x + submit.width).toBeLessThan(close.x - 24);
+});
+
+/**
  * A save closes the panel it was made from and disables the control that opened
  * it — what was just written is what this Configuration now is, so there is
  * nothing left to save. Neither of the two places focus was sitting survives

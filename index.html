@@ -69,7 +69,14 @@
                second word would only repeat one of them. The accessible name is
                still spelled out, because a placeholder is not one. -->
           <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Name" aria-label="Preset name" />
-          <button id="preset-save-submit" type="submit" class="chip-button">Save</button>
+          <!-- Which of the two acts this is stays visible without a word for it:
+               a check writes a Preset that is not there, the arrow writes over
+               one that is. The name says which in the accessibility tree, where
+               a glyph says nothing, and the title says it on hover. -->
+          <button id="preset-save-submit" type="submit" class="icon-button" aria-label="Save" title="Save preset">
+            <svg id="preset-save-icon-save" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5 10 17.5 19 7"></path></svg>
+            <svg id="preset-save-icon-replace" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 8h13"></path><path d="M14 5l3 3-3 3"></path><path d="M20 16H7"></path><path d="M10 13l-3 3 3 3"></path></svg>
+          </button>
         </form>
       </section>
 
