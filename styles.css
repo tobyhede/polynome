@@ -416,6 +416,20 @@ h1 {
    card tracks the shell up to its cap and both reach the 20px ceiling above it,
    the viewport is the honest spelling of what these already do. */
 .transport {
+  /* One length for the panel's control height. The play bar spells it once and
+     each tempo key spells it twice, for its width and its height, and literals
+     that have to agree are literals that can drift apart — which here would
+     cost the one thing the keys are shaped for, being the bar's height at every
+     width.
+
+     A `cqw` inside a custom property is safe on this element in a way the gap
+     and padding below are not, and for the reason the note above gives: nothing
+     resolves this where it is declared. An unregistered custom property is
+     carried as tokens and resolved in the declaration that substitutes it, so
+     the unit lands in `.play-button` and `.bpm-step` and asks their container,
+     which is this card. */
+  --control-size: clamp(48px, 13cqw, 60px);
+
   display: grid;
   grid-template-columns: minmax(0, 500px);
   gap: clamp(14px, 4vw, 20px);
@@ -436,7 +450,7 @@ h1 {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  height: clamp(48px, 13cqw, 60px);
+  height: var(--control-size);
   padding: 0 0 0 4px;
   border: 0;
   border-radius: 2px;
@@ -476,15 +490,31 @@ h1 {
   align-items: center;
 }
 
-/* The same height as `.play-button`, so the panel has one control height at
-   every width. `touch-action: none` is what keeps a press-and-hold from being
-   read as a scroll on iOS, and the two `user-select` declarations keep a held
-   glyph from being selected under the finger. */
+/* One control height with the play bar at every width, which is `--control-size`
+   on the card both rules read it from rather than a length spelled here and
+   there; square, so the glyph is centred in a target the same size either way.
+
+   `touch-action: none` is a decision rather than a default, and what it costs is
+   worth recording so nobody has to rediscover it. `manipulation` would leave the
+   browser free to reclaim a touch as a page scroll once the finger drifts past
+   its slop budget, and the reclaim arrives as the `pointercancel` that
+   `endTempoHold` already handles — so nothing would break; the tempo would
+   simply stop moving part-way through a press. That is the wrong thing to be
+   able to lose, because a hold here is the long gesture: thirteen seconds from
+   one end of the range to the other at the acceleration floor, and a finger
+   resting that long drifts by however much it drifts. Measured in Chromium the
+   budget is tens of CSS pixels rather than the handful the word slop suggests,
+   but it is browser-tuned and not a number a page may lean on. What `none` costs
+   is bounded and known: a swipe beginning on one of these two keys does not
+   scroll, on a page with plenty of other surface that does.
+
+   The two `user-select` declarations keep a held glyph from being selected under
+   the finger. */
 .bpm-step {
   display: grid;
   place-items: center;
-  width: clamp(48px, 13cqw, 60px);
-  height: clamp(48px, 13cqw, 60px);
+  width: var(--control-size);
+  height: var(--control-size);
   padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: 2px;

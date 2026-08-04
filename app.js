@@ -1176,10 +1176,18 @@ function startTempoHold(delta) {
   tempoHolding = true;
   const tick = (wait) => {
     if (!stepTempo(delta)) {
-      // The far end of the range, and the render above has just disabled the key
-      // that reached it. A disabled button is sent no pointerup, so the release
-      // that would end this hold never arrives — it has to end itself here, or
-      // the repeat runs on against a bound it can no longer move.
+      // The end of the range: the edit declined rather than clamped, so there is
+      // nothing left for the rest of this press to move. The release still
+      // arrives — the key that got here is marked `aria-disabled` rather than
+      // `disabled`, which is what keeps it in the tab order and, with it, in the
+      // way of its own events — so ending here is not what saves the repeat from
+      // outliving the press. It is what stops it spending the remainder of the
+      // press on work that cannot have a product: a repeat at the floor wakes
+      // roughly twenty-two times a second, and every wake is a whole
+      // Configuration rebuilt by `changeConfiguration`'s repair only for
+      // `set-tempo` to reject the value that asked for it, a storage write
+      // pushed another `PERSIST_DELAY_MS` out of reach, and three renders of an
+      // interface already showing the number they would write.
       endTempoHold();
       return;
     }
@@ -1197,6 +1205,24 @@ const tempoKeys = /** @type {[HTMLButtonElement, number][]} */ ([
 ]);
 for (const [stepper, delta] of tempoKeys) {
   stepper.addEventListener("pointerdown", (event) => {
+    // Only the primary button of the primary pointer holds. The right button is
+    // the press that makes refusing it necessary rather than tidy: the context
+    // menu takes its release, so nothing ever reaches this key to end the repeat
+    // and it runs unattended to the end of the range — a right click on −
+    // arriving at 30 bpm. The slider above meets the same lost release and comes
+    // to no harm from it: the flag it leaves raised only decides what an `input`
+    // event does, and both things that produce one settle it first, a drag by
+    // raising it and the keyboard by lowering it. What is left raised here is a
+    // timer moving the tempo with nobody holding it, and nothing later can undo
+    // where it got to.
+    //
+    // `isPrimary` refuses the other press that is not one: a second finger
+    // landing on a key the first is still holding. `startTempoHold` ends the
+    // hold in progress before starting its own, so an unrefused second contact
+    // would commit the tempo mid-press and drop the acceleration back to its
+    // slowest interval — the opposite of holding. A mouse is always primary,
+    // so this costs that path nothing.
+    if (event.button !== 0 || !event.isPrimary) return;
     // Capture keeps the repeat alive when the finger slides off the key, and
     // makes the release that ends it land back here rather than on whatever the
     // finger has wandered onto.

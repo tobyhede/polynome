@@ -1601,11 +1601,21 @@ test("a tempo key held to the end of its range keeps its place", async ({ page }
 });
 
 /**
- * A hold is what covers a long move, so it has to accelerate and it has to stop
- * on its own at the end of the range. The key that reaches the end is disabled
- * by the same render that got there, and a disabled button is sent no
- * `pointerup` — so a repeat that did not end itself would still be running
- * after the finger lifted.
+ * A hold is what covers a long move, so it has to accelerate. Thirty steps
+ * inside the five seconds allowed below is only reachable if the interval
+ * decays: a repeat held at `HOLD_DELAY_MS` throughout would take twelve seconds
+ * to walk 60 down to 30, and would still be seven seconds short when this gave
+ * up on it.
+ *
+ * It also has to stop at the end of the range and stay stopped once the finger
+ * lifts, which is what the wait after the release is for — a timer that outlived
+ * the press would show as a number that kept moving after it.
+ *
+ * What this cannot see is the hold ending itself on the step the range declined.
+ * The key that got there is marked `aria-disabled` rather than disabled, so the
+ * release still reaches it and ends the hold anyway; ending early is in the code
+ * for the work it saves over the rest of the press, and saved work leaves
+ * nothing here to assert.
  */
 test("holding a tempo key accelerates and stops at the end of the range", async ({ page }) => {
   const readout = page.getByRole("spinbutton", { name: "BPM" });
@@ -1624,6 +1634,134 @@ test("holding a tempo key accelerates and stops at the end of the range", async 
   await expect(readout).toHaveValue("30");
   await page.waitForTimeout(400);
   await expect(readout).toHaveValue("30");
+});
+
+/**
+ * Only the primary button holds. The slider's own comment names the lost release
+ * from the other side: the context menu takes a right button's release, so a
+ * repeat that a right press started is never told to stop and runs unattended to
+ * the end of the range — a right-click on − arriving at 30 bpm. The slider comes
+ * to no harm from the same loss, because the flag it leaves raised only decides
+ * what an `input` event does, and both things that produce one settle it first.
+ * What this leaves behind is a timer moving the tempo with nobody holding it, so
+ * the press has to be refused before the first step lands.
+ *
+ * A right press is the case that can be driven here, and it is the one with a
+ * native gesture behind it, but the guard is on the button being primary rather
+ * than on which non-primary button it was: a middle press has no more claim to
+ * a tempo than a right one does.
+ */
+test("a non-primary button press does not start a tempo hold", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("112");
+  await readout.blur();
+
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down({ button: "right" });
+  // Past HOLD_DELAY_MS and the two repeats that land inside it, so this fails on
+  // the step a press takes immediately and fails again on everything the
+  // acceleration would have added to it.
+  await page.waitForTimeout(900);
+  await expect(readout).toHaveValue("112");
+
+  await page.mouse.up({ button: "right" });
+  await expect(readout).toHaveValue("112");
+});
+
+/**
+ * Every step of a hold defers its transport consequence, and the acceleration is
+ * what makes that necessary: `restart-transport-run` per repeat would begin a
+ * new run every 45ms at the floor, and a run that never outlives its own
+ * look-ahead is one nobody hears. The engine is module scope and says nothing
+ * about itself, so what is read here is what a restart does to the one thing on
+ * screen that asks the transport where it is. A restart re-anchors the run
+ * `START_DELAY_SECONDS` ahead of the audio clock, and every position before that
+ * origin is the top of the pattern, so a run restarted faster than a step lasts
+ * is a playhead that never leaves the first step or two. A run left alone walks
+ * the pattern. Measured against this build, that is the difference between
+ * sampling 0 and 1 and nothing else, and sampling all four steps of 4/4 in turn.
+ *
+ * The playhead does not go out under the failing version, because `start` calls
+ * the scheduler tick that re-anchors inside its own synchronous run. So the
+ * assertion below that it never goes out is guarding playback stopping, not the
+ * restart; the walk is what carries the restart.
+ *
+ * Sampled from `classList` rather than from computed style, so unlike the tests
+ * that measure the beat dot there is nothing here a transition could be caught
+ * part way through, and no reason to emulate reduced motion.
+ */
+test("holding a tempo key while playing leaves the run alone until the release", async ({
+  page,
+}) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+  const status = page.locator("#status");
+  const current = page.locator(".rhythm-card .step.is-current");
+
+  // A quarter-second step, so the hold below walks 4/4's four positions twice
+  // over, and far enough inside the range that the repeat never reaches a bound
+  // and ends itself early.
+  await readout.fill("240");
+  await readout.blur();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(status).toHaveText("Playing");
+  await expect(current).toHaveCount(1);
+
+  // A frame sampler rather than a poll from here: the playhead is written once
+  // per animation frame, so a reading per frame is every value it ever had, and
+  // a gap between two polls is a restart this could miss.
+  const sampleFrames = () =>
+    page.evaluate(() => {
+      window.playhead = [];
+      const sample = () => {
+        const steps = [...document.querySelectorAll(".rhythm-card .step")];
+        window.playhead.push(steps.findIndex((step) => step.classList.contains("is-current")));
+        window.playheadFrame = requestAnimationFrame(sample);
+      };
+      sample();
+    });
+  const sampled = () =>
+    page.evaluate(() => {
+      cancelAnimationFrame(window.playheadFrame);
+      return window.playhead;
+    });
+
+  await sampleFrames();
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down();
+  // The acceleration reaches its floor around 1.4s, so this covers the decaying
+  // intervals and then some twenty repeats at 45ms — the interval the deferral
+  // exists for, rather than only the leisurely ones before it.
+  await page.waitForTimeout(2200);
+  const held = await sampled();
+  await page.mouse.up();
+
+  expect(held, "playback stopped during the hold").not.toContain(-1);
+  expect(
+    new Set(held).size,
+    "the playhead did not walk the pattern, so the run was being cut off",
+  ).toBeGreaterThan(2);
+
+  // The release is where the run is finally handed the tempo, and it has to
+  // survive being handed it: still playing, still walking, and carrying the
+  // value the hold arrived at rather than the one it started from.
+  await expect(status).toHaveText("Playing");
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  expect(Number(await readout.inputValue())).toBeLessThan(240);
+
+  await sampleFrames();
+  // Longer than four steps at the tempo the hold arrived at, so a walk is what
+  // this sees rather than a step that happened to be long.
+  await page.waitForTimeout(1200);
+  const released = await sampled();
+  expect(
+    new Set(released.filter((index) => index >= 0)).size,
+    "the playhead stopped walking after the release",
+  ).toBeGreaterThan(2);
 });
 
 /**
