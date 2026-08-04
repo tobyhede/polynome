@@ -38,12 +38,15 @@
         </div>
         <nav class="header-actions" aria-label="Application panels">
           <button id="presets-toggle" class="chip-button" type="button" aria-expanded="false" aria-controls="preset-panel">Presets</button>
+          <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel">+ Save</button>
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
         </nav>
       </header>
 
       <section id="help-panel" class="top-panel" aria-labelledby="help-heading" hidden>
-        <h2 id="help-heading">Help</h2>
+        <div class="card-heading panel-heading">
+          <h2 id="help-heading">Help</h2>
+        </div>
         <div class="help-grid">
           <p><strong>Rhythms</strong><span>A rhythm defines a time signature and a repeating click pattern. Rhythms in the same cycle play together.</span></p>
           <p><strong>Cycles</strong><span>Cycles play in sequence. Each cycle loops the specified number of times before the next active cycle begins. After the last cycle, the sequence starts again.</span></p>
@@ -55,16 +58,33 @@
         </div>
       </section>
 
-      <section id="preset-panel" class="top-panel" aria-labelledby="preset-heading" hidden>
-        <h2 id="preset-heading">Presets <span class="panel-divider" aria-hidden="true">/</span><span id="preset-count">2</span><span id="preset-count-noun" class="sr-only"> presets</span></h2>
+      <section id="save-panel" class="top-panel" aria-labelledby="save-heading" hidden>
+        <div class="card-heading panel-heading">
+          <h2 id="save-heading">Save preset</h2>
+          <button id="preset-save-close" class="icon-button remove-button" type="button" aria-label="Close save preset">×</button>
+        </div>
         <form id="preset-save" class="preset-save">
-          <label for="preset-name">Save current preset</label>
-          <div>
-            <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Preset name" aria-describedby="preset-name-hint" />
-            <button type="submit" class="chip-button">Save</button>
-          </div>
-          <p id="preset-name-hint">Saving an existing name replaces its snapshot.</p>
+          <!-- No visible label: the placeholder carries the field for a sighted
+               reader and the heading above it says what is being named, so a
+               second word would only repeat one of them. The accessible name is
+               still spelled out, because a placeholder is not one. -->
+          <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Name" aria-label="Preset name" />
+          <!-- Which of the two acts this is stays visible without a word for it:
+               a check writes a Preset that is not there, the arrow writes over
+               one that is. The name says which in the accessibility tree, where
+               a glyph says nothing, and the title says it on hover. -->
+          <button id="preset-save-submit" type="submit" class="icon-button" aria-label="Save" title="Save preset">
+            <svg id="preset-save-icon-save" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5 10 17.5 19 7"></path></svg>
+            <svg id="preset-save-icon-replace" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><path d="M4 8h13"></path><path d="M14 5l3 3-3 3"></path><path d="M20 16H7"></path><path d="M10 13l-3 3 3 3"></path></svg>
+          </button>
         </form>
+      </section>
+
+      <section id="preset-panel" class="top-panel" aria-labelledby="preset-heading" hidden>
+        <div class="card-heading panel-heading">
+          <h2 id="preset-heading">Presets<span class="panel-divider" aria-hidden="true">/</span><span id="preset-count" class="heading-count">2</span><span id="preset-count-noun" class="sr-only"> presets</span></h2>
+          <button id="presets-close" class="icon-button remove-button" type="button" aria-label="Close presets">×</button>
+        </div>
         <div id="preset-list" class="preset-grid"></div>
       </section>
 
@@ -103,6 +123,7 @@
         <p id="status" class="sr-only" role="status" aria-live="polite">Stopped</p>
       </footer>
     </main>
+
 
     <noscript>This metronome requires JavaScript.</noscript>
     <script type="module" src="./app.js"></script>
