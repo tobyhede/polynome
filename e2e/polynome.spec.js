@@ -211,6 +211,40 @@ test("the widest rhythm grid is reachable through the constrained selects", asyn
   ).toHaveCount(80);
 });
 
+/**
+ * A drag writes these readouts directly rather than re-rendering the grid on
+ * every pointer move, and the renderer owns the same text. Assigning
+ * `textContent` swaps in a fresh Text node, which leaves the reconciler holding
+ * a detached one and quietly writing every later update into it — the readout
+ * then keeps whatever the last drag left and never moves again. Nothing on
+ * screen shows that, because a drag's own write is always the current value, so
+ * the identity of the node is what has to be asserted.
+ */
+for (const [field, control, expected] of [
+  ["volume", "4/4 level", "40%"],
+  ["pan", "4/4 stereo balance", "Right 40%"],
+]) {
+  test(`dragging the ${field} keeps the readout node the renderer created`, async ({ page }) => {
+    await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+    const readout = `[data-output="${field}"]`;
+    await page.evaluate((selector) => {
+      window.renderedReadout = document.querySelector(selector).firstChild;
+    }, readout);
+
+    await page.getByRole("slider", { name: control }).fill("0.4");
+
+    expect(
+      await page.evaluate(
+        (selector) => ({
+          survived: document.querySelector(selector).firstChild === window.renderedReadout,
+          text: document.querySelector(selector).textContent,
+        }),
+        readout,
+      ),
+    ).toEqual({ survived: true, text: expected });
+  });
+}
+
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });

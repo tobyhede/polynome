@@ -31,6 +31,18 @@ The core promise is:
 - `biome.jsonc`: lint and formatter configuration. `.jsonc` rather than `.json` because strict JSON cannot hold the paragraph explaining the one disabled rule, and a rule turned off without a reason is one nobody can safely turn back on.
 - `jsconfig.json`, `types/`: TypeScript's `checkJs` configuration and the ambient declarations for browser APIs its DOM library omits.
 
+### Rendering
+
+`#cycles` and `#preset-list` are rendered by Preact through `htm` tagged templates, per ADR-0009. Everything else in `app.js` still writes to the DOM directly, and three things do so deliberately inside a rendered region: the visual playhead toggles classes on live nodes every animation frame, `layoutSteps` measures what the renderer just produced and writes custom properties back onto it, and a level or balance drag writes its own readout rather than re-rendering the grid under the pointer. None belongs in a component.
+
+The first two are safe because reconciliation restores what they write, or leaves it alone. The third is not, and it is the reason `writeReadout` changes a Text node's data instead of assigning `textContent`: assigning replaces the node, and the node it replaces is one Preact created and still holds, so every later render of that readout is written into a node no longer in the document. Anything that writes text into a rendered region has the same constraint. The e2e suite asserts the identity of the node both readouts keep.
+
+Interface state stays in module scope. Preact is here to reconcile, not to own state, so no component holds any — `openRhythms`, `presetsOpen` and the rest are read as props from the render functions that mount each region.
+
+`render` is Preact's. The application's own whole-interface render is `renderInterface`, and the per-region ones are `renderPanels`, `renderTransport`, `renderPresetPanel`, `renderCycles` and `renderFooter`.
+
+Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup destroys focus, which is what made `focusSelector`, `renderPresetSelection` and three `requestAnimationFrame` focus deferrals necessary; the e2e suite asserts those regions are not rebuilt and that focus survives a Preset being deleted from another tab.
+
 `model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
 
 Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
@@ -48,16 +60,22 @@ Every outcome, including both no-ops above, returns a freshly repaired Configura
 
 ## Dependencies
 
-The application intentionally has zero runtime dependencies. Development dependencies each earn their place:
+Every dependency has to earn its place. Two are runtime, and the rest reach no user:
 
+- **Preact** — the renderer, adopted in ADR-0009 on measured grounds and only as a reconciler.
+- **htm** — how Preact is written without a development build.
 - **Playwright** — browser interaction tests, and nothing else.
-- **esbuild** — the two browser distribution targets. It discovers and bundles the native-module graph without hand-written module lists or JavaScript rewriting.
+- **esbuild** — the two browser distribution targets. It discovers and bundles the module graph without hand-written module lists or JavaScript rewriting.
 - **Biome** — lint and formatting. Two packages and one binary, with no plugin ecosystem to accrete. Bare ESLint is sixty-nine packages before the first plugin, which is the comparison that decided this.
 - **TypeScript** — `checkJs` only. No file changes language and nothing compiles; `tsc` runs with `noEmit`.
 - **@types/node** — types only. Without it no file importing a `node:` builtin can be checked at all.
 - **@axe-core/playwright** — accessibility assertions against the rendered tree, which is the half `test/accessibility.test.js` cannot reach from Node.
 
-Prefer browser and Node standard APIs, and do not introduce a framework, plugin ecosystem, development server, or general task runner without a concrete requirement.
+Fewer is still the default. Prefer browser and Node standard APIs, and do not introduce a framework, plugin ecosystem, development server, or general task runner without a concrete requirement. Preact was added on a measurement, not a preference, and the next one needs an argument of the same kind.
+
+A runtime dependency is pinned to an exact version, because its code is copied into both distributions and a range lets two builds of one commit ship different bytes. esbuild is pinned for the same reason from the other side, deciding those bytes rather than supplying them; the rest float, because nothing they do reaches a user. `test/dependencies.test.js` holds the runtime half of that rule.
+
+Bare specifiers are resolved in development by the import map in `index.html`, which points at the installed packages and names every specifier the source uses, including the ones a package imports internally. Both distributions strip the map, because esbuild resolves those modules into the bundle and `node_modules/` ships with neither artifact.
 
 Worth knowing before reaching for more analysis: when Biome, TypeScript and axe were first run against this codebase they found, between them, zero defects. Every finding was either correct code the rule did not fit or a type the checker did not know. They are here to catch what arrives next, not because something was wrong — so weigh a new tool by the regressions it would catch, and do not expect a haul.
 

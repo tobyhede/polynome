@@ -74,11 +74,20 @@ function* cssRules(css) {
 /**
  * Yields every start tag with its raw attribute text. Attribute values are
  * skipped over so a `>` inside one cannot end the tag early, and only
- * attribute *names* are inspected, which keeps `${...}` interpolation in the
- * `app.js` templates from mattering.
+ * attribute *names* are inspected, which keeps the value an `app.js` template
+ * interpolates from mattering.
+ *
+ * A value is skipped in whichever form it is written: quoted, as `index.html`
+ * writes them, or an unquoted `${...}`, as the `htm` templates do. The
+ * interpolation is matched to its closing brace through one level of nesting,
+ * which is what a template literal holding a placeholder needs. The branches
+ * are disjoint on their first character — a lone `$` has its own — so the
+ * alternation walks the tag once rather than backtracking through it.
  */
 function* startTags(source) {
-  const pattern = /<([a-z][a-z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  const interpolation = String.raw`\$\{(?:[^{}]|\{[^{}]*\})*\}`;
+  const attributes = String.raw`(?:[^>"'$]|\$(?!\{)|"[^"]*"|'[^']*'|${interpolation})*`;
+  const pattern = new RegExp(`<([a-z][a-z0-9-]*)(${attributes})>`, "gi");
   for (const match of source.matchAll(pattern)) {
     const line = source.slice(0, match.index).split("\n").length;
     yield { tag: match[1].toLowerCase(), attributes: match[2], line };
@@ -93,15 +102,41 @@ const hasAttribute = (attributes, name) => new RegExp(`(^|\\s)${name}\\s*=`, "i"
  * The name has to come from text content — visually hidden when the design
  * only shows part of it — or the element needs a role that supports naming.
  */
+function* genericsNamedByAriaLabel(source) {
+  for (const { tag, attributes, line } of startTags(source)) {
+    if (!GENERIC_TAGS.has(tag)) continue;
+    if (!hasAttribute(attributes, "aria-label")) continue;
+    if (hasAttribute(attributes, "role")) continue;
+    yield { tag, line };
+  }
+}
+
+/**
+ * The rule above is only as good as the tag it is handed, and the templates it
+ * reads now write their values as `htm` interpolations rather than quoted
+ * strings. An expression that compares its way to a value carries a `>` that no
+ * quote encloses, and a scanner that ended the tag there would hand this rule
+ * half a tag: every attribute past the comparison disappears, the `aria-label`
+ * among them, and the check reports nothing while looking like it ran.
+ */
+test("a `>` inside an interpolated attribute value does not end the tag", () => {
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder is the
+  // fixture. This string stands in for a line of `app.js` as the scanner reads
+  // it, so the `${...}` has to survive as characters rather than be interpolated.
+  const source = '<div hidden=${count > 1} aria-label="Levels"></div>';
+
+  assert.deepEqual(
+    Array.from(genericsNamedByAriaLabel(source), ({ tag }) => tag),
+    ["div"],
+  );
+});
+
 test("no generic element is named with aria-label", async () => {
   const offenders = [];
 
   for (const file of ["index.html", "app.js"]) {
     const source = await readFile(file, "utf8");
-    for (const { tag, attributes, line } of startTags(source)) {
-      if (!GENERIC_TAGS.has(tag)) continue;
-      if (!hasAttribute(attributes, "aria-label")) continue;
-      if (hasAttribute(attributes, "role")) continue;
+    for (const { tag, line } of genericsNamedByAriaLabel(source)) {
       offenders.push(`${file}:${line} <${tag}>`);
     }
   }

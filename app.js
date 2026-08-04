@@ -10,6 +10,10 @@ import {
 } from "./configuration.js";
 import { panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
+// `htm/preact` is Preact's own no-build path: tagged templates the browser
+// parses, and `html` already bound to its `h`. The import map in `index.html`
+// resolves all three specifiers this pulls in.
+import { html, render } from "htm/preact";
 
 const STORAGE_KEY = "polynome-configuration-v2";
 const PRESET_STORAGE_KEY = "polynome-presets-v2";
@@ -165,19 +169,17 @@ function applyEdit(edit, options = {}) {
   state = result.configuration;
   description = describeConfiguration(state);
   persistence.schedule(state);
-  if (options.render !== false) render();
+  if (options.render !== false) renderInterface();
 
   if (options.deferConsequence) return result;
   engine.applyConsequence(result.consequence, state)?.catch(showError);
   return result;
 }
 
-function render() {
+function renderInterface() {
   renderPanels();
   renderTransport();
-  // An edit never adds, removes or renames a Preset, so the list itself cannot
-  // have changed; save, delete and the panel toggle rebuild it.
-  renderPresetSelection();
+  renderPresetPanel();
   renderCycles();
   renderFooter();
 }
@@ -244,78 +246,65 @@ function renderTransport() {
   updatePlayButton();
 }
 
-/**
- * Tempo and master level changes re-render on every pointer move, and this list
- * costs a repair pass over every stored Configuration plus a full rebuild of the
- * grid — on the same thread as the scheduler. The panel is closed for almost all
- * of that, so the toggle renders it on the way open and nothing here runs for a
- * panel nobody can see.
- */
-function renderPresets() {
-  if (!presetsOpen) return;
-  const presets = describePresets(state, savedPresets);
-  const count = presets.length;
-  elements.presetCount.textContent = String(count);
-  // The heading shows the bare number; the noun is carried as visually hidden
-  // text because `aria-label` on a generic span never reaches the accessibility
-  // tree.
-  elements.presetCountNoun.textContent = count === 1 ? " preset" : " presets";
-  // Saving, deleting, arming a deletion and adopting another tab's write all
-  // rebuild this list under whatever the user had focused; applying a Preset no
-  // longer does, because it only changes selection. Restore by stable Preset
-  // identifier rather than by name, which a duplicate save can change, and cover
-  // both buttons, because an armed delete keeps focus on the delete one.
-  const focused = elements.presetList.contains(document.activeElement)
-    ? /** @type {HTMLElement | null} */ (
-        document.activeElement.closest("[data-preset-id], [data-delete-preset-id]")
-      )
-    : null;
-  const focusedSelector = focused?.dataset.deletePresetId
-    ? `[data-delete-preset-id="${CSS.escape(focused.dataset.deletePresetId)}"]`
-    : focused?.dataset.presetId
-      ? `[data-preset-id="${CSS.escape(focused.dataset.presetId)}"]`
-      : null;
-  // Identifiers reach the markup unescaped, which is safe only because every one
-  // of them is either derived from the frozen built-in names or has passed
-  // `safeIdentifier`'s pattern on the way out of storage.
-  elements.presetList.innerHTML = presets
-    .map(
-      (preset) => `
-    <div class="preset-card${preset.builtIn ? " is-built-in" : ""}">
+function PresetList({ presets, pendingDeleteId }) {
+  return html`${presets.map(
+    (preset) => html`
+    <div class="preset-card${preset.builtIn ? " is-built-in" : ""}" key=${preset.id}>
       <button
         type="button"
         class="preset-button${preset.selected ? " is-selected" : ""}"
-        data-preset-id="${preset.id}"
-        aria-pressed="${preset.selected}"
+        data-preset-id=${preset.id}
+        aria-pressed=${String(preset.selected)}
       >
-        <strong>${escapeHtml(preset.name)}</strong>
-        ${presetNotationTemplate(preset.configuration)}
+        <strong>${preset.name}</strong>
+        <${PresetNotation} configuration=${preset.configuration} />
       </button>
       ${
         preset.builtIn
-          ? ""
-          : `
+          ? null
+          : html`
         <button
           type="button"
-          class="preset-delete${preset.id === pendingDeletePresetId ? " is-armed" : ""}"
-          data-delete-preset-id="${preset.id}"
-          aria-label="${preset.id === pendingDeletePresetId ? "Confirm deleting" : "Delete"} ${escapeHtml(preset.name)} preset"
-          title="${preset.id === pendingDeletePresetId ? "Select again to delete" : "Delete preset"}"
+          class="preset-delete${preset.id === pendingDeleteId ? " is-armed" : ""}"
+          data-delete-preset-id=${preset.id}
+          aria-label=${`${preset.id === pendingDeleteId ? "Confirm deleting" : "Delete"} ${preset.name} preset`}
+          title=${preset.id === pendingDeleteId ? "Select again to delete" : "Delete preset"}
         >×</button>
       `
       }
     </div>
   `,
-    )
-    .join("");
-  if (focusedSelector) {
-    // The Preset that had focus can be the one that just stopped existing, which
-    // is exactly when losing focus to the document costs the most.
-    const restored = /** @type {HTMLElement | null} */ (
-      elements.presetList.querySelector(focusedSelector)
-    );
-    if (restored) restored.focus();
-    else elements.presetName.focus();
+  )}`;
+}
+
+/**
+ * Tempo and master level changes re-render on every pointer move, and describing
+ * this list costs a repair pass over every stored Configuration — on the same
+ * thread as the scheduler. Reconciliation makes the DOM half cheap; it cannot
+ * make the describing half free. The panel is closed for almost all of that, so
+ * the toggle renders it on the way open and nothing here runs for a panel nobody
+ * can see. That decision is about not doing the work at all, which is the one
+ * thing no renderer can take over.
+ */
+function renderPresetPanel() {
+  if (!presetsOpen) return;
+  const presets = describePresets(state, savedPresets);
+  elements.presetCount.textContent = String(presets.length);
+  // The heading shows the bare number; the noun is carried as visually hidden
+  // text because `aria-label` on a generic span never reaches the accessibility
+  // tree.
+  elements.presetCountNoun.textContent = presets.length === 1 ? " preset" : " presets";
+  const hadFocus = elements.presetList.contains(document.activeElement);
+  render(
+    html`<${PresetList} presets=${presets} pendingDeleteId=${pendingDeletePresetId} />`,
+    elements.presetList,
+  );
+  // The one focus case reconciliation cannot answer: a surviving node keeps its
+  // focus, but a Preset that stopped existing takes its button with it and the
+  // browser drops focus to the document, which is where a keyboard user least
+  // expects to be. The save field is where deleting in this tab already lands.
+  if (hadFocus && document.activeElement === document.body) {
+    elements.presetName.focus();
   }
 }
 
@@ -328,33 +317,10 @@ function renderPresets() {
 function dismissPendingDelete() {
   if (pendingDeletePresetId === null) return;
   pendingDeletePresetId = null;
-  renderPresets();
+  renderPresetPanel();
 }
 
-/**
- * Tempo, master level and mix changes move the current Configuration, and the
- * only thing that can change about this list is which Presets it now matches:
- * every card describes a stored Configuration and cannot have changed. Setting
- * the two attributes that carry selection leaves the grid untouched, which is
- * what keeps a drag from rebuilding identical markup on every pointer move.
- */
-function renderPresetSelection() {
-  if (!presetsOpen) return;
-  const selected = new Set(
-    describePresets(state, savedPresets)
-      .filter((preset) => preset.selected)
-      .map((preset) => preset.id),
-  );
-  for (const button of /** @type {NodeListOf<HTMLElement>} */ (
-    elements.presetList.querySelectorAll("[data-preset-id]")
-  )) {
-    const isSelected = selected.has(button.dataset.presetId);
-    button.classList.toggle("is-selected", isSelected);
-    button.setAttribute("aria-pressed", String(isSelected));
-  }
-}
-
-function presetNotationTemplate(configuration) {
+function PresetNotation({ configuration }) {
   const accessible = configuration.sequence.cycles
     .map((cycle) => {
       const rhythms = cycle.rhythms
@@ -366,34 +332,32 @@ function presetNotationTemplate(configuration) {
       return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
     })
     .join(", then ");
-  const visual = configuration.sequence.cycles
-    .map(
-      (cycle) => `
-    <span class="preset-cycle">
-      ${cycle.repetitions === 1 ? "" : `<span class="preset-repetitions">${cycle.repetitions}×</span>`}
-      ${cycle.rhythms
-        .map(
-          (rhythm) => `
-        <span class="preset-rhythm">
-          <span>${rhythmLabel(rhythm)}</span>
-          ${noteIcon(rhythm.subdivision, 15)}
+  return html`
+    <span class="preset-notation" aria-hidden="true">
+      ${configuration.sequence.cycles.map(
+        (cycle, index) => html`
+        ${index === 0 ? null : html`<span class="preset-sequence-arrow" aria-hidden="true"> → </span>`}
+        <span class="preset-cycle">
+          ${cycle.repetitions === 1 ? null : html`<span class="preset-repetitions">${cycle.repetitions}×</span>`}
+          ${cycle.rhythms.map(
+            (rhythm, position) => html`
+            ${position === 0 ? null : html`<span aria-hidden="true"> + </span>`}
+            <span class="preset-rhythm">
+              <span>${rhythmLabel(rhythm)}</span>
+              <${NoteIcon} subdivision=${rhythm.subdivision} height=${15} />
+            </span>
+          `,
+          )}
         </span>
       `,
-        )
-        .join('<span aria-hidden="true"> + </span>')}
+      )}
     </span>
-  `,
-    )
-    .join('<span class="preset-sequence-arrow" aria-hidden="true"> → </span>');
-  return `<span class="preset-notation" aria-hidden="true">${visual}</span><span class="sr-only">${escapeHtml(accessible)}</span>`;
+    <span class="sr-only">${accessible}</span>
+  `;
 }
 
 function renderCycles() {
-  const focusKey = focusSelector(document.activeElement);
-  elements.cycles.innerHTML = state.sequence.cycles
-    .map((cycle, index) => cycleTemplate(cycle, index))
-    .join("");
-  if (focusKey) focusWithin(elements.cycles, focusKey);
+  render(html`<${Cycles} cycles=${state.sequence.cycles} />`, elements.cycles);
   layoutSteps();
 }
 
@@ -492,44 +456,9 @@ new ResizeObserver((entries) => {
 }).observe(elements.cycles);
 
 /**
- * Rebuilding the cycles markup discards the focused control, which drops focus
- * to the document body and leaves Space toggling playback instead of the
- * control the user was operating. Describe the focused control by the data
- * attributes the templates already emit so it can be found again afterwards.
- */
-function focusSelector(element) {
-  if (!element || !elements.cycles.contains(element)) return null;
-  const cycleId = element.closest("[data-cycle-id]")?.dataset.cycleId;
-  if (!cycleId) return null;
-  const rhythmId = element.closest("[data-layer-id]")?.dataset.layerId;
-  const scope = rhythmId
-    ? `[data-layer-id="${CSS.escape(rhythmId)}"]`
-    : `[data-cycle-id="${CSS.escape(cycleId)}"]`;
-  const { action, field } = element.dataset;
-  if (field) return `${scope} [data-field="${field}"]`;
-  if (!action) return null;
-
-  switch (action) {
-    case "step":
-      return `${scope} [data-step-index="${element.dataset.stepIndex}"]`;
-    case "set-repetitions":
-      return `${scope} [data-repetitions="${element.dataset.repetitions}"]`;
-    case "set-subdivision":
-      return `${scope} [data-subdivision="${element.dataset.subdivision}"]`;
-    case "sound":
-      return `${scope} [data-sound="${CSS.escape(element.dataset.sound)}"]`;
-    case "toggle-settings":
-      // Two controls in a rhythm card share this action.
-      return `${scope} ${element.classList.contains("edit-button") ? ".edit-button" : ".rhythm-identity"}`;
-    default:
-      return `${scope} [data-action="${action}"]`;
-  }
-}
-
-/**
  * Only structural edits can change whether a cycle may be added, and those all
- * re-render in full, so the paths that skip render() to redraw the transport,
- * presets, or a single mix output cannot leave this stale.
+ * re-render in full, so the paths that skip renderInterface() to redraw the
+ * transport, presets, or a single mix output cannot leave this stale.
  */
 function renderFooter() {
   const policy = description.availability.addCycle;
@@ -555,129 +484,178 @@ function unavailableLabel(text, policy) {
   return `${text}, unavailable — ${reason}`;
 }
 
-function cycleTemplate(cycle, cycleIndex) {
-  const cycleAvailability = description.availability.cycles[cycle.id];
-  const cycleTitle = state.sequence.cycles.length > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
-  const removeDisabled = !cycleAvailability.remove.available;
-  const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
-  const dots = REPETITIONS.slice(1)
-    .map((value, index) => {
-      const selected = value <= cycle.repetitions;
-      const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
-      const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
-      const actionLabel = unavailable
-        ? `${cycleTitle} must remain active at 1 repetition`
-        : nextRepetitions === 0
-          ? `Disable ${cycleTitle}`
-          : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
-      return `
-      <button
-        type="button"
-        class="repeat-dot${selected ? " is-set" : ""}"
-        data-action="set-repetitions"
-        data-repetitions="${value}"
-        data-repetition-index="${index}"
-        aria-label="${actionLabel}"
-        aria-pressed="${selected}"
-        ${unavailable ? "disabled" : ""}
-      ></button>
-    `;
-    })
-    .join("");
+function Cycles({ cycles }) {
+  return html`${cycles.map(
+    (cycle, index) => html`
+    <${CycleGroup} key=${cycle.id} cycle=${cycle} cycleIndex=${index} cycleCount=${cycles.length} />
+  `,
+  )}`;
+}
 
-  return `
-    <section class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}" data-cycle-id="${cycle.id}" aria-labelledby="cycle-${cycle.id}-heading">
-      <article class="cycle-card" ${state.sequence.cycles.length === 1 ? "hidden" : ""}>
+function CycleGroup({ cycle, cycleIndex, cycleCount }) {
+  const cycleAvailability = description.availability.cycles[cycle.id];
+  const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
+  const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
+  return html`
+    <section
+      class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}"
+      data-cycle-id=${cycle.id}
+      aria-labelledby=${`cycle-${cycle.id}-heading`}
+    >
+      <article class="cycle-card" hidden=${cycleCount === 1}>
         <div class="card-heading cycle-heading">
-          <h2 id="cycle-${cycle.id}-heading">${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span>${cycle.repetitions}</span></h2>
+          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span>${cycle.repetitions}</span></h2>
           <button
             type="button"
             class="icon-button remove-button"
             data-action="remove-cycle"
-            aria-label="Remove ${cycleTitle}"
-            ${removeDisabled ? "disabled" : ""}
+            aria-label=${`Remove ${cycleTitle}`}
+            disabled=${!cycleAvailability.remove.available}
           >×</button>
         </div>
-        <div class="repeat-dots" role="group" aria-label="${cycleTitle} repetitions">${dots}</div>
+        <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
+          ${REPETITIONS.slice(1).map((value, index) => {
+            const selected = value <= cycle.repetitions;
+            const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
+            const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
+            const actionLabel = unavailable
+              ? `${cycleTitle} must remain active at 1 repetition`
+              : nextRepetitions === 0
+                ? `Disable ${cycleTitle}`
+                : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
+            return html`
+              <button
+                type="button"
+                class="repeat-dot${selected ? " is-set" : ""}"
+                data-action="set-repetitions"
+                data-repetitions=${value}
+                data-repetition-index=${index}
+                aria-label=${actionLabel}
+                aria-pressed=${String(selected)}
+                disabled=${unavailable}
+              ></button>
+            `;
+          })}
+        </div>
       </article>
 
       <div class="rhythm-list">
-        ${cycle.rhythms.map((rhythm) => rhythmTemplate(rhythm, cycle)).join("")}
+        ${cycle.rhythms.map(
+          (rhythm) => html`
+          <${RhythmCard} key=${rhythm.id} rhythm=${rhythm} cycle=${cycle} />
+        `,
+        )}
       </div>
       <button
         type="button"
         class="chip-button add-rhythm"
         data-action="add-rhythm"
-        ${addRhythmLabel ? `aria-label="${addRhythmLabel}"` : ""}
-        ${!cycleAvailability.addRhythm.available ? "disabled" : ""}
+        aria-label=${addRhythmLabel}
+        disabled=${!cycleAvailability.addRhythm.available}
       >+ Rhythm</button>
     </section>
   `;
 }
 
-function rhythmTemplate(rhythm, cycle) {
+function RhythmCard({ rhythm, cycle }) {
   const label = rhythmLabel(rhythm);
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
-  return `
-    <article class="rhythm-card${rhythm.muted ? " is-muted" : ""}" data-layer-id="${rhythm.id}">
+  const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
+  return html`
+    <article class="rhythm-card${rhythm.muted ? " is-muted" : ""}" data-layer-id=${rhythm.id}>
       <div class="card-heading rhythm-heading">
         <button
           type="button"
           class="rhythm-identity"
           data-action="toggle-settings"
-          aria-expanded="${open}"
-          aria-controls="${drawerId}"
+          aria-expanded=${String(open)}
+          aria-controls=${drawerId}
         >
-          <strong>${label}</strong><span aria-hidden="true">/</span>${noteIcon(rhythm.subdivision, 21)}
-          <span class="sr-only">Edit ${label} rhythm</span>
+          <strong>${label}</strong><span aria-hidden="true">/</span><${NoteIcon} subdivision=${rhythm.subdivision} height=${21} />
+          <span class="sr-only">${`Edit ${label} rhythm`}</span>
         </button>
         <div class="rhythm-actions">
-          <button type="button" class="icon-button${rhythm.muted ? " is-active" : ""}" data-action="mute" aria-pressed="${rhythm.muted}" aria-label="${rhythm.muted ? "Unmute" : "Mute"} ${label}">M</button>
-          <button type="button" class="icon-button edit-button${open ? " is-active" : ""}" data-action="toggle-settings" aria-expanded="${open}" aria-controls="${drawerId}" aria-label="Edit ${label}">${pencilIcon()}</button>
-          <button type="button" class="icon-button remove-button" data-action="remove-rhythm" aria-label="Remove ${label}" ${!description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available ? "disabled" : ""}>×</button>
+          <button
+            type="button"
+            class="icon-button${rhythm.muted ? " is-active" : ""}"
+            data-action="mute"
+            aria-pressed=${String(rhythm.muted)}
+            aria-label=${`${rhythm.muted ? "Unmute" : "Mute"} ${label}`}
+          >M</button>
+          <button
+            type="button"
+            class="icon-button edit-button${open ? " is-active" : ""}"
+            data-action="toggle-settings"
+            aria-expanded=${String(open)}
+            aria-controls=${drawerId}
+            aria-label=${`Edit ${label}`}
+          ><${PencilIcon} /></button>
+          <button
+            type="button"
+            class="icon-button remove-button"
+            data-action="remove-rhythm"
+            aria-label=${`Remove ${label}`}
+            disabled=${!removable}
+          >×</button>
         </div>
       </div>
 
-      ${
-        "" /* The subdivision is carried twice on purpose: layoutSteps() reads
-             the data attribute, and the beat-gap clamp needs it as a number CSS
-             can calculate with. Neither can read the other's form. Written as an
-             interpolated comment rather than an HTML one so it stays in the
-             source and out of every rhythm card's markup. */
-      }
-      <div class="steps" role="group" aria-label="${label} step voices" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
-
-        ${beatsTemplate(rhythm)}
+      <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
+           data attribute, and the beat-gap clamp needs it as a number CSS can
+           calculate with. Neither can read the other's form. An HTML comment is
+           safe again here: the renderer parses the template and never emits it,
+           which is what an interpolated comment was working around. -->
+      <div
+        class="steps"
+        role="group"
+        aria-label=${`${label} step voices`}
+        data-beats=${rhythm.signature.count}
+        data-subdivision=${rhythm.subdivision}
+        style=${`--subdivision: ${rhythm.subdivision}`}
+      >
+        <${Beats} rhythm=${rhythm} />
       </div>
 
-      <div id="${drawerId}" class="rhythm-settings" ${open ? "" : "hidden"}>
-        ${rhythmSettingsTemplate(rhythm)}
+      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
+        <${RhythmSettings} rhythm=${rhythm} />
       </div>
     </article>
   `;
 }
 
-function meterFieldTemplate(field, value, name, choices) {
-  return `
-    <select data-field="${field}" aria-label="${name}">
-      ${choices.map((choice) => `<option value="${choice}"${choice === value ? " selected" : ""}>${choice}</option>`).join("")}
+// Both Meter components are selects, so the only thing that differs between
+// them is which list of choices they offer.
+function MeterField({ field, value, name, choices }) {
+  return html`
+    <select data-field=${field} aria-label=${name} value=${String(value)}>
+      ${choices.map((choice) => html`<option value=${String(choice)}>${choice}</option>`)}
     </select>
   `;
 }
 
-function rhythmSettingsTemplate(rhythm) {
+function RhythmSettings({ rhythm }) {
   const label = rhythmLabel(rhythm);
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
-  return `
+  return html`
     <div class="timing-settings">
       <label class="control-label">
         <span>Signature</span>
         <span class="signature-input">
-          ${meterFieldTemplate("signature-count", rhythm.signature.count, `${label} meter numerator`, METER_COUNTS)}
+          <${MeterField}
+            field="signature-count"
+            value=${rhythm.signature.count}
+            name=${`${label} meter numerator`}
+            choices=${METER_COUNTS}
+          />
           <span aria-hidden="true">/</span>
-          ${meterFieldTemplate("signature-unit", rhythm.signature.unit, `${label} meter denominator`, METER_UNITS)}
+          <${MeterField}
+            field="signature-unit"
+            value=${rhythm.signature.unit}
+            name=${`${label} meter denominator`}
+            choices=${METER_UNITS}
+          />
         </span>
       </label>
 
@@ -688,51 +666,67 @@ function rhythmSettingsTemplate(rhythm) {
             type="button"
             class="notation-select"
             data-action="toggle-subdivision-menu"
-            aria-label="${label} subdivision"
+            aria-label=${`${label} subdivision`}
             aria-haspopup="listbox"
-            aria-expanded="${subdivisionOpen}"
-            aria-controls="${subdivisionMenuId}"
+            aria-expanded=${String(subdivisionOpen)}
+            aria-controls=${subdivisionMenuId}
           >
-            <span>${noteIcon(rhythm.subdivision, 27)}</span>
+            <span><${NoteIcon} subdivision=${rhythm.subdivision} height=${27} /></span>
             <span aria-hidden="true">▼</span>
           </button>
-          <div id="${subdivisionMenuId}" class="subdivision-menu" role="listbox" aria-label="${label} subdivision" ${subdivisionOpen ? "" : "hidden"}>
+          <div
+            id=${subdivisionMenuId}
+            class="subdivision-menu"
+            role="listbox"
+            aria-label=${`${label} subdivision`}
+            hidden=${!subdivisionOpen}
+          >
             ${SUBDIVISIONS.map(
-              (subdivision) => `
+              (subdivision) => html`
               <button
                 type="button"
                 role="option"
                 class="subdivision-option${subdivision === rhythm.subdivision ? " is-selected" : ""}"
                 data-action="set-subdivision"
-                data-subdivision="${subdivision}"
-                aria-selected="${subdivision === rhythm.subdivision}"
-                aria-label="${subdivisionLabel(subdivision, rhythm.signature.unit)}"
-                title="${subdivisionLabel(subdivision, rhythm.signature.unit)}"
-              >${noteIcon(subdivision, 26)}</button>
+                data-subdivision=${subdivision}
+                aria-selected=${String(subdivision === rhythm.subdivision)}
+                aria-label=${subdivisionLabel(subdivision, rhythm.signature.unit)}
+                title=${subdivisionLabel(subdivision, rhythm.signature.unit)}
+              ><${NoteIcon} subdivision=${subdivision} height=${26} /></button>
             `,
-            ).join("")}
+            )}
           </div>
         </div>
       </div>
 
-      <div class="sound-control" role="group" aria-labelledby="rhythm-${rhythm.id}-sound-label">
-        <span id="rhythm-${rhythm.id}-sound-label">Sound</span>
+      <div class="sound-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-sound-label`}>
+        <span id=${`rhythm-${rhythm.id}-sound-label`}>Sound</span>
         <div>${SOUNDS.map(
-          (sound) => `
-          <button type="button" data-action="sound" data-sound="${sound}" class="sound-button${rhythm.sound === sound ? " is-selected" : ""}" aria-pressed="${rhythm.sound === sound}">${sound}</button>
+          (sound) => html`
+          <button
+            type="button"
+            data-action="sound"
+            data-sound=${sound}
+            class="sound-button${rhythm.sound === sound ? " is-selected" : ""}"
+            aria-pressed=${String(rhythm.sound === sound)}
+          >${sound}</button>
         `,
-        ).join("")}</div>
+        )}</div>
       </div>
     </div>
 
     <div class="mix-settings">
+      <!-- Every range value is passed as a string, because the renderer decides
+           whether to write one by comparing it against the control's own value,
+           which is always a string: a number never matches and is rewritten on
+           every render. -->
       <label class="control-label">
-        <span>Level <output class="sr-only" data-output="volume">${Math.round(rhythm.volume * 100)}%</output></span>
-        <input type="range" min="0" max="1" step="0.01" value="${rhythm.volume}" data-field="volume" aria-label="${label} level" />
+        <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
+        <input type="range" min="0" max="1" step="0.01" value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
       </label>
       <label class="control-label">
         <span>Balance <span class="balance-axis" aria-hidden="true">L · R</span><output class="sr-only" data-output="pan">${panLabel(rhythm.pan)}</output></span>
-        <input type="range" min="-1" max="1" step="0.01" value="${rhythm.pan}" data-field="pan" aria-label="${label} stereo balance" />
+        <input type="range" min="-1" max="1" step="0.01" value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
       </label>
     </div>
   `;
@@ -741,32 +735,38 @@ function rhythmSettingsTemplate(rhythm) {
 // Steps are grouped a beat at a time so a narrow screen can only ever break
 // between beats. `steps.length` is always `signature.count * subdivision`, so
 // every group is full and no row is left ragged.
-function beatsTemplate(rhythm) {
+function Beats({ rhythm }) {
   const beats = [];
   for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
-    const group = rhythm.steps
-      .slice(start, start + rhythm.subdivision)
-      .map((step, offset) => stepTemplate(step, start + offset))
-      .join("");
-    beats.push(`<div class="beat">${group}</div>`);
+    beats.push(
+      rhythm.steps
+        .slice(start, start + rhythm.subdivision)
+        .map((step, offset) => ({ step, index: start + offset })),
+    );
   }
-  return beats.join("");
+  return html`${beats.map(
+    (group) => html`
+    <div class="beat">
+      ${group.map(({ step, index }) => html`<${Step} step=${step} index=${index} />`)}
+    </div>
+  `,
+  )}`;
 }
 
-function stepTemplate(step, index) {
-  return `
+function Step({ step, index }) {
+  return html`
     <button
       type="button"
       class="step step-${step}"
       data-action="step"
-      data-step-index="${index}"
-      aria-label="Step ${index + 1}: ${step} voice"
-      title="Step ${index + 1}: ${step}"
+      data-step-index=${index}
+      aria-label=${`Step ${index + 1}: ${step} voice`}
+      title=${`Step ${index + 1}: ${step}`}
     ></button>
   `;
 }
 
-function noteIcon(subdivision, height) {
+function NoteIcon({ subdivision, height }) {
   const shown = subdivision <= 6 ? subdivision : 4;
   const beams =
     subdivision <= 1 ? 0 : subdivision <= 3 ? 1 : subdivision <= 6 ? 2 : subdivision <= 12 ? 3 : 4;
@@ -774,24 +774,12 @@ function noteIcon(subdivision, height) {
   const headY = 31;
   const stemTop = 10;
   const x0 = 38 - ((shown - 1) * gap) / 2;
-  const heads = Array.from({ length: shown }, (_, index) => {
-    const x = x0 + index * gap;
-    return `<ellipse cx="${x}" cy="${headY}" rx="5" ry="3.7" transform="rotate(-22 ${x} ${headY})"></ellipse><rect x="${x + 3.7}" y="${stemTop}" width="1.7" height="${headY - stemTop}" rx="0.6"></rect>`;
-  }).join("");
   const beamLeft = x0 + 3.7;
   const beamRight = x0 + (shown - 1) * gap + 5.4;
-  const beamShapes = Array.from(
-    { length: beams },
-    (_, index) =>
-      `<rect x="${beamLeft}" y="${stemTop + index * 5}" width="${beamRight - beamLeft}" height="3.2" rx="1"></rect>`,
-  ).join("");
   const tuplet = ![1, 2, 4, 8, 16, 32].includes(subdivision);
   const tupletLeft = x0 - 2;
   const tupletRight = x0 + (shown - 1) * gap + 8;
   const arm = (tupletRight - tupletLeft) / 2 - 7;
-  const tupletShapes = tuplet
-    ? `<rect x="${tupletLeft}" y="2.6" width="${arm}" height="1.5" rx="0.7"></rect><rect x="${tupletRight - arm}" y="2.6" width="${arm}" height="1.5" rx="0.7"></rect><text x="${(tupletLeft + tupletRight) / 2}" y="7" text-anchor="middle" font-size="9.5" font-weight="700" font-family="JetBrains Mono, monospace">${subdivision}</text>`
-    : "";
   const left = Math.min(x0 - 5.6, tuplet ? x0 - 2.6 : Infinity);
   const right = Math.max(
     x0 + (shown - 1) * gap + 5.7,
@@ -800,11 +788,44 @@ function noteIcon(subdivision, height) {
   const top = tuplet ? 0 : 8.5;
   const boxWidth = right - left;
   const boxHeight = 35.5 - top;
-  return `<svg class="note-icon" viewBox="${left} ${top} ${boxWidth} ${boxHeight}" width="${boxWidth * (height / boxHeight)}" height="${height}" fill="currentColor" aria-hidden="true" focusable="false">${heads}${beamShapes}${tupletShapes}</svg>`;
+  return html`
+    <svg
+      class="note-icon"
+      viewBox=${`${left} ${top} ${boxWidth} ${boxHeight}`}
+      width=${boxWidth * (height / boxHeight)}
+      height=${height}
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      ${Array.from({ length: shown }, (_, index) => {
+        const x = x0 + index * gap;
+        return html`
+          <ellipse cx=${x} cy=${headY} rx="5" ry="3.7" transform=${`rotate(-22 ${x} ${headY})`}></ellipse>
+          <rect x=${x + 3.7} y=${stemTop} width="1.7" height=${headY - stemTop} rx="0.6"></rect>
+        `;
+      })}
+      ${Array.from(
+        { length: beams },
+        (_, index) => html`
+        <rect x=${beamLeft} y=${stemTop + index * 5} width=${beamRight - beamLeft} height="3.2" rx="1"></rect>
+      `,
+      )}
+      ${
+        !tuplet
+          ? null
+          : html`
+        <rect x=${tupletLeft} y="2.6" width=${arm} height="1.5" rx="0.7"></rect>
+        <rect x=${tupletRight - arm} y="2.6" width=${arm} height="1.5" rx="0.7"></rect>
+        <text x=${(tupletLeft + tupletRight) / 2} y="7" text-anchor="middle" font-size="9.5" font-weight="700" font-family="JetBrains Mono, monospace">${subdivision}</text>
+      `
+      }
+    </svg>
+  `;
 }
 
-function pencilIcon() {
-  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
+function PencilIcon() {
+  return html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
 }
 
 function rhythmLabel(rhythm) {
@@ -887,34 +908,26 @@ function findContext(target) {
   return { cycleElement, rhythmElement, cycle, rhythm };
 }
 
-function toggleRhythmSettings(rhythmId, activatingToggle = null) {
-  const toggleSelector = activatingToggle?.classList.contains("edit-button")
-    ? ".edit-button"
-    : activatingToggle
-      ? ".rhythm-identity"
-      : null;
+function toggleRhythmSettings(rhythmId) {
+  // No refocus: both controls that carry this action survive reconciliation,
+  // so the one the user activated still holds the focus it already had.
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
   renderCycles();
-  if (toggleSelector) {
-    const rhythmCard = elements.cycles.querySelector(`[data-layer-id="${CSS.escape(rhythmId)}"]`);
-    focusWithin(rhythmCard, toggleSelector);
-  }
 }
 
 /**
- * Closing the menu destroys the option the user was on, so focus has to be sent
- * somewhere deliberate; the notation select that opened it is where a menu
- * dismissal is expected to land. The rebuilt select only exists after the next
- * frame, so it cannot be found until then.
+ * Closing the menu hides the option the user was on, and a hidden element
+ * cannot hold focus, so it still has to be sent somewhere deliberate. The
+ * notation select that opened it is where a menu dismissal is expected to land
+ * — and reconciliation leaves that select in place, so there is nothing to wait
+ * a frame for any more.
  */
 function dismissSubdivisionMenu() {
   const rhythmId = openSubdivisionMenu;
   openSubdivisionMenu = null;
   renderCycles();
-  requestAnimationFrame(() => {
-    focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`);
-  });
+  focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythmId)}"] .notation-select`);
 }
 
 elements.play.addEventListener("click", togglePlayback);
@@ -922,7 +935,7 @@ elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
   if (presetsOpen) {
     helpOpen = false;
-    renderPresets();
+    renderPresetPanel();
   }
   renderPanels();
 });
@@ -940,7 +953,7 @@ elements.bpmSlider.addEventListener("input", (event) => {
     { deferConsequence: true, render: false },
   );
   renderTransport();
-  renderPresetSelection();
+  renderPresetPanel();
 });
 /**
  * Dragging the slider defers the transport consequence, so on release the run
@@ -965,8 +978,9 @@ elements.presetList.addEventListener("click", (event) => {
     if (!preset) return;
     if (pendingDeletePresetId !== presetId) {
       pendingDeletePresetId = presetId;
-      renderPresets();
-      focusWithin(elements.presetList, `[data-delete-preset-id="${CSS.escape(presetId)}"]`);
+      // No refocus: arming only changes attributes on a button that survives
+      // reconciliation, so the focus the user already has on it is never lost.
+      renderPresetPanel();
       elements.status.textContent = `Delete ${preset.name} preset? Select again to confirm`;
       return;
     }
@@ -977,14 +991,14 @@ elements.presetList.addEventListener("click", (event) => {
     // user just pressed is still on screen and owes them an answer.
     if (result.reason) {
       savedPresets = result.presets;
-      renderPresets();
+      renderPresetPanel();
       elements.presetName.focus();
       elements.status.textContent = `${preset.name} preset was already deleted`;
       return;
     }
     savedPresets = result.presets;
     const persisted = writeSavedPresets(savedPresets);
-    renderPresets();
+    renderPresetPanel();
     elements.presetName.focus();
     elements.status.textContent = persisted
       ? `${preset.name} preset deleted`
@@ -1024,7 +1038,7 @@ elements.presetSave.addEventListener("submit", (event) => {
   savedPresets = result.presets;
   const persisted = writeSavedPresets(savedPresets);
   elements.presetName.value = "";
-  renderPresets();
+  renderPresetPanel();
   focusWithin(elements.presetList, `[data-preset-id="${CSS.escape(result.preset.id)}"]`);
   elements.status.textContent = persisted
     ? `${result.preset.name} preset saved`
@@ -1064,7 +1078,7 @@ elements.cycles.addEventListener("click", (event) => {
         .find((candidate) => candidate.id === cycle.id)
         ?.rhythms.at(-1);
       if (addedRhythm) openRhythms.add(addedRhythm.id);
-      render();
+      renderInterface();
       break;
     }
     case "remove-rhythm": {
@@ -1082,19 +1096,17 @@ elements.cycles.addEventListener("click", (event) => {
       break;
     }
     case "toggle-settings":
-      if (rhythm) toggleRhythmSettings(rhythm.id, actionElement);
+      if (rhythm) toggleRhythmSettings(rhythm.id);
       break;
     case "toggle-subdivision-menu":
       if (!rhythm) return;
       openSubdivisionMenu = openSubdivisionMenu === rhythm.id ? null : rhythm.id;
       renderCycles();
       if (openSubdivisionMenu === rhythm.id) {
-        requestAnimationFrame(() => {
-          focusWithin(
-            elements.cycles,
-            `[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`,
-          );
-        });
+        focusWithin(
+          elements.cycles,
+          `[data-layer-id="${CSS.escape(rhythm.id)}"] .subdivision-option[aria-selected="true"]`,
+        );
       }
       break;
     case "set-subdivision":
@@ -1106,9 +1118,7 @@ elements.cycles.addEventListener("click", (event) => {
         rhythmId: rhythm.id,
         subdivision: Number(actionElement.dataset.subdivision),
       });
-      requestAnimationFrame(() => {
-        focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`);
-      });
+      focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`);
       break;
     case "mute":
       if (rhythm)
@@ -1206,6 +1216,26 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") dismissPendingDelete();
 });
 
+/**
+ * A drag re-renders on every pointer move, so these two readouts are written
+ * here rather than by re-rendering the grid around them. `textContent` is what
+ * they must not be written with: it replaces the Text node instead of changing
+ * it, and the node it replaces is one the renderer put there and still holds a
+ * reference to, so every later render of this readout goes into a node that is
+ * no longer in the document. Changing the node's data leaves the renderer's
+ * reference pointing at what the reader is actually reading.
+ *
+ * @param {Element} rhythmElement
+ * @param {string} field
+ * @param {string} text
+ */
+function writeReadout(rhythmElement, field, text) {
+  const readout = /** @type {Text} */ (
+    rhythmElement.querySelector(`[data-output="${field}"]`).firstChild
+  );
+  readout.data = text;
+}
+
 elements.cycles.addEventListener("input", (event) => {
   const target = /** @type {HTMLInputElement} */ (event.target);
   const field = target.dataset.field;
@@ -1226,8 +1256,7 @@ elements.cycles.addEventListener("input", (event) => {
     const volume = result.configuration.sequence.cycles
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).volume;
-    rhythmElement.querySelector('[data-output="volume"]').textContent =
-      `${Math.round(volume * 100)}%`;
+    writeReadout(rhythmElement, "volume", `${Math.round(volume * 100)}%`);
   } else {
     const result = applyEdit(
       {
@@ -1241,9 +1270,9 @@ elements.cycles.addEventListener("input", (event) => {
     const pan = result.configuration.sequence.cycles
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).pan;
-    rhythmElement.querySelector('[data-output="pan"]').textContent = panLabel(pan);
+    writeReadout(rhythmElement, "pan", panLabel(pan));
   }
-  renderPresetSelection();
+  renderPresetPanel();
 });
 
 elements.cycles.addEventListener("change", (event) => {
@@ -1314,7 +1343,7 @@ window.addEventListener("storage", (event) => {
   if (!presets.some(({ id }) => id === pendingDeletePresetId)) {
     pendingDeletePresetId = null;
   }
-  renderPresets();
+  renderPresetPanel();
 });
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,
 // and hiding is the last moment a mobile browser reliably hands over.
@@ -1322,19 +1351,10 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistence.flush();
 });
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 // Major ticks carry their own number, so the tick row is also the tempo scale.
 elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
   const bpm = 30 + index * 10;
   const major = bpm % 90 === 30;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
-render();
+renderInterface();
