@@ -120,7 +120,7 @@ configuration.js      Editable configuration, presets, and edit availability
 model.js              Pure sequence, cycle, rhythm, and timing model
 shared-transport.js   Stateful sequence event planning and playhead
 metronome.js          Web Audio graph and look-ahead scheduler
-persistence.js        Deferred storage writes and storage-key migration
+persistence.js        Deferred storage writes and storage-key retirement
 server.mjs            Zero-dependency local static server
 playwright.config.js  Managed Chromium and local test server
 scripts/              Esbuild-backed single-file and static-site distributions

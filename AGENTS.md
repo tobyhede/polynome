@@ -24,7 +24,7 @@ The core promise is:
 - `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
 - `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
 - `metronome.js`: Web Audio nodes, transport, look-ahead scheduler, and the routing from an edit's transport consequence to the narrowest engine method that satisfies it.
-- `persistence.js`: deferred writes and storage-key migration, both free of any host environment so they can be driven by tests.
+- `persistence.js`: deferred writes and storage-key retirement, both free of any host environment so they can be driven by tests. Retirement discards an old key; it never carries its value into the new one, which is the migration the rule below rules out.
 - `app.js`: DOM interaction, transient interface state, and visual playhead. It owns the storage key names and wires `localStorage` to `persistence.js`.
 - `styles.css`: responsive visual design.
 - `test/`: Node built-in tests for pure timing and state behaviour.
