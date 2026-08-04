@@ -1334,7 +1334,13 @@ test("the BPM label closes on the number as the tempo enlarges it", async ({ pag
   const gapAt = async (bpm) => {
     await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
     await settleLayout(page);
-    return page.evaluate(() => {
+    return page.evaluate(async () => {
+      // measureText answers against whatever face is loaded when it runs, and
+      // the display font is a web font served with `font-display: swap`. A
+      // reading taken before it arrives is of the fallback, whose ascent is
+      // about 3px shorter at this size — enough to measure the two tempos
+      // against two different faces, and to move a gap this small either way.
+      await document.fonts.ready;
       const input = document.querySelector("#bpm-input");
       const style = getComputedStyle(input);
       const fontPx = parseFloat(style.fontSize);
