@@ -501,7 +501,7 @@ h1 {
     color 120ms ease;
 }
 
-.bpm-step:hover:not(:disabled) {
+.bpm-step:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: var(--accent);
   color: var(--ink);
 }

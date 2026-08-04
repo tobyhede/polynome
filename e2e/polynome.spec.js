@@ -1141,55 +1141,128 @@ test("a dot marks each beat, clear of the row below even when it pulses", async 
   await setSubdivision(page, 4);
   await settleLayout(page);
 
-  const measured = await page.evaluate(() => {
+  // One round trip per beat, with the dot's own 90ms transition allowed to
+  // settle between writing the class and reading the style. Settling inside a
+  // single `evaluate` with animation frames is not enough: it can land before
+  // the style engine has processed the change, which reads back as a dot that
+  // never pulsed and fails only under load.
+  const measureLit = async (beat) => {
+    await page.evaluate((index) => {
+      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      steps.forEach((step, position) => {
+        step.classList.toggle("is-current", position === index * 4);
+      });
+    }, beat);
+    await page.waitForTimeout(150);
+    return page.evaluate((index) => {
+      const element = document.querySelectorAll(".rhythm-card .beat")[index];
+      const dot = getComputedStyle(element, "::after");
+      const size = parseFloat(dot.height);
+      const scale = Number(dot.transform.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
+      const top = element.getBoundingClientRect().bottom + parseFloat(dot.marginTop);
+      return {
+        content: dot.content,
+        left: parseFloat(dot.left),
+        scale,
+        beatBottom: element.getBoundingClientRect().bottom,
+        // A pseudo-element has no box to measure, so its reach comes from the
+        // beat it hangs off and its own resolved lengths, grown about its centre.
+        reach: top + size / 2 + (size * scale) / 2,
+      };
+    }, beat);
+  };
+
+  const dots = [];
+  for (const beat of [0, 1, 2, 3]) dots.push(await measureLit(beat));
+
+  const frame = await page.evaluate(() => {
     const card = document.querySelector(".rhythm-card");
-    const box = (element) => element.getBoundingClientRect();
-    const stepSize = box(card.querySelector(".step")).width;
+    for (const step of card.querySelectorAll(".step")) step.classList.remove("is-current");
+    const steps = [...card.querySelectorAll(".step")];
     return {
-      stepSize,
-      dots: [...card.querySelectorAll(".beat")].map((beat) => {
-        const dot = getComputedStyle(beat, "::after");
-        const size = parseFloat(dot.height);
-        // The pseudo-element has no box of its own to measure, so its geometry
-        // comes from the beat it hangs off and its own resolved lengths. The
-        // scale is what the pulse grows by, and the reach below is measured
-        // from the dot's centre outward.
-        const top = box(beat).bottom + parseFloat(dot.marginTop);
-        const scale = Number(dot.transform.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
-        return {
-          content: dot.content,
-          left: parseFloat(dot.left),
-          size,
-          restingBottom: top + size,
-          pulsedBottom: top + size / 2 + (size * scale) / 2,
-        };
-      }),
-      stepTops: [...card.querySelectorAll(".step")].map((step) => box(step).top),
-      rowBottom: box(card.querySelector(".steps")).bottom,
+      stepSize: steps[0].getBoundingClientRect().width,
+      stepTops: steps.map((step) => step.getBoundingClientRect().top),
+      rowBottom: card.querySelector(".steps").getBoundingClientRect().bottom,
     };
   });
 
-  expect(measured.dots).toHaveLength(4);
-  for (const [index, dot] of measured.dots.entries()) {
+  expect(dots).toHaveLength(4);
+  for (const [index, dot] of dots.entries()) {
     expect(dot.content, `beat ${index + 1} draws no dot`).not.toBe("none");
+    // Without this the rest of the loop silently measures the resting dot, and
+    // the gap it clears is not the gap that has to be cleared.
+    expect(dot.scale, `beat ${index + 1} was measured at rest, not pulsing`).toBeGreaterThan(1);
     // Half a step in from the beat's left edge is the centre of its first step,
     // which is the onset the dot stands for.
     expect(dot.left, `beat ${index + 1} is not over its own step`).toBeCloseTo(
-      measured.stepSize / 2,
+      frame.stepSize / 2,
       0,
     );
 
-    const below = measured.stepTops.filter((top) => top > dot.restingBottom);
-    for (const top of below) {
+    // A step starting below this beat's own bottom edge is a step on a later
+    // row, and the pulsed dot hangs in the space between the two.
+    for (const top of frame.stepTops.filter((top) => top > dot.beatBottom)) {
       expect(top, `beat ${index + 1} pulses into the row beneath it`).toBeGreaterThanOrEqual(
-        dot.pulsedBottom,
+        dot.reach,
       );
     }
-    expect(dot.pulsedBottom, `beat ${index + 1} pulses out of the step row`).toBeLessThanOrEqual(
-      measured.rowBottom,
+    expect(dot.reach, `beat ${index + 1} pulses out of the step row`).toBeLessThanOrEqual(
+      frame.rowBottom,
     );
   }
 });
+
+/**
+ * The rhythm re-renders on every edit — a step click, a Meter change, a Preset
+ * applied — and the dot has to go on pulsing after one. This walks the playhead
+ * the way `updateActiveSteps` does, but only after reconciliation has replaced
+ * the beat's children, because that is the state a mark keyed off its own
+ * subtree can quietly stop tracking.
+ *
+ * Walked under both motion settings. Reduced motion is a reader's setting and
+ * not a harness convenience, and it changes when the style behind this mark is
+ * recalculated — so a dot that pulses for one reader and not the other is a
+ * defect neither run alone would find.
+ *
+ * The 150ms is the dot's own 90ms transition settling, not a guess at how long
+ * a runner takes.
+ */
+for (const motion of ["no-preference", "reduce"]) {
+  test(`the dot still pulses after a re-render with motion ${motion}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: motion });
+    // The re-render. Every beat below is a node reconciliation has just written.
+    await setSubdivision(page, 4);
+    await settleLayout(page);
+
+    const dotsAt = async (step) => {
+      await page.evaluate((current) => {
+        const steps = [...document.querySelectorAll(".rhythm-card .step")];
+        steps.forEach((element, index) => {
+          element.classList.toggle("is-current", index === current);
+        });
+      }, step);
+      await page.waitForTimeout(150);
+      return page.evaluate(() =>
+        [...document.querySelectorAll(".rhythm-card .beat")].map(
+          (beat) => getComputedStyle(beat, "::after").transform,
+        ),
+      );
+    };
+
+    const resting = await dotsAt(-1);
+    expect(new Set(resting).size, "a dot was already pulsing at rest").toBe(1);
+
+    for (const beat of [0, 1, 2, 3]) {
+      const lit = await dotsAt(beat * 4);
+      expect(lit[beat], `beat ${beat + 1} did not pulse after a re-render`).not.toBe(resting[beat]);
+      for (const other of [0, 1, 2, 3].filter((index) => index !== beat)) {
+        expect(lit[other], `beat ${other + 1} pulsed on beat ${beat + 1}'s onset`).toBe(
+          resting[other],
+        );
+      }
+    }
+  });
+}
 
 /**
  * The dot takes the accent and grows on the beat the playhead is on, and it
@@ -1483,6 +1556,42 @@ test("a tap on a tempo key is one bpm and the ends of the range disable one", as
   await readout.blur();
   await expect(up).toBeDisabled();
   await expect(down).toBeEnabled();
+});
+
+/**
+ * The key that reaches the end of the range keeps its place in the tab order.
+ * A held key disables itself under the user, and `disabled` would take it out
+ * of that order at exactly that moment: focus falls to the document, and the
+ * next Tab restarts from the top of the panel rather than continuing from the
+ * key they were on. Marked unavailable instead, the control stays where it was
+ * and still says it will not act — which is the rule the save chip already
+ * follows, for its own reasons.
+ *
+ * `aria-disabled` states and does not enforce, so the press it is still given
+ * has to be declined by what handles it.
+ */
+test("a tempo key held to the end of its range keeps its place", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("31");
+  await readout.blur();
+  await down.focus();
+
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("30");
+  await expect(down).toHaveAttribute("aria-disabled", "true");
+  await expect(down).toBeFocused();
+
+  // Still reachable, so the press still arrives, and still declined.
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("30");
+  await expect(down).toBeFocused();
+
+  // And it comes back when there is somewhere to go.
+  await readout.fill("40");
+  await readout.blur();
+  await expect(down).toHaveAttribute("aria-disabled", "false");
 });
 
 /**

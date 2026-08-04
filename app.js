@@ -276,11 +276,19 @@ function renderPanels() {
 function renderTransport() {
   elements.bpm.value = String(state.bpm);
   elements.bpmSlider.value = String(state.bpm);
-  // A key at the end of the range is disabled rather than left live and silent,
-  // and the hold machinery reads the same bound: a repeat that stops changing
-  // the tempo has reached the end and ends itself.
-  elements.bpmDown.disabled = state.bpm <= TEMPO_LIMIT.minimum;
-  elements.bpmUp.disabled = state.bpm >= TEMPO_LIMIT.maximum;
+  // A key at the end of the range says so rather than being left live and
+  // silent — but marked unavailable rather than `disabled`, for the reason the
+  // save chip is: `disabled` leaves the tab order. This key disables itself
+  // under the user, at the end of a hold they are still pressing, so taking it
+  // out of that order drops focus to the document and restarts the next Tab
+  // from the top of the panel. No described-by here, unlike the chip: what
+  // would be said is the bound, and the readout beside it is already saying it.
+  //
+  // Marking states and does not enforce. Nothing extra declines the press,
+  // because the hold already does: `stepTempo` reports a tempo that did not
+  // move, which is what the edit returns at either bound.
+  elements.bpmDown.setAttribute("aria-disabled", String(state.bpm <= TEMPO_LIMIT.minimum));
+  elements.bpmUp.setAttribute("aria-disabled", String(state.bpm >= TEMPO_LIMIT.maximum));
   const progress = (state.bpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
@@ -311,6 +319,14 @@ function renderTransport() {
   // the gap growing with the tempo — which the earlier 0.255 did, opening it
   // from 11px at 30bpm to 16px at 300. These two close it slightly instead,
   // from 11px to 9px across the same range.
+  //
+  // Both figures are measured at a 16px root, which is what `pixelSize` assumes
+  // and what the margin resolves against: the margin is a length in pixels
+  // while the glyphs it answers are sized in `rem`, so a reader who raises
+  // their default text size still sees the gap open, by roughly 0.08px per
+  // pixel of type rather than the 0.22px it was. Closing that last part means
+  // expressing the margin in the same unit as the type, which is a change to
+  // how the whole readout is sized rather than to this line.
   readout.setProperty("--bpm-label-margin", fit(13.4 - pixelSize * 0.46));
   const glitchTargets = [elements.bpm, elements.heading];
   glitchTargets.forEach((target) => {
@@ -1100,7 +1116,6 @@ elements.bpmSlider.addEventListener("input", (event) => {
   renderTransport();
   renderPresetPanel();
 });
-elements.bpmSlider.addEventListener("change", commitTempo);
 /**
  * A slider drag and a held stepper key both defer the transport consequence, so
  * while either is in progress the run is still playing the tempo it started
@@ -1114,6 +1129,7 @@ function commitTempo() {
     engine.restart(state).catch(showError);
   }
 }
+elements.bpmSlider.addEventListener("change", commitTempo);
 
 /**
  * The stepper keys are the exact control the slider is not: a tap is one bpm,
