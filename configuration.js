@@ -241,7 +241,20 @@ function sameCycle(cycle, candidate) {
   );
 }
 
-function sameConfiguration(configuration, candidate) {
+/**
+ * Whether two Configurations hold the same music. Identifiers are deliberately
+ * not compared: they are regenerated on load and on every applied Preset, so
+ * two values that sound identical differ by them constantly. The interface asks
+ * in order to know whether the current Configuration still is the Preset it came
+ * from, and so whether there is anything left to save.
+ *
+ * Neither argument is repaired here. Both reach this through a door that
+ * already did — `createConfiguration` for the live one, `createSavedPresets`
+ * for a stored Preset's — and repeating the pass on every render to answer a
+ * question about two values the caller is holding is the cost this exists to
+ * avoid.
+ */
+export function sameConfiguration(configuration, candidate) {
   return (
     sameFields(configuration, candidate) &&
     configuration.bpm === candidate.bpm &&

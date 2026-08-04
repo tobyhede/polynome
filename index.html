@@ -37,8 +37,8 @@
           <h1 id="app-heading">Polynome</h1>
         </div>
         <nav class="header-actions" aria-label="Application panels">
-          <button id="preset-save-open" class="chip-button" type="button">+ Save</button>
           <button id="presets-toggle" class="chip-button" type="button" aria-expanded="false" aria-controls="preset-panel">Presets</button>
+          <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel">+ Save</button>
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
         </nav>
       </header>
@@ -56,6 +56,21 @@
           <p><strong>Playback</strong><span>Use the play button or press Space to start and stop the metronome.</span></p>
           <p><strong>Presets</strong><span>Open the panel to recall a complete setup, or save the current one to keep it in this browser.</span></p>
         </div>
+      </section>
+
+      <section id="save-panel" class="top-panel" aria-labelledby="save-heading" hidden>
+        <div class="card-heading panel-heading">
+          <h2 id="save-heading">Save preset</h2>
+          <button id="preset-save-close" class="icon-button remove-button" type="button" aria-label="Close save preset">×</button>
+        </div>
+        <form id="preset-save" class="preset-save">
+          <!-- No visible label: the placeholder carries the field for a sighted
+               reader and the heading above it says what is being named, so a
+               second word would only repeat one of them. The accessible name is
+               still spelled out, because a placeholder is not one. -->
+          <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Name" aria-label="Preset name" />
+          <button id="preset-save-submit" type="submit" class="chip-button">Save</button>
+        </form>
       </section>
 
       <section id="preset-panel" class="top-panel" aria-labelledby="preset-heading" hidden>
@@ -102,28 +117,6 @@
       </footer>
     </main>
 
-    <!--
-      A native dialog rather than `confirm`, for the reason arming a delete in
-      place is: `confirm` blocks the thread the look-ahead scheduler runs on,
-      and the metronome can be playing while this is open. `showModal` does not.
-      It also brings the focus trap, Escape, and the return of focus to whatever
-      opened it, none of which is worth hand-writing.
-    -->
-    <dialog id="preset-save-dialog" class="save-dialog" aria-labelledby="preset-save-heading">
-      <form id="preset-save" class="preset-save">
-        <div class="card-heading panel-heading">
-          <h2 id="preset-save-heading">Save preset</h2>
-          <button id="preset-save-cancel" class="icon-button remove-button" type="button" aria-label="Cancel">×</button>
-        </div>
-        <div class="preset-save-body">
-          <label class="control-label" for="preset-name">
-            <span>Name</span>
-            <input id="preset-name" name="preset-name" type="text" maxlength="80" required autocomplete="off" placeholder="Preset name" />
-          </label>
-          <button id="preset-save-submit" type="submit" class="chip-button">Save</button>
-        </div>
-      </form>
-    </dialog>
 
     <noscript>This metronome requires JavaScript.</noscript>
     <script type="module" src="./app.js"></script>
