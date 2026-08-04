@@ -10,6 +10,7 @@ import {
   describePresets,
   presetNameInUse,
   removeSavedPreset,
+  sameConfiguration,
   savePreset,
 } from "../configuration.js";
 
@@ -50,6 +51,7 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
     configuration.sequence.cycles[0].rhythms.map((rhythm) => ({
       signature: rhythm.signature,
       subdivision: rhythm.subdivision,
+      displayMode: rhythm.displayMode,
       steps: rhythm.steps,
       volume: rhythm.volume,
       pan: rhythm.pan,
@@ -60,6 +62,7 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
       {
         signature: { count: 4, unit: 4 },
         subdivision: 1,
+        displayMode: "beat",
         steps: ["primary", "secondary", "secondary", "secondary"],
         volume: 0.72,
         pan: 0,
@@ -67,6 +70,23 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
         muted: false,
       },
     ],
+  );
+});
+
+test("Rhythm-layer display mode defaults and repairs to Beat Mode", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [{ displayMode: "subdivision" }, { displayMode: "unknown" }],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    configuration.sequence.cycles[0].rhythms.map(({ displayMode }) => displayMode),
+    ["subdivision", "beat"],
   );
 });
 
@@ -115,6 +135,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
             {
               signature: { count: 5, unit: 8 },
               subdivision: 3,
+              displayMode: "subdivision",
               steps: ["primary", "off", "tertiary", "secondary", "primary"],
               sound: "wood",
               volume: 0.31,
@@ -138,6 +159,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
       ],
     },
   });
+  assert.equal(configuration.sequence.cycles[0].rhythms[0].displayMode, "subdivision");
 
   const saved = savePreset([], "  Clave practice  ", configuration);
   assert.equal(saved.reason, null);
@@ -531,7 +553,7 @@ test("Rhythm-layer structural edits preserve a non-empty Cycle", () => {
   assert.equal(removed.consequence, "restart-transport-run");
 });
 
-test("Meter and Subdivision edits resize the meter-relative grid without losing voices", () => {
+test("Meter and Subdivision edits reset the meter-relative grid to canonical voices", () => {
   const base = createConfiguration({
     sequence: {
       cycles: [
@@ -557,11 +579,11 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   });
   assert.deepEqual(wider.configuration.sequence.cycles[0].rhythms[0].steps, [
     "primary",
-    "off",
+    "tertiary",
     "secondary",
-    "primary",
+    "tertiary",
     "secondary",
-    "secondary",
+    "tertiary",
   ]);
   assert.equal(wider.consequence, "restart-transport-run");
   const simpler = changeConfiguration(wider.configuration, {
@@ -572,7 +594,7 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   });
   assert.deepEqual(simpler.configuration.sequence.cycles[0].rhythms[0].steps, [
     "primary",
-    "off",
+    "secondary",
     "secondary",
   ]);
   assert.equal(simpler.consequence, "restart-transport-run");
@@ -629,6 +651,75 @@ test("advancing a Step voice cycles the four voices and preserves the transport 
     assert.equal(result.consequence, "update-step-voices");
     current = result.configuration;
   }
+});
+
+test("changing a Rhythm layer display mode preserves its sound and transport run", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              subdivision: 3,
+              steps: ["primary", "off", "secondary", "tertiary"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-display-mode",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    displayMode: "subdivision",
+  });
+
+  assert.equal(result.configuration.sequence.cycles[0].rhythms[0].displayMode, "subdivision");
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, rhythm.steps);
+  assert.equal(result.consequence, "update-configuration");
+  assert.equal(result.reason, null);
+  assert.equal(sameConfiguration(result.configuration, configuration), false);
+});
+
+test("advancing a Beat voice normalises its remaining subdivision pulses", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 3,
+              steps: ["primary", "off", "secondary", "off", "primary", "secondary"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "advance-beat-voice",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    beat: 0,
+  });
+
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, [
+    "secondary",
+    "tertiary",
+    "tertiary",
+    "off",
+    "primary",
+    "secondary",
+  ]);
+  assert.equal(result.consequence, "update-step-voices");
 });
 
 test("repair rejects inherited object names as Step voices", () => {
@@ -1049,7 +1140,9 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "remove-cycle" },
     { type: "add-rhythm", cycleId: 42 },
     { type: "remove-rhythm", cycleId: cycle.id },
+    { type: "advance-beat-voice", cycleId: cycle.id, rhythmId: rhythm.id },
     { type: "advance-step-voice", cycleId: cycle.id, rhythmId: rhythm.id },
+    { type: "set-display-mode", cycleId: cycle.id, rhythmId: rhythm.id },
   ];
 
   for (const edit of malformedEdits) {
@@ -1071,6 +1164,8 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },
+    { type: "set-display-mode", cycleId: cycle.id, rhythmId: rhythm.id, displayMode: "notes" },
+    { type: "advance-beat-voice", cycleId: cycle.id, rhythmId: rhythm.id, beat: -1 },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 2 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "clap" },
     { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: -2 },
@@ -1155,6 +1250,7 @@ test("valid edits that leave every user-editable value unchanged are no-ops", ()
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: "4" },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: "4" },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: "1" },
+    { type: "set-display-mode", cycleId: cycle.id, rhythmId: rhythm.id, displayMode: "beat" },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: "0.72" },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "high" },
     { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: "0" },

@@ -704,6 +704,14 @@ function RhythmCard({ rhythm, cycle }) {
           >M</button>
           <button
             type="button"
+            class="icon-button${rhythm.displayMode === "subdivision" ? " is-active" : ""}"
+            data-action="display-mode"
+            aria-pressed=${String(rhythm.displayMode === "subdivision")}
+            aria-label=${`Show ${rhythm.displayMode === "beat" ? "Subdivision" : "Beat"} Mode for ${label}`}
+            title=${`Show ${rhythm.displayMode === "beat" ? "Subdivision" : "Beat"} Mode for ${label}`}
+          ><${DisplayModeIcon} /></button>
+          <button
+            type="button"
             class="icon-button edit-button${open ? " is-active" : ""}"
             data-action="toggle-settings"
             aria-expanded=${String(open)}
@@ -737,9 +745,10 @@ function RhythmCard({ rhythm, cycle }) {
       <div
         class="steps"
         role="group"
-        aria-label=${`${label} step voices`}
+        aria-label=${`${label} ${rhythm.displayMode === "beat" ? "beat" : "step"} voices`}
         data-beats=${rhythm.signature.count}
-        data-subdivision=${rhythm.subdivision}
+        data-subdivision=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
+        data-display-mode=${rhythm.displayMode}
       >
         <${Beats} rhythm=${rhythm} />
       </div>
@@ -870,30 +879,48 @@ function Beats({ rhythm }) {
   const beats = [];
   for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
     beats.push(
-      rhythm.steps
-        .slice(start, start + rhythm.subdivision)
-        .map((step, offset) => ({ step, index: start + offset })),
+      rhythm.displayMode === "beat"
+        ? [{ step: rhythm.steps[start], index: start, beat: start / rhythm.subdivision }]
+        : rhythm.steps
+            .slice(start, start + rhythm.subdivision)
+            .map((step, offset) => ({ step, index: start + offset, beat: null })),
     );
   }
   return html`${beats.map(
     (group) => html`
     <div class="beat">
-      ${group.map(({ step, index }) => html`<${Step} step=${step} index=${index} />`)}
+      ${group.map(
+        ({ step, index, beat }) => html`<${Step} step=${step} index=${index} beat=${beat} />`,
+      )}
     </div>
   `,
   )}`;
 }
 
-function Step({ step, index }) {
+function Step({ step, index, beat }) {
+  const beatMode = beat !== null;
+  const number = beatMode ? beat + 1 : index + 1;
+  const kind = beatMode ? "Beat" : "Step";
   return html`
     <button
       type="button"
       class="step step-${step}"
-      data-action="step"
+      data-action=${beatMode ? "beat" : "step"}
       data-step-index=${index}
-      aria-label=${`Step ${index + 1}: ${step} voice`}
-      title=${`Step ${index + 1}: ${step}`}
+      data-beat-index=${beatMode ? beat : null}
+      aria-label=${`${kind} ${number}: ${step} voice`}
+      title=${`${kind} ${number}: ${step}`}
     ></button>
+  `;
+}
+
+function DisplayModeIcon() {
+  return html`
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="5" cy="12" r="2.5"></circle>
+      <circle cx="12" cy="12" r="2.5"></circle>
+      <circle cx="19" cy="12" r="2.5"></circle>
+    </svg>
   `;
 }
 
@@ -977,6 +1004,9 @@ function updateActiveSteps() {
     elements.cycles.querySelectorAll(".is-current").forEach((element) => {
       element.classList.remove("is-current");
     });
+    elements.cycles.querySelectorAll("[data-active-step]").forEach((element) => {
+      element.removeAttribute("data-active-step");
+    });
     animationFrame = null;
     return;
   }
@@ -995,9 +1025,21 @@ function updateActiveSteps() {
       if (!card) continue;
       const activeIndex = engine.activeStep(rhythm);
       card.classList.toggle("is-current", active);
-      card.querySelectorAll(".step").forEach((element, index) => {
-        element.classList.toggle("is-current", index === activeIndex);
+      const steps = card.querySelector(".steps");
+      if (!steps || steps.getAttribute("data-active-step") === String(activeIndex)) continue;
+      steps.setAttribute("data-active-step", String(activeIndex));
+      const controls = steps.querySelectorAll(".step");
+      controls.forEach((element) => {
+        element.classList.remove("is-current");
       });
+      const visibleIndex =
+        rhythm.displayMode === "beat" && activeIndex !== null
+          ? Math.floor(activeIndex / rhythm.subdivision)
+          : activeIndex;
+      const current = controls[visibleIndex];
+      if (!current) continue;
+      if (rhythm.displayMode === "beat") void current.getBoundingClientRect();
+      current.classList.add("is-current");
     }
   }
   animationFrame = requestAnimationFrame(updateActiveSteps);
@@ -1544,6 +1586,25 @@ elements.cycles.addEventListener("click", (event) => {
           muted: !rhythm.muted,
         });
       break;
+    case "display-mode":
+      if (rhythm)
+        applyEdit({
+          type: "set-display-mode",
+          cycleId: cycle.id,
+          rhythmId: rhythm.id,
+          displayMode: rhythm.displayMode === "beat" ? "subdivision" : "beat",
+        });
+      break;
+    case "beat": {
+      if (!rhythm) return;
+      applyEdit({
+        type: "advance-beat-voice",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        beat: Number(actionElement.dataset.beatIndex),
+      });
+      break;
+    }
     case "step": {
       if (!rhythm) return;
       const index = Number(actionElement.dataset.stepIndex);

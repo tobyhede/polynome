@@ -107,6 +107,17 @@ test("open rhythm settings have no accessibility violations", async ({ page }) =
   await expectNoViolations(page);
 });
 
+test("Subdivision Mode has no accessibility violations", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("button", { name: "4/4 subdivision" }).click();
+  await page.getByRole("option", { name: /3 per quarter unit/ }).click();
+  await page.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await expect(
+    page.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
+  ).toHaveCount(12);
+  await expectNoViolations(page);
+});
+
 test("the playing transport has no accessibility violations", async ({ page }) => {
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();

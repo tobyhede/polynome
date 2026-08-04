@@ -22,6 +22,7 @@ function choiceRange({ minimum, maximum }) {
 }
 
 const STEP_VOICE_CHOICES = Object.freeze(Object.values(STEP));
+const DISPLAY_MODES = Object.freeze(["beat", "subdivision"]);
 const SOUNDS = Object.freeze(Object.values(SOUND));
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
@@ -60,6 +61,13 @@ function resizeSteps(steps, length) {
   );
 }
 
+function canonicalSteps(count, subdivision) {
+  return Array.from({ length: count * subdivision }, (_, position) => {
+    if (position % subdivision !== 0) return STEP.TERTIARY;
+    return position === 0 ? STEP.PRIMARY : STEP.SECONDARY;
+  });
+}
+
 function createRhythm(overrides = {}) {
   const signature = {
     count: Math.round(
@@ -79,6 +87,7 @@ function createRhythm(overrides = {}) {
     id: safeIdentifier(overrides.id, "layer"),
     signature,
     subdivision,
+    displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
     steps: resizeSteps(overrides.steps, signature.count * subdivision),
     volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
@@ -228,6 +237,7 @@ function sameRhythm(rhythm, candidate) {
     rhythm.signature.count === candidate.signature.count &&
     rhythm.signature.unit === candidate.signature.unit &&
     rhythm.subdivision === candidate.subdivision &&
+    rhythm.displayMode === candidate.displayMode &&
     rhythm.volume === candidate.volume &&
     rhythm.pan === candidate.pan &&
     rhythm.sound === candidate.sound &&
@@ -657,6 +667,31 @@ const COMMANDS = Object.freeze({
       );
     },
   },
+  "advance-beat-voice": {
+    validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "beat"),
+    validValue: (edit) => numberInRange(edit, "beat", 0, Number.MAX_SAFE_INTEGER, true),
+    apply(current, edit) {
+      const cycle = findCycle(current, edit.cycleId);
+      const rhythm = findRhythm(current, edit.cycleId, edit.rhythmId);
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      if (!rhythm) return unchanged(current, "rhythm-not-found");
+      const beat = formNumber(edit.beat);
+      if (beat >= rhythm.signature.count) {
+        return unchanged(current, "beat-not-found");
+      }
+      const firstPosition = beat * rhythm.subdivision;
+      return changeRhythm(current, edit, "update-step-voices", (candidate) => ({
+        ...candidate,
+        steps: candidate.steps.map((voice, position) => {
+          if (position === firstPosition) return nextStepVoice(voice);
+          if (position < firstPosition + candidate.subdivision && position > firstPosition) {
+            return STEP.TERTIARY;
+          }
+          return voice;
+        }),
+      }));
+    },
+  },
   "advance-step-voice": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "position"),
     validValue: (edit) => numberInRange(edit, "position", 0, Number.MAX_SAFE_INTEGER, true),
@@ -759,6 +794,18 @@ const COMMANDS = Object.freeze({
       );
     },
   },
+  "set-display-mode": {
+    validPayload: (edit) => targetsRhythm(edit) && hasString(edit, "displayMode"),
+    validValue: (edit) => DISPLAY_MODES.includes(edit.displayMode),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.displayMode === edit.displayMode,
+    apply(current, edit) {
+      return changeRhythm(current, edit, "update-configuration", (rhythm) => ({
+        ...rhythm,
+        displayMode: edit.displayMode,
+      }));
+    },
+  },
   "set-meter-count": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "count"),
     validValue: (edit) =>
@@ -774,7 +821,7 @@ const COMMANDS = Object.freeze({
         return {
           ...rhythm,
           signature,
-          steps: resizeSteps(rhythm.steps, signature.count * rhythm.subdivision),
+          steps: canonicalSteps(signature.count, rhythm.subdivision),
         };
       });
     },
@@ -850,7 +897,7 @@ const COMMANDS = Object.freeze({
         return {
           ...rhythm,
           subdivision,
-          steps: resizeSteps(rhythm.steps, rhythm.signature.count * subdivision),
+          steps: canonicalSteps(rhythm.signature.count, subdivision),
         };
       });
     },

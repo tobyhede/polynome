@@ -367,6 +367,7 @@ test("the widest rhythm grid is reachable through the constrained selects", asyn
   await page.getByRole("combobox", { name: "16/4 meter denominator" }).selectOption("8");
   await page.getByRole("button", { name: "16/8 subdivision" }).click();
   await page.getByRole("option").last().click();
+  await showSubdivisionMode(page);
 
   await expect(
     page.getByRole("group", { name: "16/8 step voices" }).getByRole("button"),
@@ -539,6 +540,7 @@ test("a press the mix is never released from leaves the arrow keys unsnapped", a
 });
 
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
+  await showSubdivisionMode(page);
   const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });
   const second = steps.getByRole("button", { name: /^Step 2:/ });
@@ -551,6 +553,79 @@ test("a step control cycles primary, secondary, tertiary, off and back", async (
     await expect(first).toHaveAttribute("aria-label", `Step 1: ${voice} voice`);
     await expect(second).toHaveAttribute("aria-label", "Step 2: secondary voice");
   }
+});
+
+test("each Rhythm layer toggles between Beat Mode and Subdivision Mode", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
+  await setSubdivision(page, 3);
+
+  const card = page.locator(".rhythm-card").first();
+  const otherCard = page.locator(".rhythm-card").nth(1);
+  const toggle = card.getByRole("button", { name: "Show Subdivision Mode for 4/4" });
+  const voices = card.getByRole("group", { name: "4/4 beat voices" });
+  await expect(voices.getByRole("button")).toHaveCount(4);
+  await expect(voices.getByRole("button").first()).toHaveAccessibleName("Beat 1: primary voice");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle.locator("circle")).toHaveCount(3);
+  await expect(
+    otherCard.getByRole("group", { name: "4/4 beat voices" }).getByRole("button"),
+  ).toHaveCount(4);
+  expect(
+    await card
+      .locator(".rhythm-actions button")
+      .evaluateAll((buttons) => buttons.map((button) => button.dataset.action)),
+  ).toEqual(["mute", "display-mode", "toggle-settings", "remove-rhythm"]);
+
+  await toggle.click();
+
+  await expect(
+    card.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
+  ).toHaveCount(12);
+  await expect(card.getByRole("button", { name: "Show Beat Mode for 4/4" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(card.getByRole("button", { name: "Show Beat Mode for 4/4" })).toBeFocused();
+});
+
+test("Beat Mode preserves hidden voices until its Beat control is changed", async ({ page }) => {
+  await setSubdivision(page, 3);
+  const card = page.locator(".rhythm-card").first();
+  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await card.getByRole("button", { name: "Step 2: tertiary voice" }).click();
+  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
+
+  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
+  const firstBeat = card.getByRole("button", { name: "Beat 1: primary voice" });
+  await expect(firstBeat).toBeVisible();
+  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await expect(card.getByRole("button", { name: "Step 2: off voice" })).toBeVisible();
+
+  await card.getByRole("button", { name: "Show Beat Mode for 4/4" }).click();
+  await firstBeat.click();
+  await expect(card.getByRole("button", { name: "Beat 1: secondary voice" })).toBeVisible();
+  await card.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
+  await expect(card.getByRole("button", { name: "Step 1: secondary voice" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Step 2: tertiary voice" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Step 3: tertiary voice" })).toBeVisible();
+});
+
+test("a Beat control visibly pulses at every Subdivision onset", async ({ page }) => {
+  await page.getByLabel("Tempo in beats per minute").fill("300");
+  await setSubdivision(page, 3);
+  const firstBeat = page.getByRole("button", { name: "Beat 1: primary voice" });
+  await firstBeat.evaluate((element) => {
+    element.dataset.pulseCount = "0";
+    element.addEventListener("animationstart", () => {
+      element.dataset.pulseCount = String(Number(element.dataset.pulseCount) + 1);
+    });
+  });
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  await expect
+    .poll(async () => Number(await firstBeat.getAttribute("data-pulse-count")))
+    .toBeGreaterThanOrEqual(3);
 });
 
 test("disabling a cycle preserves focus and the sole active cycle indicator", async ({ page }) => {
@@ -1048,6 +1123,7 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator('.subdivision-option[data-subdivision="4"]').click();
+  await showSubdivisionMode(page);
   await expect(page.locator(".rhythm-card .step")).toHaveCount(16);
   // Sixteen steps alone do not pin the grouping this test measures: eight beats
   // of two would satisfy that count and still wrap evenly.
@@ -1123,7 +1199,16 @@ async function setSignature(page, count) {
 async function setSubdivision(page, subdivision) {
   await openRhythmSettings(page);
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
-  await page.locator(`.subdivision-option[data-subdivision="${subdivision}"]`).click();
+  await page
+    .locator(
+      `.subdivision-menu:not([hidden]) .subdivision-option[data-subdivision="${subdivision}"]`,
+    )
+    .click();
+}
+
+async function showSubdivisionMode(page) {
+  const toggle = page.locator('[data-action="display-mode"]').first();
+  if ((await toggle.getAttribute("aria-pressed")) === "false") await toggle.click();
 }
 
 /**
@@ -1162,6 +1247,7 @@ for (const { beats, subdivision, steps } of [
   }) => {
     await setSignature(page, beats);
     if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await showSubdivisionMode(page);
     await expect(page.locator(".rhythm-card .step")).toHaveCount(steps);
 
     for (const width of [1600, 1024, 540]) {
@@ -1187,6 +1273,7 @@ test("a beat wider than the row scrolls instead of shrinking", async ({ page }) 
   // their gaps are 300px, and the narrowest row is 274px.
   await setSignature(page, 3);
   await setSubdivision(page, 5);
+  await showSubdivisionMode(page);
   await page.setViewportSize({ width: 320, height: 900 });
 
   const steps = page.locator(".rhythm-card .steps");
@@ -1229,6 +1316,7 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
   test(`a beat of ${subdivision} spaces its steps evenly with its neighbours`, async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await showSubdivisionMode(page);
     await expect(page.locator(".rhythm-card .step")).toHaveCount(4 * subdivision);
     await settleLayout(page);
 
