@@ -477,6 +477,16 @@ function PresetNotation({ configuration }) {
 
 function renderCycles() {
   render(html`<${Cycles} cycles=${state.sequence.cycles} />`, elements.cycles);
+  // A redraw is what the record of the last draw stops describing. Reconciliation
+  // rewrites the class of any control whose voice changed, which takes the
+  // playhead's highlight off it, and a record kept across that would answer for a
+  // draw the grid no longer holds — leaving the highlight missing until the next
+  // onset moves it elsewhere. Clearing it here is one pass over what was just
+  // rendered, and it keeps the per-frame loop free of the reads it goes out of
+  // its way to avoid.
+  elements.cycles.querySelectorAll("[data-active-step]").forEach((element) => {
+    element.removeAttribute("data-active-step");
+  });
   layoutSteps();
 }
 
@@ -1035,6 +1045,10 @@ function updateActiveSteps() {
       // What was drawn, not merely where the transport is: the display mode
       // decides how many controls there are and which one an absolute step falls
       // on, so a change of mode is a redraw the same absolute step still needs.
+      // It names a control in the grid that was on screen when it was written,
+      // and it is only ever the grid still on screen because `renderCycles`
+      // clears it — a redraw can take the highlight off a control without the
+      // transport having moved at all.
       const drawn = `${rhythm.displayMode}:${activeIndex}`;
       if (!steps || steps.getAttribute("data-active-step") === drawn) continue;
       steps.setAttribute("data-active-step", drawn);

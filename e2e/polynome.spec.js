@@ -694,6 +694,46 @@ test("the playhead redraws where a display mode change moved it", async ({ page 
   await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
 });
 
+/**
+ * A voice edit is a redraw too, and the reconciler rewrites the class of the one
+ * control whose voice changed — which is the control under the playhead whenever
+ * a listener edits the beat they are hearing. Neither the mode nor the active
+ * step has moved, so a record of the last draw that survives the redraw answers
+ * for a highlight the grid no longer carries, and the playhead goes missing until
+ * the next onset puts it somewhere else. One control to a beat at thirty beats
+ * per minute makes that two seconds of a metronome that has stopped following
+ * itself, and it happens in either display mode.
+ */
+for (const [mode, control] of [
+  ["Beat Mode", "Beat 1"],
+  ["Subdivision Mode", "Step 1"],
+]) {
+  test(`editing the current control in ${mode} keeps the playhead on it`, async ({ page }) => {
+    await page.getByLabel("Tempo in beats per minute").fill("30");
+    if (mode === "Subdivision Mode") await showSubdivisionMode(page);
+    const card = page.locator(".rhythm-card").first();
+
+    await page.getByRole("button", { name: "Play metronome" }).click();
+
+    // Catching the onset rather than sampling for it leaves the whole of the
+    // first beat to edit and to assert in, and makes a highlight that only comes
+    // back at the following onset a failure rather than a slow pass: that onset
+    // moves to the second control, and the first is not current again for eight
+    // seconds.
+    await page.waitForFunction(
+      () => document.querySelector(".rhythm-card .step")?.classList.contains("is-current"),
+      null,
+      { polling: "raf" },
+    );
+
+    await card.getByRole("button", { name: `${control}: primary voice` }).click();
+
+    await expect(card.locator(".step.is-current")).toHaveAccessibleName(
+      `${control}: secondary voice`,
+    );
+  });
+}
+
 test("disabling a cycle preserves focus and the sole active cycle indicator", async ({ page }) => {
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
 
