@@ -872,6 +872,36 @@ test("Step-voice positions outside the meter-relative grid are rejected", () => 
   }
 });
 
+/**
+ * A Beat control counts signature units, not pattern positions, so the bound it
+ * is refused at is the Meter's numerator rather than the grid's length. At any
+ * Subdivision above one the two differ, and the wider of them would let a beat
+ * past the end of the Meter rewrite the pulses of a beat inside it.
+ */
+test("Beats outside the Meter are rejected", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }] }],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  const outside = [rhythm.signature.count, rhythm.signature.count + 1, 4096];
+
+  for (const beat of outside) {
+    const result = changeConfiguration(configuration, {
+      type: "advance-beat-voice",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      beat,
+    });
+
+    assert.equal(result.consequence, "none");
+    assert.equal(result.reason, "beat-not-found");
+    assert.deepEqual(result.configuration, configuration);
+  }
+});
+
 test("sound and mix edits preserve transport position and all affect Preset identity", () => {
   const base = createConfiguration();
   const [example] = createStoredPresets(null);
