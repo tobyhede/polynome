@@ -1,0 +1,277 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Not linked from the app and not part of any build.
+
+  Question: how do we mark where a beat starts in the step grid, now that the
+  steps are evenly spaced and the gap no longer says it?
+
+  Five variants on `?variant=`, switched from the bar at the bottom or with the
+  left and right arrow keys. The card markup below is the real renderer's own
+  output, scraped from the running app, so the density and the step treatments
+  are the real ones; only the mark is prototyped. Every variant is shown at a
+  Subdivision of 2 and of 4, because 4 is where the row wraps and a mark has to
+  survive a row break.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype — beat marks</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      /* ---- prototype chrome, not part of any variant ---- */
+      .proto-shell {
+        display: grid;
+        gap: 34px;
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 20px 120px;
+      }
+      .proto-case > h2 {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+      .proto-note {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        line-height: 1.6;
+      }
+      .proto-note strong {
+        color: var(--ink);
+        font-weight: 640;
+      }
+      .proto-bar {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: #e9e7e1;
+        color: #0c0c0d;
+        box-shadow: 0 8px 30px rgb(0 0 0 / 55%);
+        font-size: 0.8rem;
+        z-index: 10;
+      }
+      .proto-bar button {
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 50%;
+        background: #0c0c0d;
+        color: #e9e7e1;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      .proto-bar span {
+        min-width: 250px;
+        text-align: center;
+        font-weight: 640;
+      }
+
+      /* ============================================================
+         VARIANT 1 — ruler
+         A hairline under every step, taller where a beat starts. This is the
+         `.bpm-ticks` major/minor idiom from the transport panel, reused: the
+         app already draws a scale this way, so it is not new vocabulary.
+         ============================================================ */
+      /* The row gap has to open for any mark drawn under a row: at the stock
+         10px the first row's ticks land on the second row's circles. */
+      [data-variant="1"] .steps {
+        row-gap: 26px;
+        padding-bottom: 30px;
+      }
+      [data-variant="1"] .beat {
+        position: relative;
+      }
+      [data-variant="1"] .step {
+        position: relative;
+      }
+      [data-variant="1"] .step::after {
+        content: "";
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 50%;
+        width: 1px;
+        height: 4px;
+        transform: translateX(-50%);
+        background: var(--line-strong);
+        opacity: 0.5;
+      }
+      [data-variant="1"] .beat > .step:first-child::after {
+        height: 9px;
+        opacity: 0.9;
+      }
+
+      /* ============================================================
+         VARIANT 2 — beat numbers
+         The beat's own number under the step it starts on, set like the tempo
+         tick labels. Says which beat, not merely that one starts here.
+         ============================================================ */
+      [data-variant="2"] .steps {
+        row-gap: 28px;
+        padding-bottom: 32px;
+      }
+      [data-variant="2"] .beat {
+        position: relative;
+      }
+      [data-variant="2"] .beat::after {
+        content: attr(data-beat);
+        position: absolute;
+        top: calc(100% + 9px);
+        /* Centred on the first step rather than on the beat, so the number sits
+           over the onset it names however wide the beat is. */
+        left: 29px;
+        transform: translateX(-50%);
+        color: var(--muted);
+        font-size: 0.6rem;
+        font-weight: 640;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+      }
+
+      /* ============================================================
+         VARIANT 3 — beam
+         A rule spanning each beat's own steps, drawn under them. Groups by
+         extent rather than by point: you read the beat's width, not its edge.
+         ============================================================ */
+      [data-variant="3"] .steps {
+        row-gap: 26px;
+        padding-bottom: 28px;
+      }
+      [data-variant="3"] .beat {
+        position: relative;
+      }
+      [data-variant="3"] .beat::after {
+        content: "";
+        position: absolute;
+        top: calc(100% + 9px);
+        left: 6px;
+        right: 6px;
+        height: 1.5px;
+        border-radius: 1px;
+        background: var(--line-strong);
+      }
+      [data-variant="3"] .beat:first-child::after {
+        background: color-mix(in oklab, var(--accent), transparent 40%);
+      }
+
+      /* ============================================================
+         VARIANT 4 — bands
+         No mark at all: each beat sits on its own plaque, alternating with the
+         card. Zones the row rather than annotating it.
+         ============================================================ */
+      [data-variant="4"] .steps {
+        row-gap: 16px;
+      }
+      [data-variant="4"] .beat {
+        padding: 6px;
+        border-radius: 4px;
+      }
+      /* Alternating by beat index, which is the only thing CSS can see here.
+         Note what that does on a wrapped row: with two beats to a row, beats 1
+         and 3 are both in the left column, so the shading reads as a column
+         stripe rather than as beat grouping. */
+      [data-variant="4"] .beat:nth-child(odd) {
+        background: var(--soft);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="proto-shell app-shell" data-variant="0">
+      <p class="proto-note" id="proto-description"></p>
+
+      <section class="proto-case">
+        <h2>4/4 · subdivision 2 · one row</h2>
+        <div class="cycle-list" id="case-2"></div>
+      </section>
+
+      <section class="proto-case">
+        <h2>4/4 · subdivision 4 · wrapped</h2>
+        <div class="cycle-list" id="case-4"></div>
+      </section>
+    </div>
+
+    <div class="proto-bar">
+      <button type="button" id="proto-prev" aria-label="Previous variant">←</button>
+      <span id="proto-label"></span>
+      <button type="button" id="proto-next" aria-label="Next variant">→</button>
+    </div>
+
+    <script type="module">
+      const VARIANTS = [
+        {
+          name: "0 — baseline, no mark",
+          note: "<strong>What is on main now.</strong> Even spacing, and nothing says where a beat starts. At a subdivision of 2 you can count it; at 4, wrapped, you cannot.",
+        },
+        {
+          name: "1 — ruler",
+          note: "<strong>A hairline under every step, taller at a beat start.</strong> The transport panel's own tick row, reused — minor marks for the steps between, major for the beat. Cheapest in new vocabulary, but it draws a mark under all sixteen steps to say something about four of them.",
+        },
+        {
+          name: "2 — beat numbers",
+          note: "<strong>The beat's number under the step it starts on.</strong> Set like the tempo tick labels. The only variant that says <em>which</em> beat, which is what a wrapped row costs you, and the only one that stays meaningful when the downbeat is switched off.",
+        },
+        {
+          name: "3 — beam",
+          note: "<strong>A rule spanning each beat's steps.</strong> Groups by extent rather than by point, so you read a beat's width directly. Reads as engraved beaming — the risk is that a beam is a notation mark with its own meaning, and this is not notation.",
+        },
+        {
+          name: "4 — bands",
+          note: "<strong>Each beat on its own plaque, alternating.</strong> No mark at all: the row is zoned rather than annotated. Strongest grouping of the four, and the heaviest — it puts a second surface inside a card that already has one.",
+        },
+      ];
+
+      const markup = await fetch("./prototype-beat-marks.json").then((response) =>
+        response.json(),
+      );
+
+      for (const subdivision of ["2", "4"]) {
+        const host = document.querySelector(`#case-${subdivision}`);
+        host.innerHTML = markup[subdivision];
+        // The real renderer does not emit this yet — numbering the beats is
+        // exactly the change variant 2 would need in `Beats()`.
+        host.querySelectorAll(".beat").forEach((beat, index) => {
+          beat.dataset.beat = String(index + 1);
+        });
+        // `layoutSteps()` normally writes this after measuring. Four beats of
+        // four is sixteen steps, which is the row limit, so it wraps to two.
+        const steps = host.querySelector(".steps");
+        steps.style.setProperty("--beats-per-row", subdivision === "4" ? "2" : "4");
+      }
+
+      const shell = document.querySelector(".proto-shell");
+      const label = document.querySelector("#proto-label");
+      const description = document.querySelector("#proto-description");
+
+      function show(index) {
+        const next = (index + VARIANTS.length) % VARIANTS.length;
+        shell.dataset.variant = String(next);
+        label.textContent = VARIANTS[next].name;
+        description.innerHTML = VARIANTS[next].note;
+        const url = new URL(location.href);
+        url.searchParams.set("variant", String(next));
+        history.replaceState(null, "", url);
+      }
+
+      const current = () => Number(shell.dataset.variant);
+      document.querySelector("#proto-prev").addEventListener("click", () => show(current() - 1));
+      document.querySelector("#proto-next").addEventListener("click", () => show(current() + 1));
+      document.addEventListener("keydown", (event) => {
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+        if (event.key === "ArrowLeft") show(current() - 1);
+        if (event.key === "ArrowRight") show(current() + 1);
+      });
+
+      show(Number(new URL(location.href).searchParams.get("variant") ?? 0));
+    </script>
+  </body>
+</html>
