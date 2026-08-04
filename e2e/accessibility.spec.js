@@ -157,6 +157,10 @@ test("the current beat keeps the current step's glow when motion is reduced", as
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(page.locator('.steps[data-display-mode="beat"] .step.is-current')).toHaveCount(1);
   const beatGlow = await settledCurrentGlow(page);
+  // Both readings come from one declaration, so a glow that stopped resolving
+  // would agree with itself about there being none. This is what says there is
+  // one at all.
+  expect(beatGlow).not.toBe("none");
 
   await page.getByRole("button", { name: "Show Subdivision Mode for 4/4" }).click();
   await expect(

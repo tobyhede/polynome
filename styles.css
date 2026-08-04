@@ -1044,18 +1044,22 @@ h1.is-glitching {
   background-color: var(--soft);
 }
 
+/* The pulse below fades away from precisely this glow, so the glow is one value
+   with two readers rather than two values that have to be kept the same. It is
+   declared on the element the pulse runs on, which is what lets a keyframe
+   substitute it. */
 .step.is-current {
-  border-color: var(--ink);
-  box-shadow:
+  --step-glow:
     0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
     0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+
+  border-color: var(--ink);
+  box-shadow: var(--step-glow);
 }
 
 @keyframes beat-step-pulse {
   from {
-    box-shadow:
-      0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
-      0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+    box-shadow: var(--step-glow);
   }
   to {
     box-shadow: none;
