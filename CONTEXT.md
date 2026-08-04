@@ -88,3 +88,7 @@ _Avoid_: Settings, state, options
 **Preset**:
 A named reusable snapshot of a Configuration. Applying a preset recalls that Configuration exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
 _Avoid_: Pattern, project, session
+
+**Seeding**:
+Writing the examples `4/4` and `4/4 + 3/4` into storage the first time Polynome runs, when the preset key has never been written. It names the act and nothing else: what it writes are Presets, renameable, replaceable, and deletable like any other, and afterwards nothing tells them apart from the ones a user saved. Deleting them all leaves no Presets, which is a state Polynome stays in.
+_Avoid_: Built-in preset, factory preset, default preset, seed preset

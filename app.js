@@ -3,6 +3,7 @@ import {
   changeConfiguration,
   createConfiguration,
   createSavedPresets,
+  createStoredPresets,
   describeConfiguration,
   describePresets,
   presetNameInUse,
@@ -149,6 +150,18 @@ function writeState(configuration) {
  * write reads first, and this reports a refusal as null rather than as an empty
  * list: storage this tab cannot read is not storage holding nothing, and the
  * caller keeps what it has instead of adopting an emptiness it cannot verify.
+ *
+ * The raw value goes to `createStoredPresets` unparsed, because only the raw
+ * value separates a key this browser has never written from one deliberately
+ * emptied. The first is a first run and is seeded with the example Presets,
+ * written back here at once so that every later read is an ordinary one. The
+ * second is someone who deleted their last Preset, and seeding it would hand
+ * back what they just removed.
+ *
+ * Clearing this origin's storage therefore seeds again — from here there is
+ * nothing to tell that apart from a browser opening Polynome for the first time,
+ * and inventing a difference would mean remembering, in this tab alone, that
+ * Presets once existed.
  */
 function readSavedPresets() {
   let raw = null;
@@ -159,13 +172,12 @@ function readSavedPresets() {
       retiredKeys: RETIRED_PRESET_STORAGE_KEYS,
     });
   } catch {
+    // Resolving the browser's storage property can itself be forbidden.
     return null;
   }
-  try {
-    return createSavedPresets(raw ? JSON.parse(raw) : undefined);
-  } catch {
-    return createSavedPresets();
-  }
+  const presets = createStoredPresets(raw);
+  if (raw === null) writeSavedPresets(presets);
+  return presets;
 }
 
 function storedSavedPresets() {
@@ -315,7 +327,7 @@ function renderTransport() {
 function PresetList({ presets, pendingDeleteId }) {
   return html`${presets.map(
     (preset) => html`
-    <div class="preset-card${preset.builtIn ? " is-built-in" : ""}" key=${preset.id}>
+    <div class="preset-card" key=${preset.id}>
       <button
         type="button"
         class="preset-button${preset.selected ? " is-selected" : ""}"
@@ -325,22 +337,32 @@ function PresetList({ presets, pendingDeleteId }) {
         <strong>${preset.name}</strong>
         <${PresetNotation} configuration=${preset.configuration} />
       </button>
-      ${
-        preset.builtIn
-          ? null
-          : html`
-        <button
-          type="button"
-          class="preset-delete${preset.id === pendingDeleteId ? " is-armed" : ""}"
-          data-delete-preset-id=${preset.id}
-          aria-label=${`${preset.id === pendingDeleteId ? "Confirm deleting" : "Delete"} ${preset.name} preset`}
-          title=${preset.id === pendingDeleteId ? "Select again to delete" : "Delete preset"}
-        >×</button>
-      `
-      }
+      <button
+        type="button"
+        class="preset-delete${preset.id === pendingDeleteId ? " is-armed" : ""}"
+        data-delete-preset-id=${preset.id}
+        aria-label=${`${preset.id === pendingDeleteId ? "Confirm deleting" : "Delete"} ${preset.name} preset`}
+        title=${preset.id === pendingDeleteId ? "Select again to delete" : "Delete preset"}
+      >×</button>
     </div>
   `,
   )}`;
+}
+
+/**
+ * The heading states how many Presets there are, so it belongs to the stored
+ * list rather than to the panel: `index.html` ships a number for the first
+ * paint, and every load after the first can contradict it. This is deliberately
+ * outside the render below, which the early return skips while the panel is
+ * closed — counting is `savedPresets.length`, and none of the work that early
+ * return exists to avoid is needed to know it.
+ */
+function renderPresetCount() {
+  elements.presetCount.textContent = String(savedPresets.length);
+  // The heading shows the bare number; the noun is carried as visually hidden
+  // text because `aria-label` on a generic span never reaches the accessibility
+  // tree.
+  elements.presetCountNoun.textContent = savedPresets.length === 1 ? " preset" : " presets";
 }
 
 /**
@@ -355,11 +377,6 @@ function PresetList({ presets, pendingDeleteId }) {
 function renderPresetPanel() {
   if (!presetsOpen) return;
   const presets = describePresets(state, savedPresets);
-  elements.presetCount.textContent = String(presets.length);
-  // The heading shows the bare number; the noun is carried as visually hidden
-  // text because `aria-label` on a generic span never reaches the accessibility
-  // tree.
-  elements.presetCountNoun.textContent = presets.length === 1 ? " preset" : " presets";
   const hadFocus = elements.presetList.contains(document.activeElement);
   render(
     html`<${PresetList} presets=${presets} pendingDeleteId=${pendingDeletePresetId} />`,
@@ -1089,21 +1106,17 @@ elements.presetList.addEventListener("click", (event) => {
   );
   if (!preset) return;
   openRhythms.clear();
-  applyEdit(
-    preset.builtIn
-      ? { type: "apply-preset", name: preset.name }
-      : { type: "apply-preset", configuration: preset.configuration },
-  );
+  applyEdit({ type: "apply-preset", configuration: preset.configuration });
   // Recorded after the edit, from the Configuration the edit actually produced
   // rather than from the Preset's own copy: `apply-preset` regenerates every
   // identifier, and remembering the copy would leave the two comparing unequal
   // the instant they are compared.
-  rememberPresetOrigin(preset.name, preset.builtIn);
+  rememberPresetOrigin(preset.name);
   renderPanels();
 });
 
-function rememberPresetOrigin(name, builtIn = false) {
-  presetOrigin = { name, builtIn, configuration: state };
+function rememberPresetOrigin(name) {
+  presetOrigin = { name, configuration: state };
 }
 
 /**
@@ -1115,8 +1128,7 @@ function rememberPresetOrigin(name, builtIn = false) {
 function originIsStored() {
   if (presetOrigin === null) return false;
   return describePresets(presetOrigin.configuration, savedPresets).some(
-    ({ name, builtIn, selected }) =>
-      selected && builtIn === presetOrigin.builtIn && name === presetOrigin.name,
+    ({ name, selected }) => selected && name === presetOrigin.name,
   );
 }
 
@@ -1136,33 +1148,28 @@ function reconcilePresetOrigin() {
   presetOrigin =
     describePresets(state, savedPresets)
       .filter(({ selected }) => selected)
-      .map(({ name, builtIn }) => ({ name, builtIn, configuration: state }))[0] ?? null;
+      .map(({ name }) => ({ name, configuration: state }))[0] ?? null;
 }
 
 /**
  * Every route by which the stored Presets change under this tab — a deletion
  * here, and any write another tab makes — ends here, because what follows is the
- * same each time: the origin may have stopped naming anything, the list has to
- * be redrawn, and the save chip's state is a function of the origin, so the
- * header has to follow the list. Saving is the one write that does not come
- * through here; it knows the origin it just created, and re-deriving would only
- * find it again.
+ * same each time: the origin may have stopped naming anything, the heading
+ * counts them, the list has to be redrawn, and the save chip's state is a
+ * function of the origin, so the header has to follow the list. Saving is the
+ * one write that does not come through here; it knows the origin it just
+ * created, and re-deriving would only find it again.
  */
 function adoptSavedPresets(presets) {
   savedPresets = presets;
   reconcilePresetOrigin();
+  renderPresetCount();
   renderPresetPanel();
   renderPanels();
 }
 
-/**
- * The name to open the save field on. A built-in Preset's name is reserved —
- * `savePreset` refuses it rather than replacing anything — so offering it back
- * would be offering a save that cannot succeed. Editing a built-in is how a
- * user starts their own Preset, and naming it is the point.
- */
 function nameToSaveUnder() {
-  return presetOrigin && !presetOrigin.builtIn ? presetOrigin.name : "";
+  return presetOrigin ? presetOrigin.name : "";
 }
 /**
  * Saving under a name already in use replaces that Preset's snapshot. A
@@ -1230,11 +1237,7 @@ elements.presetSave.addEventListener("submit", (event) => {
   elements.presetName.setCustomValidity("");
   const result = savePreset(storedSavedPresets(), elements.presetName.value, state);
   if (result.reason) {
-    elements.presetName.setCustomValidity(
-      result.reason === "preset-name-reserved"
-        ? "Choose a name different from a built-in preset."
-        : "Enter a preset name between 1 and 80 characters.",
-    );
+    elements.presetName.setCustomValidity("Enter a preset name between 1 and 80 characters.");
     elements.presetName.reportValidity();
     return;
   }
@@ -1246,6 +1249,9 @@ elements.presetSave.addEventListener("submit", (event) => {
   rememberPresetOrigin(result.preset.name);
   savePanelOpen = false;
   renderPanels();
+  // Saving is the one write that does not go through `adoptSavedPresets`, so the
+  // heading is counted here instead.
+  renderPresetCount();
   renderPresetPanel();
   // Only when the panel is open. Moving focus into a panel the user cannot see
   // would strand them, and saving deliberately does not open it — the status
@@ -1554,6 +1560,12 @@ window.addEventListener("pagehide", () => {
  * exists, and a null key is storage cleared wholesale. The configuration key is
  * deliberately not adopted: two tabs each hold their own tempo and sequence, and
  * taking over an edit in progress is not a reconciliation the user asked for.
+ *
+ * A wholesale clear leaves the preset key absent, so the re-read below seeds the
+ * examples again and writes them. That is the intended answer: clearing the
+ * origin's storage returns it to a first run, and a first run is what shows the
+ * examples. It is not a deletion being undone — deleting Presets leaves an empty
+ * list, which is a written key and is never seeded.
  */
 window.addEventListener("storage", (event) => {
   if (event.key !== null && event.key !== PRESET_STORAGE_KEY) return;
@@ -1586,4 +1598,8 @@ elements.bpmTicks.innerHTML = Array.from({ length: 28 }, (_, index) => {
  * to keep, so the reconciliation below is that derivation.
  */
 reconcilePresetOrigin();
+// The count is not part of `renderInterface`: no Configuration edit changes the
+// stored list, so every edit-driven render would rewrite a number that cannot
+// have moved. It is rendered once here and again wherever `savedPresets` does.
+renderPresetCount();
 renderInterface();

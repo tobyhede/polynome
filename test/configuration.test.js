@@ -5,6 +5,7 @@ import {
   changeConfiguration,
   createConfiguration,
   createSavedPresets,
+  createStoredPresets,
   describeConfiguration,
   describePresets,
   presetNameInUse,
@@ -80,9 +81,10 @@ test("tempo edits return a new Configuration and restart consequence", () => {
 });
 
 test("applying a Preset replaces the complete Configuration", () => {
+  const [, example] = createStoredPresets(null);
   const result = changeConfiguration(createConfiguration(), {
     type: "apply-preset",
-    name: "4/4 + 3/4",
+    configuration: example.configuration,
   });
 
   assert.equal(result.configuration.bpm, 112);
@@ -98,7 +100,7 @@ test("applying a Preset replaces the complete Configuration", () => {
     ],
   );
   assert.equal(result.consequence, "restart-transport-run");
-  assert.equal(describeConfiguration(result.configuration).selectedPreset, "4/4 + 3/4");
+  assert.equal(describePresets(result.configuration, [example])[0].selected, true);
 });
 
 test("saving and loading a named Preset preserves the complete Configuration", () => {
@@ -157,17 +159,12 @@ test("saving an existing Preset name replaces its snapshot case-insensitively", 
   assert.equal(replacement.preset.configuration.bpm, 140);
 });
 
-test("saved Preset names cannot be empty, oversized, or collide with built-ins", () => {
+test("saved Preset names cannot be empty or oversized", () => {
   const configuration = createConfiguration();
-  for (const [name, reason] of [
-    ["   ", "invalid-preset-name"],
-    ["x".repeat(81), "invalid-preset-name"],
-    ["4/4", "preset-name-reserved"],
-    ["  4/4 + 3/4  ", "preset-name-reserved"],
-  ]) {
+  for (const name of ["   ", "x".repeat(81)]) {
     const result = savePreset([], name, configuration);
     assert.deepEqual(result.presets, []);
-    assert.equal(result.reason, reason);
+    assert.equal(result.reason, "invalid-preset-name");
   }
 
   // The longest accepted name, checked beside the shortest rejected one: a limit
@@ -175,6 +172,23 @@ test("saved Preset names cannot be empty, oversized, or collide with built-ins",
   const longest = savePreset([], "x".repeat(80), configuration);
   assert.equal(longest.reason, null);
   assert.equal(longest.preset.name, "x".repeat(80));
+});
+
+/**
+ * An example's name was refused while the examples were not stored Presets and
+ * a save under one of them would have been shadowed. They are stored now, so the
+ * name is the listener's to take, delete, and take again.
+ */
+test("a name an example Preset holds saves like any other", () => {
+  const configuration = createConfiguration({ bpm: 155 });
+
+  for (const name of ["4/4", "  4/4 + 3/4  "]) {
+    const result = savePreset([], name, configuration);
+    assert.equal(result.reason, null);
+    assert.equal(result.preset.name, name.trim());
+    assert.equal(result.presets.length, 1);
+    assert.equal(result.presets[0].configuration.bpm, 155);
+  }
 });
 
 /**
@@ -201,11 +215,95 @@ test("Preset name folding does not depend on the host locale", () => {
   );
 });
 
+/**
+ * The examples are Presets a first run writes, not a kind of Preset. A key this
+ * browser has never written is the only input that produces them, and they
+ * arrive through the same repair as anything else in storage, so they carry
+ * generated identifiers rather than ones derived from their names.
+ */
+test("a Preset key that was never written seeds the example Presets", () => {
+  const presets = createStoredPresets(null);
+
+  assert.deepEqual(
+    presets.map(({ name }) => name),
+    ["4/4", "4/4 + 3/4"],
+  );
+  for (const { id } of presets) assert.match(id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
+  assert.deepEqual(withoutIds(presets[0].configuration), withoutIds(createConfiguration()));
+  assert.equal(presets[1].configuration.bpm, 112);
+  assert.deepEqual(
+    presets[1].configuration.sequence.cycles.map((cycle) => ({
+      repetitions: cycle.repetitions,
+      rhythms: cycle.rhythms.map((rhythm) => ({
+        signature: rhythm.signature,
+        sound: rhythm.sound,
+      })),
+    })),
+    [
+      {
+        repetitions: 1,
+        rhythms: [
+          { signature: { count: 4, unit: 4 }, sound: "high" },
+          { signature: { count: 3, unit: 4 }, sound: "low" },
+        ],
+      },
+    ],
+  );
+});
+
+/**
+ * Deleting the last Preset writes an empty list, which is a key that was
+ * written. Seeding it again would put back the examples the listener had just
+ * removed, so the only question this asks is whether the key has ever been
+ * written, never whether it holds anything.
+ */
+test("a written Preset key is repaired without seeding, empty or not", () => {
+  assert.deepEqual(createStoredPresets("[]"), []);
+
+  const loaded = createStoredPresets(
+    JSON.stringify([{ id: "preset-abc-1", name: "Stored", configuration: { bpm: 9999 } }]),
+  );
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].id, "preset-abc-1");
+  assert.equal(loaded[0].name, "Stored");
+  assert.equal(loaded[0].configuration.bpm, 300);
+});
+
+/**
+ * Unreadable storage is still storage that was written, so it is emptied rather
+ * than seeded. Anything that is neither the raw string nor the absent key never
+ * came from storage at all, which makes it the caller's bug.
+ */
+test("unreadable stored Presets are emptied, and a non-string is a programmer error", () => {
+  assert.deepEqual(createStoredPresets("{not json"), []);
+  assert.deepEqual(createStoredPresets('"a string"'), []);
+
+  for (const stored of [undefined, [], {}, 4]) {
+    assert.throws(() => createStoredPresets(stored), {
+      name: "TypeError",
+      message: "Stored Presets must be the stored string or null",
+    });
+  }
+});
+
+/**
+ * The example Presets are stored Presets like any other, so a name one of them
+ * happens to hold is not a name storage may not use. Discarding it silently lost
+ * whatever the listener had saved under it.
+ */
+test("a stored Preset named after an example survives load", () => {
+  const loaded = createSavedPresets([{ name: "4/4", configuration: { bpm: 140 } }]);
+
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].name, "4/4");
+  assert.equal(loaded[0].configuration.bpm, 140);
+});
+
 test("malformed saved Presets are discarded or repaired on load", () => {
   const loaded = createSavedPresets([
     null,
     { name: "" },
-    { name: "4/4", configuration: { bpm: 140 } },
     {
       id: '"><script>bad()</script>',
       name: "Stored",
@@ -258,9 +356,26 @@ test("describing Presets identifies exact snapshots without comparing identifier
   const reidentified = createConfiguration(withoutIds(original));
   const descriptions = describePresets(reidentified, saved.presets);
 
-  assert.equal(descriptions.length, 3);
-  assert.equal(descriptions.find(({ name }) => name === "Odd IDs").selected, true);
-  assert.equal(descriptions.find(({ name }) => name === "4/4").selected, false);
+  assert.equal(descriptions.length, 1);
+  assert.equal(descriptions[0].selected, true);
+  assert.equal(describePresets(createConfiguration({ bpm: 96 }), saved.presets)[0].selected, false);
+});
+
+/**
+ * Every Preset is a stored Preset, so a description is the stored list with the
+ * selection marked and nothing else. No member says a card may not be deleted,
+ * because there is no longer a Preset that may not be.
+ */
+test("describing Presets describes the stored list alone", () => {
+  const saved = savePreset([], "Only", createConfiguration()).presets;
+  const described = describePresets(createConfiguration(), saved);
+
+  assert.deepEqual(
+    described.map(({ name }) => name),
+    ["Only"],
+  );
+  assert.equal(Object.hasOwn(described[0], "builtIn"), false);
+  assert.deepEqual(describePresets(createConfiguration(), []), []);
 });
 
 /**
@@ -276,15 +391,6 @@ test("describing Presets trusts the Presets createSavedPresets has repaired", ()
 
   assert.equal(described.at(-1).name, "Stored");
   assert.equal(described.at(-1).configuration, presets[0].configuration);
-});
-
-test("built-in Preset descriptions are the same Configurations every time", () => {
-  const first = describePresets(createConfiguration(), []);
-  const second = describePresets(createConfiguration({ bpm: 200 }), []);
-
-  assert.equal(first[0].configuration, second[0].configuration);
-  assert.equal(first[0].selected, true);
-  assert.equal(second[0].selected, false);
 });
 
 test("applying a saved Preset restores its snapshot with fresh identifiers", () => {
@@ -570,6 +676,7 @@ test("Step-voice positions outside the meter-relative grid are rejected", () => 
 
 test("sound and mix edits preserve transport position and all affect Preset identity", () => {
   const base = createConfiguration();
+  const [example] = createStoredPresets(null);
   const cycle = base.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const edits = [
@@ -582,9 +689,9 @@ test("sound and mix edits preserve transport position and all affect Preset iden
   for (const edit of edits) {
     const result = changeConfiguration(base, edit);
     assert.equal(result.consequence, "update-mix");
-    assert.equal(describeConfiguration(result.configuration).selectedPreset, null);
+    assert.equal(describePresets(result.configuration, [example])[0].selected, false);
   }
-  assert.equal(describeConfiguration(base).selectedPreset, "4/4");
+  assert.equal(describePresets(base, [example])[0].selected, true);
 });
 
 test("Configuration description exposes domain choices and unavailable final removals", () => {
@@ -594,7 +701,6 @@ test("Configuration description exposes domain choices and unavailable final rem
   const description = describeConfiguration(configuration);
 
   assert.deepEqual(description.choices, {
-    presetNames: ["4/4", "4/4 + 3/4"],
     meterCounts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
     meterUnits: [1, 2, 4, 8],
     subdivisions: [1, 2, 3, 4, 5],
@@ -602,7 +708,9 @@ test("Configuration description exposes domain choices and unavailable final rem
     stepVoices: ["off", "tertiary", "secondary", "primary"],
     repetitions: [0, 1, 2, 3, 4, 5, 6, 7, 8],
   });
-  assert.equal(description.selectedPreset, "4/4");
+  // Which Preset a Configuration matches is a question about the stored list,
+  // which this never sees; `describePresets` is what answers it.
+  assert.equal(Object.hasOwn(description, "selectedPreset"), false);
   assert.deepEqual(description.availability.cycles[cycle.id].remove, {
     available: false,
     reason: "sequence-requires-cycle",
@@ -925,7 +1033,9 @@ test("known edits with structurally malformed payloads expose programmer errors"
   const rhythm = cycle.rhythms[0];
   const malformedEdits = [
     { type: "apply-preset" },
-    { type: "apply-preset", name: "4/4", configuration },
+    // A Preset is applied by the Configuration it holds. Naming one is a payload
+    // the interface has no way to produce, so it is a bug rather than a miss.
+    { type: "apply-preset", name: "4/4" },
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
@@ -1039,7 +1149,7 @@ test("valid edits that leave every user-editable value unchanged are no-ops", ()
   const cycle = configuration.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const sameValueEdits = [
-    { type: "apply-preset", name: "4/4" },
+    { type: "apply-preset", configuration: createConfiguration() },
     { type: "set-tempo", bpm: "96" },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: "1" },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: "4" },
@@ -1097,12 +1207,13 @@ test("repairing a repaired Configuration leaves it unchanged", () => {
 
 test("Preset identity ignores the key order of a stored Configuration", () => {
   const configuration = reorderKeys(createConfiguration());
+  const [example] = createStoredPresets(null);
 
-  assert.equal(describeConfiguration(configuration).selectedPreset, "4/4");
+  assert.equal(describePresets(configuration, [example])[0].selected, true);
 
   const reapplied = changeConfiguration(configuration, {
     type: "apply-preset",
-    name: "4/4",
+    configuration: example.configuration,
   });
   assert.deepEqual(reapplied.configuration, configuration);
   assert.equal(reapplied.consequence, "none");
@@ -1150,7 +1261,10 @@ test("stored key order does not change an edit outcome", () => {
  */
 test("a name is in use exactly when saving it would replace a preset", () => {
   const configuration = createConfiguration();
-  const stored = savePreset(createSavedPresets(), "Rehearsal", configuration).presets;
+  const rehearsal = savePreset(createSavedPresets(), "Rehearsal", configuration).presets;
+  // An example Preset is stored, so the question about its name is the same
+  // question asked about any other: is it in the list.
+  const stored = savePreset(rehearsal, "4/4", configuration).presets;
 
   const cases = [
     { name: "Rehearsal", inUse: true, because: "the stored name exactly" },
@@ -1159,8 +1273,8 @@ test("a name is in use exactly when saving it would replace a preset", () => {
     { name: "Rehearsal 2", inUse: false, because: "a different name" },
     { name: "", inUse: false, because: "no name at all" },
     { name: "   ", inUse: false, because: "space is not a name" },
-    // Refused rather than replaced, so the honest answer is that it is free.
-    { name: "4/4", inUse: false, because: "a built-in name is reserved" },
+    { name: "4/4", inUse: true, because: "a stored example is replaced like any other" },
+    { name: "4/4 + 3/4", inUse: false, because: "an example this list does not hold" },
   ];
 
   for (const { name, inUse, because } of cases) {

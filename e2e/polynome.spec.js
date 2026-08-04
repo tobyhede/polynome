@@ -11,6 +11,15 @@ function presetButton(page, name) {
   return page.getByRole("button", { name: new RegExp(`^${name}\\b`) });
 }
 
+// The example Presets carry generated identifiers like every other Preset, and
+// one name is a prefix of the other, so a card is found through the delete
+// button that names it exactly rather than by an identifier or a prefix.
+function presetCard(page, name) {
+  return page
+    .locator(".preset-card")
+    .filter({ has: page.getByRole("button", { name: `Delete ${name} preset`, exact: true }) });
+}
+
 /**
  * Whether + Save is being offered. It is marked unavailable rather than
  * disabled — it stays in the tab order to say why it will not act — so the
@@ -332,8 +341,9 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
 test("sound customization clears preset selection and persists", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   // A preset button carries its name and a notation preview, so its accessible
-  // name is the whole summary; the identifier is what stays stable.
-  const preset = page.locator('[data-preset-id="built-in-4-4"]');
+  // name is the whole summary; the card its delete button names is what stays
+  // addressable once every Preset's identifier is generated.
+  const preset = presetCard(page, "4/4").locator(".preset-button");
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
 
@@ -347,7 +357,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 
   await page.reload();
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await expect(page.locator('[data-preset-id="built-in-4-4"]')).toHaveAttribute(
+  await expect(presetCard(page, "4/4").locator(".preset-button")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -357,6 +367,90 @@ test("sound customization clears preset selection and persists", async ({ page }
   // keeps meaning what its name says if preset matching ever changes.
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(lowSound).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
+ * The examples are Presets a first run writes, not a kind of Preset that lives
+ * outside storage. Writing them at once is what makes the second load an
+ * ordinary one, with nothing left that has to be rebuilt from a name.
+ */
+test("a first load seeds the example Presets into storage", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+
+  await expect(presetCard(page, "4/4")).toBeVisible();
+  await expect(presetCard(page, "4/4 + 3/4")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("polynome-presets-v2") ?? "null")?.map(({ name }) => name),
+      ),
+    )
+    .toEqual(["4/4", "4/4 + 3/4"]);
+});
+
+/**
+ * Deleting the last Preset leaves an empty list, which is a written key. Seeding
+ * an empty list rather than an absent one would put the examples back the moment
+ * they were removed, which is the whole of what this change is for.
+ */
+test("a deleted example Preset stays deleted across a reload", async ({ page }) => {
+  await page.getByRole("button", { name: "Presets" }).click();
+  await deletePreset(page, "4/4 + 3/4");
+  await expect(page.getByRole("status")).toHaveText("4/4 + 3/4 preset deleted");
+
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(presetCard(page, "4/4 + 3/4")).toHaveCount(0);
+  await expect(presetCard(page, "4/4")).toBeVisible();
+
+  await deletePreset(page, "4/4");
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await expect(page.locator(".preset-card")).toHaveCount(0);
+});
+
+test("an example Preset's name is the listener's to take back", async ({ page }) => {
+  const tempo = page.getByLabel("Tempo in beats per minute");
+  await page.getByRole("button", { name: "Presets" }).click();
+  await deletePreset(page, "4/4");
+
+  await tempo.fill("144");
+  await savePreset(page, "4/4");
+  await page.reload();
+  await page.getByRole("button", { name: "Presets" }).click();
+  await tempo.fill("96");
+
+  await presetCard(page, "4/4").locator(".preset-button").click();
+  await expect(page.getByLabel("BPM")).toHaveValue("144");
+});
+
+/**
+ * The heading counts the Presets, and the shell ships that number for the first
+ * paint. Correcting it only when the panel opens was safe while the two examples
+ * could not be deleted, because the count could not be wrong before then. Now
+ * any load that is not a first run can contradict it, so the count follows the
+ * stored list rather than the panel.
+ */
+test("the preset heading counts the stored Presets before the panel is opened", async ({
+  page,
+}) => {
+  const heading = page.getByRole("heading", { name: /^Presets/ });
+  const count = page.locator("#preset-count");
+  const noun = page.locator("#preset-count-noun");
+  await page.getByRole("button", { name: "Presets" }).click();
+  await deletePreset(page, "4/4 + 3/4");
+
+  await page.reload();
+  await expect(heading).toBeHidden();
+  await expect(count).toHaveText("1");
+  await expect(noun).toHaveText("preset");
+
+  await page.getByRole("button", { name: "Presets" }).click();
+  await deletePreset(page, "4/4");
+  await page.reload();
+  await expect(heading).toBeHidden();
+  await expect(count).toHaveText("0");
+  await expect(noun).toHaveText("presets");
 });
 
 /**
@@ -605,9 +699,9 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
 test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
-  const builtIn = page.locator('[data-preset-id="built-in-4-4"]');
-  await builtIn.click();
-  await expect(builtIn).toHaveAttribute("aria-pressed", "true");
+  const example = presetCard(page, "4/4").locator(".preset-button");
+  await example.click();
+  await expect(example).toHaveAttribute("aria-pressed", "true");
 
   await page.evaluate(() => {
     window.presetListRebuilds = 0;
@@ -620,8 +714,8 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
   await slider.focus();
   for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
 
-  await expect(builtIn).toHaveAttribute("aria-pressed", "false");
-  await expect(builtIn).not.toHaveClass(/\bis-selected\b/);
+  await expect(example).toHaveAttribute("aria-pressed", "false");
+  await expect(example).not.toHaveClass(/\bis-selected\b/);
   await expect(presetButton(page, "Watched")).toBeVisible();
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 });
@@ -1157,22 +1251,24 @@ test("closing the save panel abandons what was typed", async ({ page }) => {
 });
 
 /**
- * A built-in Preset's name is reserved, so `savePreset` refuses it rather than
- * replacing anything. Editing a built-in and pressing save must not open on a
- * name that cannot be written — the whole point of that edit is to start a
- * Preset of the user's own.
+ * An example Preset is stored like any other, so its name is offered back and
+ * saving under it replaces it — where a reserved name once forced the field
+ * open empty. Starting a Preset of your own from an example is still one act,
+ * renaming before saving, but it is now the deliberate one rather than the only
+ * one available.
  */
-test("editing a built-in preset opens the save field empty", async ({ page }) => {
+test("editing an example preset opens the save field on its name", async ({ page }) => {
   const tempo = page.getByLabel("Tempo in beats per minute");
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
 
   await tempo.fill("128");
   await page.getByRole("button", { name: "+ Save" }).click();
-  await expect(name).toHaveValue("");
-  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await expect(name).toHaveValue("4/4");
+  await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
 
   await name.fill("Mine");
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Mine preset saved");
 

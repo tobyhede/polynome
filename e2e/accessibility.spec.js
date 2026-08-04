@@ -55,16 +55,16 @@ test("the help panel has no accessibility violations", async ({ page }) => {
   await expectNoViolations(page);
 });
 
-test("the preset panel has no accessibility violations, empty and populated", async ({ page }) => {
+test("the preset panel has no accessibility violations, populated and empty", async ({ page }) => {
+  // A first run opens on the seeded example Presets, so this already scans a
+  // populated list and the delete button every card carries.
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(page.locator("#preset-panel")).toBeVisible();
   await expectNoViolations(page);
 
-  // A saved preset adds the delete button and the armed-delete styling, none of
-  // which exists in the built-in rows scanned above. + Save is live only while
-  // the Configuration differs from the Preset it came from, so the tempo moves
-  // first. The save panel is scanned open, since it is the only state in which
-  // its field and submit are in the document at all.
+  // + Save is live only while the Configuration differs from the Preset it came
+  // from, so the tempo moves first. The save panel is scanned open, since it is
+  // the only state in which its field and submit are in the document at all.
   const bpm = page.getByLabel("Tempo in beats per minute");
   await bpm.fill(String(Number(await bpm.inputValue()) + 1));
   const openSave = page.getByRole("button", { name: "+ Save" });
@@ -78,8 +78,21 @@ test("the preset panel has no accessibility violations, empty and populated", as
   await expect(page.getByRole("status")).toHaveText("Scanned preset saved");
   await expectNoViolations(page);
 
+  // The armed-delete styling.
   await page.getByRole("button", { name: "Delete Scanned preset" }).click();
   await expect(page.getByRole("button", { name: "Confirm deleting Scanned preset" })).toBeVisible();
+  await expectNoViolations(page);
+
+  // An empty list is a state the listener now arrives at by deleting every
+  // Preset, rather than the one a new browser opens in.
+  await page.getByRole("button", { name: "Confirm deleting Scanned preset" }).click();
+  for (const name of ["4/4", "4/4 + 3/4"]) {
+    await page.getByRole("button", { name: `Delete ${name} preset`, exact: true }).click();
+    await page
+      .getByRole("button", { name: `Confirm deleting ${name} preset`, exact: true })
+      .click();
+  }
+  await expect(page.locator(".preset-card")).toHaveCount(0);
   await expectNoViolations(page);
 });
 
