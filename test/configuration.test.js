@@ -471,6 +471,39 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
   assert.equal(simpler.consequence, "restart-transport-run");
 });
 
+test("a conventional Meter denominator edit preserves the grid and transport run", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 2,
+              steps: ["full", "off", "quarter", "half"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: rhythm.id,
+    unit: 8,
+  });
+
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0], {
+    ...rhythm,
+    signature: { count: 2, unit: 8 },
+  });
+  assert.equal(result.consequence, "update-configuration");
+});
+
 test("advancing a Step level cycles the levels and preserves the transport run", () => {
   const configuration = createConfiguration();
   const cycle = configuration.sequence.cycles[0];
@@ -538,7 +571,8 @@ test("Configuration description exposes domain choices and unavailable final rem
 
   assert.deepEqual(description.choices, {
     presetNames: ["4/4", "4/4 + 3/4"],
-    meterUnits: [1, 2, 4, 8, 16, 32],
+    meterCounts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    meterUnits: [1, 2, 4, 8],
     subdivisions: [1, 2, 3, 4, 5],
     sounds: ["high", "low", "wood"],
     stepLevels: ["off", "quarter", "half", "full"],
@@ -768,6 +802,17 @@ test("generated identifiers survive repeated Configuration repair", () => {
   assert.equal(repaired.sequence.cycles[0].rhythms[0].id, "layer-abc123-8");
 });
 
+test("stored Meter denominators accept offered units and repair other values", () => {
+  const units = [8, 3, 0, 2.5, "nope", 16].map(
+    (unit) =>
+      createConfiguration({
+        sequence: { cycles: [{ rhythms: [{ signature: { count: 4, unit } }] }] },
+      }).sequence.cycles[0].rhythms[0].signature.unit,
+  );
+
+  assert.deepEqual(units, [8, 4, 4, 4, 4, 4]);
+});
+
 test("duplicate generated identifiers are still de-duplicated", () => {
   const configuration = createConfiguration({
     sequence: {
@@ -802,7 +847,7 @@ test("every edit outcome returns a repaired Configuration", () => {
   const repaired = createConfiguration(stored);
   assert.equal(repaired.bpm, 300);
   assert.equal(repaired.sequence.cycles[0].repetitions, 1);
-  assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 32);
+  assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 16);
 
   const outcomes = [
     [{ type: "remove-cycle", cycleId: "cycle-stored-1" }, "sequence-requires-cycle"],
@@ -890,7 +935,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
-    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 3 },
+    { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 2 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "clap" },
@@ -903,6 +948,66 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     assert.equal(result.consequence, "none");
     assert.equal(result.reason, "invalid-value");
   }
+});
+
+test("both Meter components reject invalid committed values consistently", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+
+  for (const [type, property] of [
+    ["set-meter-count", "count"],
+    ["set-meter-unit", "unit"],
+  ]) {
+    const values =
+      type === "set-meter-count"
+        ? ["", "2.5", "not-a-number", "0", "-1", "17"]
+        : ["", "2.5", "not-a-number", "0", "-1", "3", "16"];
+    for (const value of values) {
+      const result = changeConfiguration(configuration, {
+        type,
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        [property]: value,
+      });
+
+      assert.deepEqual(result.configuration, configuration);
+      assert.equal(result.consequence, "none");
+      assert.equal(result.reason, "invalid-value");
+    }
+  }
+});
+
+/**
+ * Every edit carrying a value from a control parses it the same way, and that
+ * way is `Number`, which reads hex, binary, octal and exponent literals. Meter
+ * Select controls constrain Meter entry, while Configuration remains strict at
+ * its boundary so programmatic callers cannot smuggle alternate numeric syntax
+ * into the same edits. The rule is shared, so tempo is here to say so.
+ *
+ * Surrounding space is not one of these: a pasted value is a plain numeral with
+ * something around it, and refusing it would only puzzle whoever pasted it.
+ */
+test("committed values are plain numerals, not every literal Number reads", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  const unit = (value) =>
+    changeConfiguration(configuration, {
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: rhythm.id,
+      unit: value,
+    });
+
+  assert.equal(unit(" 8 ").configuration.sequence.cycles[0].rhythms[0].signature.unit, 8);
+  for (const literal of ["0x10", "0b100", "0o10", "1e1", "8.", "+8"]) {
+    assert.equal(unit(literal).reason, "invalid-value", `${literal} was accepted`);
+  }
+  assert.equal(
+    changeConfiguration(configuration, { type: "set-tempo", bpm: "0x64" }).reason,
+    "invalid-value",
+  );
 });
 
 test("valid edits that leave every user-editable value unchanged are no-ops", () => {

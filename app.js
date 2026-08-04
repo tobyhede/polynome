@@ -8,22 +8,24 @@ import {
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
-import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
+import { panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
-const STORAGE_KEY = "polynome-configuration";
-const PRESET_STORAGE_KEY = "polynome-presets";
+const STORAGE_KEY = "polynome-configuration-v2";
+const PRESET_STORAGE_KEY = "polynome-presets-v2";
 const PERSIST_DELAY_MS = 400;
-// Holds the current shape under the name used while the redesign was in
-// progress; adopted once, then cleared.
-const SUPERSEDED_STORAGE_KEYS = ["polynome-redesign"];
+// The meter domain narrowed in v2. Values from earlier releases are retired
+// instead of repaired into different rhythms without the listener's consent.
 const RETIRED_STORAGE_KEYS = [
+  "polynome-configuration",
+  "polynome-redesign",
   "polynome-sequence",
   "polynome-meter",
   "polynome",
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
+const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets"];
 
 /**
  * `querySelector` is typed as returning the base `Element`, which carries none
@@ -78,7 +80,8 @@ let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
-  meterUnits: NOTE_UNITS,
+  meterCounts: METER_COUNTS,
+  meterUnits: METER_UNITS,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
@@ -96,7 +99,6 @@ function loadState() {
     raw = readStoredValue({
       storage: localStorage,
       key: STORAGE_KEY,
-      supersededKeys: SUPERSEDED_STORAGE_KEYS,
       retiredKeys: RETIRED_STORAGE_KEYS,
     });
   } catch {
@@ -123,7 +125,11 @@ function writeState(configuration) {
 function readSavedPresets() {
   let raw = null;
   try {
-    raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    raw = readStoredValue({
+      storage: localStorage,
+      key: PRESET_STORAGE_KEY,
+      retiredKeys: RETIRED_PRESET_STORAGE_KEYS,
+    });
   } catch {
     return null;
   }
@@ -633,9 +639,13 @@ function rhythmTemplate(rhythm, cycle) {
         </div>
       </div>
 
-      <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
-           data attribute, and the beat-gap clamp needs it as a number CSS can
-           calculate with. Neither can read the other's form. -->
+      ${
+        "" /* The subdivision is carried twice on purpose: layoutSteps() reads
+             the data attribute, and the beat-gap clamp needs it as a number CSS
+             can calculate with. Neither can read the other's form. Written as an
+             interpolated comment rather than an HTML one so it stays in the
+             source and out of every rhythm card's markup. */
+      }
       <div class="steps" role="group" aria-label="${label} step levels" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
         ${beatsTemplate(rhythm)}
       </div>
@@ -647,12 +657,16 @@ function rhythmTemplate(rhythm, cycle) {
   `;
 }
 
+function meterFieldTemplate(field, value, name, choices) {
+  return `
+    <select data-field="${field}" aria-label="${name}">
+      ${choices.map((choice) => `<option value="${choice}"${choice === value ? " selected" : ""}>${choice}</option>`).join("")}
+    </select>
+  `;
+}
+
 function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
-  const unitOptions = NOTE_UNITS.map(
-    (unit) =>
-      `<option value="${unit}"${unit === rhythm.signature.unit ? " selected" : ""}>${unit}</option>`,
-  ).join("");
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
   return `
@@ -660,9 +674,9 @@ function rhythmSettingsTemplate(rhythm) {
       <label class="control-label">
         <span>Signature</span>
         <span class="signature-input">
-          <input type="number" min="${METER_COUNT_LIMIT.minimum}" max="${METER_COUNT_LIMIT.maximum}" inputmode="numeric" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
+          ${meterFieldTemplate("signature-count", rhythm.signature.count, `${label} meter numerator`, METER_COUNTS)}
           <span aria-hidden="true">/</span>
-          <select data-field="signature-unit" aria-label="${label} meter denominator">${unitOptions}</select>
+          ${meterFieldTemplate("signature-unit", rhythm.signature.unit, `${label} meter denominator`, METER_UNITS)}
         </span>
       </label>
 
@@ -1238,21 +1252,28 @@ elements.cycles.addEventListener("change", (event) => {
   const context = findContext(target);
   if (!context?.rhythm) return;
   const { cycle, rhythm } = context;
+  let result = null;
   if (field === "signature-count") {
-    applyEdit({
+    result = applyEdit({
       type: "set-meter-count",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       count: target.value,
     });
   } else if (field === "signature-unit") {
-    applyEdit({
+    result = applyEdit({
       type: "set-meter-unit",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
       unit: target.value,
     });
   }
+  if (!result) return;
+  if (result.consequence === "none") return;
+  const committed = result.configuration.sequence.cycles
+    .find(({ id }) => id === cycle.id)
+    ?.rhythms.find(({ id }) => id === rhythm.id);
+  if (committed) elements.status.textContent = `Meter ${rhythmLabel(committed)}`;
 });
 
 engine.addEventListener("playstate", () => {
