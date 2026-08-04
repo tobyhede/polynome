@@ -45,6 +45,30 @@
         color: var(--ink);
         font-weight: 640;
       }
+      .proto-picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .proto-picker button {
+        padding: 9px 14px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-family: var(--body-font);
+        font-size: 0.78rem;
+      }
+      .proto-picker button[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #0c0c0d;
+        font-weight: 700;
+      }
+
       .proto-bar {
         position: fixed;
         bottom: 18px;
@@ -187,6 +211,9 @@
   </head>
   <body>
     <div class="proto-shell app-shell" data-variant="0">
+      <!-- In flow as well as fixed: a floating bar is easy to miss, and picking
+           a variant directly beats cycling to it. -->
+      <div class="proto-picker" id="proto-picker"></div>
       <p class="proto-note" id="proto-description"></p>
 
       <section class="proto-case">
@@ -251,12 +278,25 @@
       const shell = document.querySelector(".proto-shell");
       const label = document.querySelector("#proto-label");
       const description = document.querySelector("#proto-description");
+      const picker = document.querySelector("#proto-picker");
+
+      VARIANTS.forEach((variant, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = variant.name;
+        button.dataset.variant = String(index);
+        button.addEventListener("click", () => show(index));
+        picker.append(button);
+      });
 
       function show(index) {
         const next = (index + VARIANTS.length) % VARIANTS.length;
         shell.dataset.variant = String(next);
         label.textContent = VARIANTS[next].name;
         description.innerHTML = VARIANTS[next].note;
+        for (const button of picker.children) {
+          button.setAttribute("aria-pressed", String(Number(button.dataset.variant) === next));
+        }
         const url = new URL(location.href);
         url.searchParams.set("variant", String(next));
         history.replaceState(null, "", url);
