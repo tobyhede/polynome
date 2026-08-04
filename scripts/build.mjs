@@ -49,6 +49,26 @@ function replaceRequired(source, pattern, replacement, description) {
 }
 
 /**
+ * The import map exists for the browser that loads source directly; neither
+ * artifact wants it, because esbuild resolves `preact` and `htm` into the
+ * bundle and `node_modules/` ships with neither target. The comment above the
+ * tag goes with it, since it documents a tag that is no longer there.
+ *
+ * This one is removed rather than required. A document with no map is a
+ * document with nothing to strip, which is what every build fixture is, and a
+ * map that survived would be inert rather than broken — the artifact still
+ * runs, it just carries a path into a directory that was never shipped. That
+ * `./node_modules/` reference is the thing that must not survive, and both
+ * distributions have a test asserting on the emitted artifact that it doesn't.
+ */
+function withoutImportMap(source) {
+  return source.replace(
+    /(?:\s*<!--[\s\S]*?-->)?\s*<script\s+type=["']importmap["']\s*>[\s\S]*?<\/script>/,
+    "",
+  );
+}
+
+/**
  * A document may name one asset several times — a preload hint beside the tag
  * that uses it — so every occurrence is rewritten, not the first. Anchoring
  * between the quotes keeps `./app.js` from matching part of a longer path and
@@ -100,7 +120,7 @@ async function buildSingleFile(root) {
     );
 
   let artifact = replaceRequired(
-    html,
+    withoutImportMap(html),
     /\s*<link\s+rel=["']stylesheet["']\s+href=["']\.\/styles\.css["']\s*\/?\s*>/,
     `\n    <style>\n${css}    </style>`,
     "./styles.css stylesheet",
@@ -174,7 +194,7 @@ async function buildSite(root, requestedVersion) {
   }
 
   let siteHtml = replaceRequired(
-    html,
+    withoutImportMap(html),
     referenceTo("styles.css"),
     `./styles-${version}.css`,
     "./styles.css reference",

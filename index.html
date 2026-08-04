@@ -10,6 +10,24 @@
     <meta name="theme-color" content="#0c0c0d" />
     <title>Polynome</title>
     <link rel="stylesheet" href="./styles.css" />
+    <!--
+      Resolves the renderer for a browser loading this source directly, which is
+      what `server.mjs` serves. `htm/preact` imports both of the others by bare
+      specifier, so all three are named: a map that resolved only what `app.js`
+      writes would leave the browser to fail on `preact` from inside `htm`, and a
+      partial map is how a second copy of Preact gets loaded. Both distributions
+      strip this — esbuild bundles the modules in, and `node_modules/` ships with
+      neither artifact.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "./node_modules/preact/dist/preact.module.js",
+          "htm": "./node_modules/htm/dist/htm.module.js",
+          "htm/preact": "./node_modules/htm/preact/index.module.js"
+        }
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell">
