@@ -53,19 +53,28 @@ function normaliseStep(step) {
   return STEP_VOICE_CHOICES.includes(step) ? step : STEP.SECONDARY;
 }
 
-function resizeSteps(steps, length) {
-  const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
-  return Array.from(
-    { length },
-    (_, index) => source[index] || (index === 0 ? STEP.PRIMARY : STEP.SECONDARY),
-  );
-}
-
+/**
+ * The pattern a grid of this shape holds when nobody has said otherwise: the
+ * downbeat, a `secondary` on every later signature unit, and the pulses
+ * Subdivision adds within a unit beneath both. A Meter or Subdivision edit
+ * writes it outright; repair fills the positions a stored pattern leaves.
+ */
 function canonicalSteps(count, subdivision) {
   return Array.from({ length: count * subdivision }, (_, position) => {
     if (position % subdivision !== 0) return STEP.TERTIARY;
     return position === 0 ? STEP.PRIMARY : STEP.SECONDARY;
   });
+}
+
+/**
+ * A stored pattern decides every position it supplies, and nothing else. What it
+ * is missing — because it is short, or because the grid it was saved against was
+ * smaller — falls to the canonical pattern, which is the same one an edit to
+ * this grid shape would have written.
+ */
+function resizeSteps(steps, count, subdivision) {
+  const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
+  return canonicalSteps(count, subdivision).map((voice, position) => source[position] || voice);
 }
 
 function createRhythm(overrides = {}) {
@@ -88,7 +97,7 @@ function createRhythm(overrides = {}) {
     signature,
     subdivision,
     displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
-    steps: resizeSteps(overrides.steps, signature.count * subdivision),
+    steps: resizeSteps(overrides.steps, signature.count, subdivision),
     volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,

@@ -90,6 +90,71 @@ test("Rhythm-layer display mode defaults and repairs to Beat Mode", () => {
   );
 });
 
+/**
+ * A Meter or Subdivision edit writes the canonical pattern for the grid it
+ * produces, and repair reaches the same grids from storage. Two answers to what
+ * the canonical pattern is would make where a Rhythm layer came from decide what
+ * it sounds like.
+ */
+test("repair fills a missing pattern with the same canonical voices an edit writes", () => {
+  const repaired = createConfiguration({
+    sequence: {
+      cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }] }],
+    },
+  });
+  const rhythm = repaired.sequence.cycles[0].rhythms[0];
+  // The same grid reached by editing rather than by repair, which is the second
+  // answer this compares the first against.
+  const undivided = createConfiguration({
+    sequence: {
+      cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 1 }] }],
+    },
+  });
+  const edited = changeConfiguration(undivided, {
+    type: "set-subdivision",
+    cycleId: undivided.sequence.cycles[0].id,
+    rhythmId: undivided.sequence.cycles[0].rhythms[0].id,
+    subdivision: 3,
+  });
+
+  assert.deepEqual(rhythm.steps, [
+    "primary",
+    "tertiary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+  ]);
+  assert.deepEqual(edited.configuration.sequence.cycles[0].rhythms[0].steps, rhythm.steps);
+});
+
+test("repair keeps every voice a stored pattern supplies and fills only the gaps", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 3,
+              steps: ["off", "primary"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(configuration.sequence.cycles[0].rhythms[0].steps, [
+    "off",
+    "primary",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+  ]);
+});
+
 test("tempo edits return a new Configuration and restart consequence", () => {
   const original = createConfiguration();
   const result = changeConfiguration(original, { type: "set-tempo", bpm: 140 });
