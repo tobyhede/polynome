@@ -26,7 +26,6 @@ const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
-const PRESETS = Object.freeze(["4/4", "4/4 + 3/4"]);
 const MAX_PRESET_NAME_LENGTH = 80;
 const MAX_RHYTHMS = 12;
 const GENERATED_IDENTIFIER = /^(cycle|layer|preset)-[0-9a-z]+-[0-9a-z]+$/;
@@ -162,9 +161,17 @@ export function createConfiguration(input) {
   };
 }
 
-function createPresetConfiguration(name) {
-  if (name === "4/4 + 3/4") {
-    return createConfiguration({
+/**
+ * The Presets a first run writes into storage. They are examples, not a kind of
+ * Preset: once written they are renamed, replaced and deleted like any other,
+ * and nothing here is consulted again.
+ */
+const SEED_PRESETS = Object.freeze([
+  // Repair fills in the rest, so this one is the default Configuration.
+  { name: "4/4", configuration: {} },
+  {
+    name: "4/4 + 3/4",
+    configuration: {
       bpm: 112,
       sequence: {
         cycles: [
@@ -177,10 +184,9 @@ function createPresetConfiguration(name) {
           },
         ],
       },
-    });
-  }
-  return createConfiguration();
-}
+    },
+  },
+]);
 
 function freshPresetConfiguration(configuration) {
   const repaired = createConfiguration(configuration);
@@ -267,13 +273,6 @@ export function sameConfiguration(configuration, candidate) {
   );
 }
 
-function selectedPreset(configuration) {
-  return (
-    PRESETS.find((name) => sameConfiguration(createPresetConfiguration(name), configuration)) ||
-    null
-  );
-}
-
 function presetName(candidate) {
   if (typeof candidate !== "string") return null;
   const name = candidate.trim();
@@ -289,10 +288,6 @@ function presetName(candidate) {
  */
 function normalisedPresetName(candidate) {
   return candidate.toLowerCase();
-}
-
-function reservedPresetName(name) {
-  return PRESETS.some((builtIn) => normalisedPresetName(builtIn) === normalisedPresetName(name));
 }
 
 function findPresetNamed(presets, name) {
@@ -311,7 +306,7 @@ export function createSavedPresets(input) {
   return candidates.reduce((presets, candidate) => {
     if (!candidate || typeof candidate !== "object") return presets;
     const name = presetName(candidate.name);
-    if (!name || reservedPresetName(name)) return presets;
+    if (!name) return presets;
 
     const candidateId = safeIdentifier(candidate.id, "preset");
     const duplicate = findPresetNamed(presets, name);
@@ -335,6 +330,26 @@ export function createSavedPresets(input) {
   }, []);
 }
 
+/**
+ * The one door in from storage, taking the raw stored value so that a key this
+ * browser has never written stays distinguishable from one deliberately emptied.
+ * Only the first is a first run, and only a first run is seeded with the
+ * examples; an empty list is a listener who deleted the last Preset.
+ */
+export function createStoredPresets(stored) {
+  if (stored === null) return createSavedPresets(SEED_PRESETS);
+  if (typeof stored !== "string") {
+    throw new TypeError("Stored Presets must be the stored string or null");
+  }
+  try {
+    return createSavedPresets(JSON.parse(stored));
+  } catch {
+    // Written but unreadable. Repair discards what it cannot recognise, and a
+    // whole value it cannot even parse is no different.
+    return [];
+  }
+}
+
 export function savePreset(savedPresets, nameCandidate, configuration) {
   if (typeof nameCandidate !== "string") {
     throw new TypeError("Preset name must be a string");
@@ -342,9 +357,6 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
   const presets = createSavedPresets(savedPresets);
   const name = presetName(nameCandidate);
   if (!name) return { presets, preset: null, reason: "invalid-preset-name" };
-  if (reservedPresetName(name)) {
-    return { presets, preset: null, reason: "preset-name-reserved" };
-  }
 
   const duplicate = presets[findPresetNamed(presets, name)];
   const preset = {
@@ -368,8 +380,9 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
  * case-folding that decide it are the same rules `savePreset` applies and a
  * second copy of them would drift.
  *
- * A built-in name is not in use: `savePreset` refuses it outright rather than
- * replacing anything, so the honest answer is no.
+ * Every name is answered against the stored list alone. The examples are stored
+ * Presets, so a name one of them holds is in use exactly as far as it is stored,
+ * and saving under it replaces it like any other.
  *
  * The list is not repaired here, and has to arrive repaired — `createSavedPresets`
  * is the only door that produces one, and every caller comes through it. This is
@@ -381,7 +394,7 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
  */
 export function presetNameInUse(savedPresets, nameCandidate) {
   const name = presetName(nameCandidate);
-  if (!name || reservedPresetName(name)) return false;
+  if (!name) return false;
   return findPresetNamed(savedPresets, name) !== -1;
 }
 
@@ -400,40 +413,17 @@ export function removeSavedPreset(savedPresets, presetId) {
 }
 
 /**
- * Built-in Presets never change, so their Configurations are built once. The
- * identifier is derived from the name rather than generated, because it has to
- * survive a reload to be worth addressing a button by.
- */
-const BUILT_IN_PRESETS = Object.freeze(
-  PRESETS.map((name) =>
-    Object.freeze({
-      id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
-      name,
-      configuration: createPresetConfiguration(name),
-    }),
-  ),
-);
-
-/**
- * Runs on every render, so it repairs nothing: `createSavedPresets` is the only
+ * Runs on every render, so it repairs nothing: `createStoredPresets` is the only
  * door in from storage, and `configuration` is a repaired Configuration the
  * caller is already holding. Repeating either pass here would rebuild every
  * stored Configuration to reach an answer it was handed.
  */
 export function describePresets(configuration, savedPresets) {
   const presets = Array.isArray(savedPresets) ? savedPresets : [];
-  return [
-    ...BUILT_IN_PRESETS.map((preset) => ({
-      ...preset,
-      builtIn: true,
-      selected: sameConfiguration(configuration, preset.configuration),
-    })),
-    ...presets.map((preset) => ({
-      ...preset,
-      builtIn: false,
-      selected: sameConfiguration(configuration, preset.configuration),
-    })),
-  ];
+  return presets.map((preset) => ({
+    ...preset,
+    selected: sameConfiguration(configuration, preset.configuration),
+  }));
 }
 
 function availability(available, reason = null) {
@@ -482,9 +472,7 @@ export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
 
   return {
-    selectedPreset: selectedPreset(valid),
     choices: {
-      presetNames: [...PRESETS],
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
       subdivisions: [...SUBDIVISIONS],
@@ -689,27 +677,11 @@ const COMMANDS = Object.freeze({
     },
   },
   "apply-preset": {
-    validPayload: (edit) =>
-      (hasString(edit, "name") && !Object.hasOwn(edit, "configuration")) ||
-      (!Object.hasOwn(edit, "name") &&
-        edit.configuration &&
-        typeof edit.configuration === "object"),
-    leavesUnchanged: (current, edit) => {
-      const preset = hasString(edit, "name")
-        ? PRESETS.includes(edit.name) && createPresetConfiguration(edit.name)
-        : createConfiguration(edit.configuration);
-      return Boolean(preset) && sameConfiguration(current, preset);
-    },
-    apply(current, edit) {
-      if (hasString(edit, "name") && !PRESETS.includes(edit.name)) {
-        return unchanged(current, "preset-not-found");
-      }
-      return changed(
-        hasString(edit, "name")
-          ? createPresetConfiguration(edit.name)
-          : freshPresetConfiguration(edit.configuration),
-        "restart-transport-run",
-      );
+    validPayload: (edit) => Boolean(edit.configuration) && typeof edit.configuration === "object",
+    leavesUnchanged: (current, edit) =>
+      sameConfiguration(current, createConfiguration(edit.configuration)),
+    apply(_current, edit) {
+      return changed(freshPresetConfiguration(edit.configuration), "restart-transport-run");
     },
   },
   "remove-cycle": {

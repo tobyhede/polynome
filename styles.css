@@ -317,10 +317,6 @@ h1 {
   text-align: left;
 }
 
-.preset-card.is-built-in .preset-button {
-  padding-right: 12px;
-}
-
 .preset-button strong {
   overflow: hidden;
   color: var(--ink);
