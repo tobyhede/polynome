@@ -639,9 +639,13 @@ function rhythmTemplate(rhythm, cycle) {
         </div>
       </div>
 
-      <!-- The subdivision is carried twice on purpose: layoutSteps() reads the
-           data attribute, and the beat-gap clamp needs it as a number CSS can
-           calculate with. Neither can read the other's form. -->
+      ${
+        "" /* The subdivision is carried twice on purpose: layoutSteps() reads
+             the data attribute, and the beat-gap clamp needs it as a number CSS
+             can calculate with. Neither can read the other's form. Written as an
+             interpolated comment rather than an HTML one so it stays in the
+             source and out of every rhythm card's markup. */
+      }
       <div class="steps" role="group" aria-label="${label} step levels" data-beats="${rhythm.signature.count}" data-subdivision="${rhythm.subdivision}" style="--subdivision: ${rhythm.subdivision}">
         ${beatsTemplate(rhythm)}
       </div>
