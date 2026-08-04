@@ -8,7 +8,7 @@ import {
   removeSavedPreset,
   savePreset,
 } from "./configuration.js";
-import { METER_COUNT_LIMIT, panLabel, subdivisionLabel } from "./model.js";
+import { panLabel, subdivisionLabel } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 
 const STORAGE_KEY = "polynome-configuration";
@@ -78,7 +78,8 @@ let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
 const {
-  meterUnits: NOTE_UNITS,
+  meterCounts: METER_COUNTS,
+  meterUnits: METER_UNITS,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
   subdivisions: SUBDIVISIONS,
@@ -647,12 +648,16 @@ function rhythmTemplate(rhythm, cycle) {
   `;
 }
 
+function meterFieldTemplate(field, value, name, choices) {
+  return `
+    <select data-field="${field}" aria-label="${name}">
+      ${choices.map((choice) => `<option value="${choice}"${choice === value ? " selected" : ""}>${choice}</option>`).join("")}
+    </select>
+  `;
+}
+
 function rhythmSettingsTemplate(rhythm) {
   const label = rhythmLabel(rhythm);
-  const unitOptions = NOTE_UNITS.map(
-    (unit) =>
-      `<option value="${unit}"${unit === rhythm.signature.unit ? " selected" : ""}>${unit}</option>`,
-  ).join("");
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
   return `
@@ -660,9 +665,9 @@ function rhythmSettingsTemplate(rhythm) {
       <label class="control-label">
         <span>Signature</span>
         <span class="signature-input">
-          <input type="number" min="${METER_COUNT_LIMIT.minimum}" max="${METER_COUNT_LIMIT.maximum}" inputmode="numeric" value="${rhythm.signature.count}" data-field="signature-count" aria-label="${label} meter numerator" />
+          ${meterFieldTemplate("signature-count", rhythm.signature.count, `${label} meter numerator`, METER_COUNTS)}
           <span aria-hidden="true">/</span>
-          <select data-field="signature-unit" aria-label="${label} meter denominator">${unitOptions}</select>
+          ${meterFieldTemplate("signature-unit", rhythm.signature.unit, `${label} meter denominator`, METER_UNITS)}
         </span>
       </label>
 
