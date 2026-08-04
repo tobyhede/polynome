@@ -72,9 +72,7 @@ for (const [name, accessibleName] of [
       name: accessibleName,
       exact: true,
     });
-    const settings = page.locator(
-      `#${await toggle.getAttribute("aria-controls")}`,
-    );
+    const settings = page.locator(`#${await toggle.getAttribute("aria-controls")}`);
 
     await toggle.click();
     await expect(toggle).toBeFocused();
@@ -100,10 +98,16 @@ test("a double-click opens rhythm settings from the card but not its name", asyn
   const identity = page.locator(".rhythm-identity").first();
   await expect(identity).toHaveAttribute("aria-expanded", "false");
 
-  await page.locator(".rhythm-card").first().dblclick({ position: { x: 5, y: 5 } });
+  await page
+    .locator(".rhythm-card")
+    .first()
+    .dblclick({ position: { x: 5, y: 5 } });
   await expect(identity).toHaveAttribute("aria-expanded", "true");
 
-  await page.locator(".rhythm-card").first().dblclick({ position: { x: 5, y: 5 } });
+  await page
+    .locator(".rhythm-card")
+    .first()
+    .dblclick({ position: { x: 5, y: 5 } });
   await expect(identity).toHaveAttribute("aria-expanded", "false");
 
   // Two clicks on the toggle itself are two toggles, not one double-click.
@@ -118,10 +122,7 @@ test("a newly added rhythm opens its settings", async ({ page }) => {
 
   const rhythms = page.locator(".rhythm-card");
   await expect(rhythms).toHaveCount(2);
-  await expect(rhythms.nth(1).locator(".rhythm-identity")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+  await expect(rhythms.nth(1).locator(".rhythm-identity")).toHaveAttribute("aria-expanded", "true");
   await expect(rhythms.nth(1).locator(".rhythm-settings")).toBeVisible();
   await expect(addRhythm).toBeFocused();
 });
@@ -162,11 +163,15 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
     name: "Cycle 1 must remain active at 1 repetition",
   });
   await expect(enableSecond).toBeFocused();
-  await expect(page.locator(".cycle-group.is-inactive").filter({ has: secondRepetitions })).toBeVisible();
+  await expect(
+    page.locator(".cycle-group.is-inactive").filter({ has: secondRepetitions }),
+  ).toBeVisible();
   await expect(lockedFirstDot).toBeDisabled();
   await expect(lockedFirstDot).toHaveClass(/\bis-current\b/);
   await expect(lockedFirstDot).toHaveCSS("opacity", "1");
-  expect(await lockedFirstDot.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+  expect(await lockedFirstDot.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(
+    "none",
+  );
 });
 
 test("sound customization clears preset selection and persists", async ({ page }) => {
@@ -207,7 +212,9 @@ test("sound customization clears preset selection and persists", async ({ page }
  * which is precisely a change it cannot observe: a storage event reaches every
  * same-origin document except the one that wrote it.
  */
-test("saving writes what storage holds now, not what this tab read at startup", async ({ page }) => {
+test("saving writes what storage holds now, not what this tab read at startup", async ({
+  page,
+}) => {
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Shared");
 
@@ -223,7 +230,9 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await expect(presetButton(page, "Shared")).toHaveCount(0);
 });
 
-test("deleting removes one preset without dropping presets this tab never saw", async ({ page }) => {
+test("deleting removes one preset without dropping presets this tab never saw", async ({
+  page,
+}) => {
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Doomed");
 
@@ -244,7 +253,10 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await expect(presetButton(page, "Keeper")).toBeVisible();
 });
 
-test("an open preset panel follows another tab's saves and deletions", async ({ page, context }) => {
+test("an open preset panel follows another tab's saves and deletions", async ({
+  page,
+  context,
+}) => {
   const heading = page.getByRole("heading", { name: /^Presets/ });
   const other = await context.newPage();
   await other.goto("/");
@@ -260,7 +272,10 @@ test("an open preset panel follows another tab's saves and deletions", async ({ 
   await expect(heading).toContainText("2");
 });
 
-test("a preset deleted in another tab stays deleted when this tab saves", async ({ page, context }) => {
+test("a preset deleted in another tab stays deleted when this tab saves", async ({
+  page,
+  context,
+}) => {
   const other = await context.newPage();
   await page.getByRole("button", { name: "Presets" }).click();
   await savePreset(page, "Retired");
@@ -295,7 +310,9 @@ test("deleting a preset confirms in place without a browser dialog", async ({ pa
   await page.getByRole("button", { name: "Delete Scratch preset" }).click();
   const confirm = page.getByRole("button", { name: "Confirm deleting Scratch preset" });
   await expect(confirm).toBeFocused();
-  await expect(page.getByRole("status")).toHaveText("Delete Scratch preset? Select again to confirm");
+  await expect(page.getByRole("status")).toHaveText(
+    "Delete Scratch preset? Select again to confirm",
+  );
   await expect(presetButton(page, "Scratch")).toBeVisible();
 
   await confirm.click();
@@ -477,13 +494,15 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
 
-  const ratio = await page.getByRole("button", { name: "Delete Chosen preset" })
+  const ratio = await page
+    .getByRole("button", { name: "Delete Chosen preset" })
     .evaluate((element) => {
-      const channel = (value) => (value <= 0.03928
-        ? value / 12.92
-        : Math.pow((value + 0.055) / 1.055, 2.4));
+      const channel = (value) =>
+        value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
       const luminance = (colour) => {
-        const [red, green, blue] = colour.match(/[\d.]+/g).slice(0, 3)
+        const [red, green, blue] = colour
+          .match(/[\d.]+/g)
+          .slice(0, 3)
           .map((value) => channel(Number(value) / 255));
         return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
       };
@@ -553,7 +572,10 @@ async function beatsPerRow(page) {
 }
 
 async function setSignature(page, count) {
-  await page.getByRole("button", { name: /^Edit \d+\/\d+$/ }).first().click();
+  await page
+    .getByRole("button", { name: /^Edit \d+\/\d+$/ })
+    .first()
+    .click();
   const numerator = page.getByRole("spinbutton", { name: /meter numerator$/ });
   await numerator.fill(String(count));
   await numerator.blur();
@@ -596,7 +618,9 @@ for (const { beats, subdivision, steps } of [
   { beats: 16, subdivision: 2, steps: 32 },
   { beats: 32, subdivision: 1, steps: 32 },
 ]) {
-  test(`${beats} beats of ${subdivision} never puts more than sixteen steps on a row`, async ({ page }) => {
+  test(`${beats} beats of ${subdivision} never puts more than sixteen steps on a row`, async ({
+    page,
+  }) => {
     await setSignature(page, beats);
     if (subdivision !== 1) await setSubdivision(page, subdivision);
     await expect(page.locator(".rhythm-card .step")).toHaveCount(steps);
@@ -668,9 +692,12 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
 });
 
 async function settleLayout(page) {
-  await page.evaluate(() => new Promise((settle) => {
-    requestAnimationFrame(() => requestAnimationFrame(settle));
-  }));
+  await page.evaluate(
+    () =>
+      new Promise((settle) => {
+        requestAnimationFrame(() => requestAnimationFrame(settle));
+      }),
+  );
 }
 
 /**
@@ -709,7 +736,9 @@ test("the tempo readout fits its digits at an enlarged root text size", async ({
  * Below about 500px the two candidates straddle the clamps and disagree, which
  * is the only place the difference is observable.
  */
-test("transport spacing follows the viewport and its contents follow the card", async ({ page }) => {
+test("transport spacing follows the viewport and its contents follow the card", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 420, height: 900 });
   await settleLayout(page);
 
@@ -718,9 +747,7 @@ test("transport spacing follows the viewport and its contents follow the card", 
     const style = getComputedStyle(card);
     return {
       viewportWidth: window.innerWidth,
-      cardWidth: card.clientWidth
-        - parseFloat(style.paddingLeft)
-        - parseFloat(style.paddingRight),
+      cardWidth: card.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
       padding: parseFloat(style.paddingTop),
       playHeight: parseFloat(getComputedStyle(document.querySelector(".play-button")).height),
     };
@@ -749,7 +776,11 @@ test("the travelling tempo readout stays inside the transport card", async ({ pa
       await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
       await settleLayout(page);
 
-      const { readout, card, page: viewport } = await page.evaluate(() => {
+      const {
+        readout,
+        card,
+        page: viewport,
+      } = await page.evaluate(() => {
         const box = (selector) => {
           const { left, right } = document.querySelector(selector).getBoundingClientRect();
           return { left, right };
@@ -765,12 +796,13 @@ test("the travelling tempo readout stays inside the transport card", async ({ pa
       });
 
       const where = `${width}px at ${bpm}bpm`;
-      expect(readout.left, `${where} overhangs the card on the left`)
-        .toBeGreaterThanOrEqual(card.left);
-      expect(readout.right, `${where} overhangs the card on the right`)
-        .toBeLessThanOrEqual(card.right);
-      expect(viewport.scroll, `${where} widened the page`)
-        .toBeLessThanOrEqual(viewport.client);
+      expect(readout.left, `${where} overhangs the card on the left`).toBeGreaterThanOrEqual(
+        card.left,
+      );
+      expect(readout.right, `${where} overhangs the card on the right`).toBeLessThanOrEqual(
+        card.right,
+      );
+      expect(viewport.scroll, `${where} widened the page`).toBeLessThanOrEqual(viewport.client);
     }
   }
 });

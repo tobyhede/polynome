@@ -34,9 +34,7 @@ const DECORATIVE_RULES = new Set([
 
 function channelLuminance(component) {
   const channel = component / 255;
-  return channel <= 0.04045
-    ? channel / 12.92
-    : ((channel + 0.055) / 1.055) ** 2.4;
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
 /** WCAG 2.1 relative luminance, from a `#rrggbb` string. */
@@ -48,19 +46,17 @@ function relativeLuminance(hex) {
 }
 
 function contrastRatio(foreground, background) {
-  const [lighter, darker] = [foreground, background]
-    .map(relativeLuminance)
-    .sort((a, b) => b - a);
+  const [lighter, darker] = [foreground, background].map(relativeLuminance).sort((a, b) => b - a);
   return (lighter + 0.05) / (darker + 0.05);
 }
 
 /** Custom properties declared with a plain hex value. */
 function colorTokens(css) {
   return new Map(
-    Array.from(
-      css.matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-f]{6})\s*;/gi),
-      (match) => [match[1], match[2].toLowerCase()],
-    ),
+    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-f]{6})\s*;/gi), (match) => [
+      match[1],
+      match[2].toLowerCase(),
+    ]),
   );
 }
 
@@ -89,8 +85,7 @@ function* startTags(source) {
   }
 }
 
-const hasAttribute = (attributes, name) =>
-  new RegExp(`(^|\\s)${name}\\s*=`, "i").test(attributes);
+const hasAttribute = (attributes, name) => new RegExp(`(^|\\s)${name}\\s*=`, "i").test(attributes);
 
 /**
  * `aria-label` is prohibited on elements with an implicit `generic` role, so a
@@ -143,9 +138,8 @@ test("every element app.js resolves by id exists in the shell", async () => {
  */
 test("every aria-describedby names an element the shell emits", async () => {
   const html = await readFile("index.html", "utf8");
-  const references = Array.from(
-    html.matchAll(/aria-describedby="([^"]+)"/g),
-    (match) => match[1].trim().split(/\s+/),
+  const references = Array.from(html.matchAll(/aria-describedby="([^"]+)"/g), (match) =>
+    match[1].trim().split(/\s+/),
   ).flat();
 
   assert.ok(references.length, "Expected the shell to describe a control");

@@ -32,8 +32,7 @@ export class SharedTransport {
   start({ bpm, sequence }, origin) {
     this.#origin = origin;
     this.#schedulingPosition = origin;
-    const sourceCycles = sequence.cycles
-      .filter((cycle) => cycle.repetitions > 0);
+    const sourceCycles = sequence.cycles.filter((cycle) => cycle.repetitions > 0);
     if (!sourceCycles.length) {
       this.#timing = null;
       return;
@@ -67,11 +66,8 @@ export class SharedTransport {
 
   updateStepLevels({ sequence }) {
     if (!this.#timing) return;
-    const sourceRhythms = sequence.cycles
-      .flatMap((cycle) => cycle.rhythms || []);
-    const stepsByRhythm = new Map(
-      sourceRhythms.map((rhythm) => [rhythm.id, rhythm.steps]),
-    );
+    const sourceRhythms = sequence.cycles.flatMap((cycle) => cycle.rhythms || []);
+    const stepsByRhythm = new Map(sourceRhythms.map((rhythm) => [rhythm.id, rhythm.steps]));
 
     for (const cycle of this.#timing.cycles) {
       for (const rhythm of cycle.rhythms) {
@@ -88,10 +84,7 @@ export class SharedTransport {
 
     const events = [];
     const fromTime = this.#schedulingPosition;
-    const candidateFromTime = Math.max(
-      fromTime,
-      currentTime - LATENESS_TOLERANCE_SECONDS,
-    );
+    const candidateFromTime = Math.max(fromTime, currentTime - LATENESS_TOLERANCE_SECONDS);
     const { bpm, cycles, sequenceDuration } = this.#timing;
     const firstSequence = Math.max(
       0,
@@ -102,22 +95,12 @@ export class SharedTransport {
       Math.ceil((horizon - this.#origin) / sequenceDuration),
     );
 
-    for (
-      let sequenceIndex = firstSequence;
-      sequenceIndex <= finalSequence;
-      sequenceIndex += 1
-    ) {
+    for (let sequenceIndex = firstSequence; sequenceIndex <= finalSequence; sequenceIndex += 1) {
       const sequenceOrigin = this.#origin + sequenceIndex * sequenceDuration;
 
       for (const cycle of cycles) {
-        for (
-          let repetitionIndex = 0;
-          repetitionIndex < cycle.repetitions;
-          repetitionIndex += 1
-        ) {
-          const repetitionOrigin = sequenceOrigin
-            + cycle.offset
-            + repetitionIndex * cycle.span;
+        for (let repetitionIndex = 0; repetitionIndex < cycle.repetitions; repetitionIndex += 1) {
+          const repetitionOrigin = sequenceOrigin + cycle.offset + repetitionIndex * cycle.span;
           if (repetitionOrigin >= horizon) continue;
           if (repetitionOrigin + cycle.span < candidateFromTime) continue;
 
@@ -129,30 +112,23 @@ export class SharedTransport {
               Math.floor((candidateFromTime - repetitionOrigin) / duration),
             );
 
-            for (
-              let localStep = firstStep;
-              localStep < stepsPerSpan;
-              localStep += 1
-            ) {
+            for (let localStep = firstStep; localStep < stepsPerSpan; localStep += 1) {
               const audioTime = repetitionOrigin + localStep * duration;
               if (audioTime >= horizon) break;
               const patternPosition = localStep % rhythm.steps.length;
               const level = stepLevel(rhythm.steps[patternPosition]);
               if (
-                level === 0
-                || audioTime < fromTime
-                || audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
+                level === 0 ||
+                audioTime < fromTime ||
+                audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
               ) {
                 continue;
               }
 
               events.push({
                 layerId: rhythm.id,
-                absoluteStep: (
-                  (sequenceIndex * cycle.repetitions + repetitionIndex)
-                  * stepsPerSpan
-                  + localStep
-                ),
+                absoluteStep:
+                  (sequenceIndex * cycle.repetitions + repetitionIndex) * stepsPerSpan + localStep,
                 patternPosition,
                 level,
                 audioTime,
@@ -202,13 +178,12 @@ export class SharedTransport {
     if (!rhythm) return null;
     if (currentTime < this.#origin) return 0;
 
-    const sequenceIndex = Math.floor(
-      (currentTime - this.#origin) / this.#timing.sequenceDuration,
-    );
-    const repetitionOrigin = this.#origin
-      + sequenceIndex * this.#timing.sequenceDuration
-      + cycle.offset
-      + position.repetitionIndex * cycle.span;
+    const sequenceIndex = Math.floor((currentTime - this.#origin) / this.#timing.sequenceDuration);
+    const repetitionOrigin =
+      this.#origin +
+      sequenceIndex * this.#timing.sequenceDuration +
+      cycle.offset +
+      position.repetitionIndex * cycle.span;
     const elapsed = currentTime - repetitionOrigin;
     const duration = stepDurationSeconds(this.#timing.bpm, rhythm);
     let absoluteStep = Math.floor(elapsed / duration);
@@ -216,10 +191,7 @@ export class SharedTransport {
     while (repetitionOrigin + (absoluteStep + 1) * duration <= currentTime) {
       absoluteStep += 1;
     }
-    while (
-      absoluteStep > 0
-      && repetitionOrigin + absoluteStep * duration > currentTime
-    ) {
+    while (absoluteStep > 0 && repetitionOrigin + absoluteStep * duration > currentTime) {
       absoluteStep -= 1;
     }
 

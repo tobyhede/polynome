@@ -108,11 +108,7 @@ test("every workflow action is pinned to an immutable commit", async () => {
       const reference = line.match(/^\s*(?:-\s+)?uses:\s*(\S+)/)?.[1];
       if (reference === undefined || reference.startsWith("./")) continue;
       references += 1;
-      assert.match(
-        reference,
-        /@[0-9a-f]{40}$/,
-        `${file} uses a mutable reference: ${reference}`,
-      );
+      assert.match(reference, /@[0-9a-f]{40}$/, `${file} uses a mutable reference: ${reference}`);
     }
   }
 

@@ -54,15 +54,17 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
       sound: rhythm.sound,
       muted: rhythm.muted,
     })),
-    [{
-      signature: { count: 4, unit: 4 },
-      subdivision: 1,
-      steps: ["full", "half", "half", "half"],
-      volume: 0.72,
-      pan: 0,
-      sound: "high",
-      muted: false,
-    }],
+    [
+      {
+        signature: { count: 4, unit: 4 },
+        subdivision: 1,
+        steps: ["full", "half", "half", "half"],
+        volume: 0.72,
+        pan: 0,
+        sound: "high",
+        muted: false,
+      },
+    ],
   );
 });
 
@@ -106,25 +108,29 @@ test("saving and loading a named Preset preserves the complete Configuration", (
       cycles: [
         {
           repetitions: 2,
-          rhythms: [{
-            signature: { count: 5, unit: 8 },
-            subdivision: 3,
-            steps: ["full", "off", "quarter", "half", "full"],
-            sound: "wood",
-            volume: 0.31,
-            pan: -0.62,
-            muted: true,
-          }],
+          rhythms: [
+            {
+              signature: { count: 5, unit: 8 },
+              subdivision: 3,
+              steps: ["full", "off", "quarter", "half", "full"],
+              sound: "wood",
+              volume: 0.31,
+              pan: -0.62,
+              muted: true,
+            },
+          ],
         },
         {
           repetitions: 1,
-          rhythms: [{
-            signature: { count: 7, unit: 4 },
-            subdivision: 2,
-            sound: "low",
-            volume: 0.91,
-            pan: 0.77,
-          }],
+          rhythms: [
+            {
+              signature: { count: 7, unit: 4 },
+              subdivision: 2,
+              sound: "low",
+              volume: 0.91,
+              pan: 0.77,
+            },
+          ],
         },
       ],
     },
@@ -141,11 +147,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
 
 test("saving an existing Preset name replaces its snapshot case-insensitively", () => {
   const first = savePreset([], "Warmup", createConfiguration({ bpm: 80 }));
-  const replacement = savePreset(
-    first.presets,
-    "WARMUP",
-    createConfiguration({ bpm: 140 }),
-  );
+  const replacement = savePreset(first.presets, "WARMUP", createConfiguration({ bpm: 140 }));
 
   assert.equal(replacement.reason, null);
   assert.equal(replacement.presets.length, 1);
@@ -298,10 +300,7 @@ test("applying a saved Preset restores its snapshot with fresh identifiers", () 
   assert.equal(result.consequence, "restart-transport-run");
   assert.equal(result.reason, null);
   assert.deepEqual(withoutIds(result.configuration), withoutIds(snapshot));
-  assert.notEqual(
-    result.configuration.sequence.cycles[0].id,
-    snapshot.sequence.cycles[0].id,
-  );
+  assert.notEqual(result.configuration.sequence.cycles[0].id, snapshot.sequence.cycles[0].id);
   assert.notEqual(
     result.configuration.sequence.cycles[0].rhythms[0].id,
     snapshot.sequence.cycles[0].rhythms[0].id,
@@ -315,10 +314,10 @@ test("deleting a saved Preset leaves the current Configuration alone", () => {
 
   assert.deepEqual(result, { presets: [], reason: null });
   assert.equal(configuration.bpm, 101);
-  assert.deepEqual(
-    removeSavedPreset(result.presets, saved.preset.id),
-    { presets: [], reason: "preset-not-found" },
-  );
+  assert.deepEqual(removeSavedPreset(result.presets, saved.preset.id), {
+    presets: [],
+    reason: "preset-not-found",
+  });
 });
 
 test("adding a Cycle appends one active 4/4 Rhythm layer", () => {
@@ -427,11 +426,19 @@ test("Rhythm-layer structural edits preserve a non-empty Cycle", () => {
 
 test("Meter and Subdivision edits resize the meter-relative grid without losing levels", () => {
   const base = createConfiguration({
-    sequence: { cycles: [{ rhythms: [{
-      signature: { count: 2, unit: 4 },
-      subdivision: 2,
-      steps: ["full", "off", "half", "full"],
-    }] }] },
+    sequence: {
+      cycles: [
+        {
+          rhythms: [
+            {
+              signature: { count: 2, unit: 4 },
+              subdivision: 2,
+              steps: ["full", "off", "half", "full"],
+            },
+          ],
+        },
+      ],
+    },
   });
   const cycleId = base.sequence.cycles[0].id;
   const rhythmId = base.sequence.cycles[0].rhythms[0].id;
@@ -442,7 +449,12 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
     count: 3,
   });
   assert.deepEqual(wider.configuration.sequence.cycles[0].rhythms[0].steps, [
-    "full", "off", "half", "full", "half", "half",
+    "full",
+    "off",
+    "half",
+    "full",
+    "half",
+    "half",
   ]);
   assert.equal(wider.consequence, "restart-transport-run");
   const simpler = changeConfiguration(wider.configuration, {
@@ -452,7 +464,9 @@ test("Meter and Subdivision edits resize the meter-relative grid without losing 
     subdivision: 1,
   });
   assert.deepEqual(simpler.configuration.sequence.cycles[0].rhythms[0].steps, [
-    "full", "off", "half",
+    "full",
+    "off",
+    "half",
   ]);
   assert.equal(simpler.consequence, "restart-transport-run");
 });
@@ -539,10 +553,10 @@ test("Configuration description exposes domain choices and unavailable final rem
     available: false,
     reason: "single-cycle-requires-one-repetition",
   });
-  assert.deepEqual(
-    description.availability.cycles[cycle.id].rhythms[rhythm.id].remove,
-    { available: false, reason: "cycle-requires-rhythm" },
-  );
+  assert.deepEqual(description.availability.cycles[cycle.id].rhythms[rhythm.id].remove, {
+    available: false,
+    reason: "cycle-requires-rhythm",
+  });
 });
 
 test("structural edit availability agrees with final Cycle and Rhythm enforcement", () => {
@@ -565,10 +579,10 @@ test("structural edit availability agrees with final Cycle and Rhythm enforcemen
     cycleId: onlyCycle.id,
     rhythmId: onlyRhythm.id,
   });
-  assert.deepEqual(
-    singleAvailability.cycles[onlyCycle.id].rhythms[onlyRhythm.id].remove,
-    { available: false, reason: finalRhythmRemoval.reason },
-  );
+  assert.deepEqual(singleAvailability.cycles[onlyCycle.id].rhythms[onlyRhythm.id].remove, {
+    available: false,
+    reason: finalRhythmRemoval.reason,
+  });
 
   const twoCycles = changeConfiguration(single, { type: "add-cycle" }).configuration;
   const [activeCycle, inactiveCycle] = twoCycles.sequence.cycles;
@@ -633,8 +647,7 @@ test("Cycle-repetition availability agrees with every offered edit", () => {
   for (const [configuration, cycle] of scenarios) {
     const description = describeConfiguration(configuration);
     for (const repetitions of description.choices.repetitions) {
-      const offered = description.availability.cycles[cycle.id]
-        .repetitions[repetitions];
+      const offered = description.availability.cycles[cycle.id].repetitions[repetitions];
       const result = changeConfiguration(configuration, {
         type: "set-cycle-repetitions",
         cycleId: cycle.id,
@@ -654,8 +667,7 @@ test("Cycle-repetition availability agrees with every offered edit", () => {
         assert.equal(result.consequence, "restart-transport-run");
         assert.equal(result.reason, null);
         assert.equal(
-          result.configuration.sequence.cycles
-            .find((candidate) => candidate.id === cycle.id)
+          result.configuration.sequence.cycles.find((candidate) => candidate.id === cycle.id)
             .repetitions,
           repetitions,
         );
@@ -680,10 +692,7 @@ test("loaded Configuration is repaired into the valid nested shape", () => {
     configuration.sequence.cycles.map((cycle) => cycle.repetitions),
     [8, 0],
   );
-  assert.equal(
-    configuration.sequence.cycles.flatMap((cycle) => cycle.rhythms).length,
-    12,
-  );
+  assert.equal(configuration.sequence.cycles.flatMap((cycle) => cycle.rhythms).length, 12);
 
   const duplicateIds = createConfiguration({
     sequence: {
@@ -704,10 +713,12 @@ test("identifiers that were not generated are replaced during repair", () => {
   const generatedShape = /^(?:cycle|layer)-[0-9a-z]+-[0-9a-z]+$/;
   const configuration = createConfiguration({
     sequence: {
-      cycles: [{
-        id: '"><img src=x onerror=alert(1)>',
-        rhythms: [{ id: '"><script>x()</script>' }],
-      }],
+      cycles: [
+        {
+          id: '"><img src=x onerror=alert(1)>',
+          rhythms: [{ id: '"><script>x()</script>' }],
+        },
+      ],
     },
   });
   const cycle = configuration.sequence.cycles[0];
@@ -731,20 +742,19 @@ test("an edit replaces identifiers the module did not issue", () => {
 
   assert.strictEqual(result.consequence, "none");
   assert.notStrictEqual(result.configuration, forged);
-  assert.match(
-    result.configuration.sequence.cycles[0].id,
-    /^cycle-[0-9a-z]+-[0-9a-z]+$/,
-  );
+  assert.match(result.configuration.sequence.cycles[0].id, /^cycle-[0-9a-z]+-[0-9a-z]+$/);
 });
 
 test("generated identifiers survive repeated Configuration repair", () => {
   const stored = {
     sequence: {
-      cycles: [{
-        id: "cycle-abc123-7",
-        repetitions: 1,
-        rhythms: [{ id: "layer-abc123-8" }],
-      }],
+      cycles: [
+        {
+          id: "cycle-abc123-7",
+          repetitions: 1,
+          rhythms: [{ id: "layer-abc123-8" }],
+        },
+      ],
     },
   };
   const configuration = createConfiguration(stored);
@@ -780,11 +790,13 @@ test("every edit outcome returns a repaired Configuration", () => {
   const stored = {
     bpm: 9999,
     sequence: {
-      cycles: [{
-        id: "cycle-stored-1",
-        repetitions: 7,
-        rhythms: [{ id: "layer-stored-1", signature: { count: 99, unit: 4 } }],
-      }],
+      cycles: [
+        {
+          id: "cycle-stored-1",
+          repetitions: 7,
+          rhythms: [{ id: "layer-stored-1", signature: { count: 99, unit: 4 } }],
+        },
+      ],
     },
   };
   const repaired = createConfiguration(stored);
@@ -793,10 +805,7 @@ test("every edit outcome returns a repaired Configuration", () => {
   assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 32);
 
   const outcomes = [
-    [
-      { type: "remove-cycle", cycleId: "cycle-stored-1" },
-      "sequence-requires-cycle",
-    ],
+    [{ type: "remove-cycle", cycleId: "cycle-stored-1" }, "sequence-requires-cycle"],
     [{ type: "set-tempo", bpm: 9999 }, "invalid-value"],
     [{ type: "set-tempo", bpm: 300 }, null],
   ];
@@ -831,14 +840,14 @@ test("a no-op edit on an already-valid Configuration still returns a fresh objec
 test("malformed and unknown edits expose programmer errors", () => {
   const configuration = createConfiguration();
 
-  assert.throws(
-    () => changeConfiguration(configuration, {}),
-    { name: "TypeError", message: "Configuration edit must have a type" },
-  );
-  assert.throws(
-    () => changeConfiguration(configuration, { type: "warp-time" }),
-    { name: "TypeError", message: "Unknown Configuration edit: warp-time" },
-  );
+  assert.throws(() => changeConfiguration(configuration, {}), {
+    name: "TypeError",
+    message: "Configuration edit must have a type",
+  });
+  assert.throws(() => changeConfiguration(configuration, { type: "warp-time" }), {
+    name: "TypeError",
+    message: "Unknown Configuration edit: warp-time",
+  });
 });
 
 test("known edits with structurally malformed payloads expose programmer errors", () => {
@@ -865,10 +874,10 @@ test("known edits with structurally malformed payloads expose programmer errors"
   ];
 
   for (const edit of malformedEdits) {
-    assert.throws(
-      () => changeConfiguration(configuration, edit),
-      { name: "TypeError", message: `Malformed Configuration edit: ${edit.type}` },
-    );
+    assert.throws(() => changeConfiguration(configuration, edit), {
+      name: "TypeError",
+      message: `Malformed Configuration edit: ${edit.type}`,
+    });
   }
 });
 
@@ -933,18 +942,12 @@ test("a Cycle stored without Rhythm layers is repaired rather than dropped", () 
 
   const spentBudget = createConfiguration({
     sequence: {
-      cycles: [
-        { rhythms: Array.from({ length: 12 }, () => ({})) },
-        { rhythms: [] },
-      ],
+      cycles: [{ rhythms: Array.from({ length: 12 }, () => ({})) }, { rhythms: [] }],
     },
   });
 
   assert.equal(spentBudget.sequence.cycles.length, 1);
-  assert.equal(
-    spentBudget.sequence.cycles.flatMap((cycle) => cycle.rhythms).length,
-    12,
-  );
+  assert.equal(spentBudget.sequence.cycles.flatMap((cycle) => cycle.rhythms).length, 12);
 });
 
 test("repairing a repaired Configuration leaves it unchanged", () => {
@@ -952,10 +955,7 @@ test("repairing a repaired Configuration leaves it unchanged", () => {
     { sequence: { cycles: [{ rhythms: [] }, { rhythms: [{}] }] } },
     {
       sequence: {
-        cycles: [
-          { rhythms: [] },
-          { rhythms: Array.from({ length: 12 }, () => ({})) },
-        ],
+        cycles: [{ rhythms: [] }, { rhythms: Array.from({ length: 12 }, () => ({})) }],
       },
     },
   ];
@@ -994,10 +994,7 @@ test("a Configuration carrying unknown fields is still replaced by a repaired on
   const result = changeConfiguration(embellished, { type: "set-tempo", bpm: "96" });
 
   assert.notStrictEqual(result.configuration, embellished);
-  assert.equal(
-    Object.hasOwn(result.configuration.sequence.cycles[0].rhythms[0], "swing"),
-    false,
-  );
+  assert.equal(Object.hasOwn(result.configuration.sequence.cycles[0].rhythms[0], "swing"), false);
 });
 
 test("stored key order does not change an edit outcome", () => {

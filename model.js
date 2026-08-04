@@ -50,8 +50,7 @@ function clamp(value, min, max) {
  * than at its default.
  */
 export function normaliseNumber(value, fallback, min, max) {
-  const numeric = typeof value === "number"
-    || (typeof value === "string" && value.trim() !== "");
+  const numeric = typeof value === "number" || (typeof value === "string" && value.trim() !== "");
   const parsed = numeric ? Number(value) : Number.NaN;
   return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
 }
@@ -73,35 +72,35 @@ function leastCommonMultiple(left, right) {
 }
 
 export function cycleSpanSeconds(bpm, cycle) {
-  const rhythms = Array.isArray(cycle?.rhythms) && cycle.rhythms.length
-    ? cycle.rhythms
-    : [{ signature: { count: 4, unit: 4 } }];
+  const rhythms =
+    Array.isArray(cycle?.rhythms) && cycle.rhythms.length
+      ? cycle.rhythms
+      : [{ signature: { count: 4, unit: 4 } }];
   const spanInThirtySecondNotes = rhythms
     .map((rhythm) => {
-      const count = Math.round(normaliseNumber(
-        rhythm.signature?.count,
-        4,
-        METER_COUNT_LIMIT.minimum,
-        METER_COUNT_LIMIT.maximum,
-      ));
+      const count = Math.round(
+        normaliseNumber(
+          rhythm.signature?.count,
+          4,
+          METER_COUNT_LIMIT.minimum,
+          METER_COUNT_LIMIT.maximum,
+        ),
+      );
       const unit = normaliseUnit(rhythm.signature?.unit, 4);
       return count * (32 / unit);
     })
     .reduce(leastCommonMultiple);
   const quarterSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
-  return spanInThirtySecondNotes * quarterSeconds / 8;
+  return (spanInThirtySecondNotes * quarterSeconds) / 8;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
   const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
   const unit = normaliseUnit(rhythm?.signature?.unit, 4);
-  const subdivision = Math.round(normaliseNumber(
-    rhythm?.subdivision,
-    1,
-    SUBDIVISION_LIMIT.minimum,
-    SUBDIVISION_LIMIT.maximum,
-  ));
-  return (60 / safeBpm) * (4 / unit) / subdivision;
+  const subdivision = Math.round(
+    normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
+  );
+  return ((60 / safeBpm) * (4 / unit)) / subdivision;
 }
 
 const UNIT_NAMES = lookup({

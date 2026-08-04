@@ -17,9 +17,7 @@ const MASTER_GAIN = 0.8;
  * staring at a silent metronome is told why before deciding the app is broken.
  */
 const STUCK_CONTEXT_TIMEOUT_MS = 2000;
-const STUCK_CONTEXT_TICKS = Math.ceil(
-  STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS,
-);
+const STUCK_CONTEXT_TICKS = Math.ceil(STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
 
 /**
  * How often a run that has lost `running` asks for its context back.
@@ -42,9 +40,7 @@ const STUCK_CONTEXT_TICKS = Math.ceil(
  * later attempt — the failure it was added to prevent.
  */
 const RESUME_RETRY_TIMEOUT_MS = 1000;
-const RESUME_RETRY_TICKS = Math.ceil(
-  RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS,
-);
+const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
 
 /**
  * How late a planned click may be and still be worth sounding: the committing
@@ -176,9 +172,8 @@ export class MetronomeEngine extends EventTarget {
    */
   constructor(options = {}) {
     super();
-    this.#createContext = typeof options?.createContext === "function"
-      ? options.createContext
-      : createBrowserContext;
+    this.#createContext =
+      typeof options?.createContext === "function" ? options.createContext : createBrowserContext;
   }
 
   get playing() {
@@ -225,19 +220,14 @@ export class MetronomeEngine extends EventTarget {
       this.stop({ preserveContext: true, emit: false });
       throw error;
     }
-    this.#timer = window.setInterval(
-      () => {
-        try {
-          this.#tick();
-        } catch (error) {
-          this.stop();
-          this.dispatchEvent(
-            new CustomEvent("audioerror", { detail: error }),
-          );
-        }
-      },
-      SCHEDULER_INTERVAL_MS,
-    );
+    this.#timer = window.setInterval(() => {
+      try {
+        this.#tick();
+      } catch (error) {
+        this.stop();
+        this.dispatchEvent(new CustomEvent("audioerror", { detail: error }));
+      }
+    }, SCHEDULER_INTERVAL_MS);
     this.dispatchEvent(new Event("playstate"));
   }
 
@@ -434,14 +424,9 @@ export class MetronomeEngine extends EventTarget {
     // itself and changes nothing. It is here for the one case that is not a
     // no-op: stop() zeroes this node to silence the graph, and a preserved
     // context hands the same node back on the next run still at zero.
-    this.#master.gain.setTargetAtTime(
-      MASTER_GAIN,
-      this.#context.currentTime,
-      0.01,
-    );
+    this.#master.gain.setTargetAtTime(MASTER_GAIN, this.#context.currentTime, 0.01);
 
-    const rhythms = this.#state.sequence.cycles
-      .flatMap((cycle) => cycle.rhythms);
+    const rhythms = this.#state.sequence.cycles.flatMap((cycle) => cycle.rhythms);
     const currentIds = new Set(rhythms.map((layer) => layer.id));
 
     for (const [id, nodes] of this.#layers.entries()) {
@@ -464,11 +449,7 @@ export class MetronomeEngine extends EventTarget {
         this.#context.currentTime,
         0.01,
       );
-      nodes.panner.pan.setTargetAtTime(
-        layer.pan,
-        this.#context.currentTime,
-        0.01,
-      );
+      nodes.panner.pan.setTargetAtTime(layer.pan, this.#context.currentTime, 0.01);
     }
   }
 
@@ -493,9 +474,11 @@ export class MetronomeEngine extends EventTarget {
     if (this.#unstartedTicks < STUCK_CONTEXT_TICKS) return;
 
     this.#reportedStuckContext = true;
-    this.dispatchEvent(new CustomEvent("audioerror", {
-      detail: new Error("Audio has not started. Try tapping play again."),
-    }));
+    this.dispatchEvent(
+      new CustomEvent("audioerror", {
+        detail: new Error("Audio has not started. Try tapping play again."),
+      }),
+    );
   }
 
   /**
@@ -532,10 +515,7 @@ export class MetronomeEngine extends EventTarget {
     this.#ticksSinceResumeRequest = 0;
 
     if (!this.#anchored) {
-      this.#transport.start(
-        this.#state,
-        this.#context.currentTime + START_DELAY_SECONDS,
-      );
+      this.#transport.start(this.#state, this.#context.currentTime + START_DELAY_SECONDS);
       this.#anchored = true;
     }
 
@@ -596,10 +576,8 @@ export class MetronomeEngine extends EventTarget {
     if (!oscillator) return;
 
     this.#scheduledSources.add(oscillator);
-    oscillator.addEventListener(
-      "ended",
-      () => this.#scheduledSources.delete(oscillator),
-      { once: true },
-    );
+    oscillator.addEventListener("ended", () => this.#scheduledSources.delete(oscillator), {
+      once: true,
+    });
   }
 }

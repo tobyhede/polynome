@@ -14,9 +14,10 @@ const createLayer = (overrides = {}) => {
     id: overrides.id || `rhythm-${++rhythmId}`,
     signature,
     subdivision,
-    steps: Array.from({ length }, (_, index) => (
-      supplied[index] || (index === 0 ? STEP.FULL : STEP.HALF)
-    )),
+    steps: Array.from(
+      { length },
+      (_, index) => supplied[index] || (index === 0 ? STEP.FULL : STEP.HALF),
+    ),
   };
 };
 
@@ -31,16 +32,17 @@ test("legacy flat rhythm shapes are not valid shared-transport input", () => {
   const rhythm = createLayer({ id: "legacy" });
 
   assert.throws(
-    () => new SharedTransport().start({
-      bpm: 60,
-      cycles: [{ id: "legacy-cycle", repetitions: 1, rhythms: [rhythm] }],
-    }, 0),
+    () =>
+      new SharedTransport().start(
+        {
+          bpm: 60,
+          cycles: [{ id: "legacy-cycle", repetitions: 1, rhythms: [rhythm] }],
+        },
+        0,
+      ),
     TypeError,
   );
-  assert.throws(
-    () => new SharedTransport().start({ bpm: 60, layers: [rhythm] }, 0),
-    TypeError,
-  );
+  assert.throws(() => new SharedTransport().start({ bpm: 60, layers: [rhythm] }, 0), TypeError);
 });
 
 test("cycles play sequentially after their complete repetitions and the sequence loops", () => {
@@ -54,15 +56,18 @@ test("cycles play sequentially after their complete repetitions and the sequence
   });
   const transport = new SharedTransport();
 
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        { id: "first-cycle", repetitions: 2, rhythms: [first] },
-        { id: "second-cycle", repetitions: 1, rhythms: [second] },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          { id: "first-cycle", repetitions: 2, rhythms: [first] },
+          { id: "second-cycle", repetitions: 1, rhythms: [second] },
+        ],
+      },
     },
-  }, 10);
+    10,
+  );
 
   assert.deepEqual(
     transport.plan(9.9, 14).map(({ layerId, audioTime }) => ({ layerId, audioTime })),
@@ -77,23 +82,26 @@ test("cycles play sequentially after their complete repetitions and the sequence
 
 test("transport position identifies the active cycle and repetition", () => {
   const transport = new SharedTransport();
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        {
-          id: "four-four-cycle",
-          repetitions: 2,
-          rhythms: [createLayer({ signature: { count: 4, unit: 4 } })],
-        },
-        {
-          id: "three-four-cycle",
-          repetitions: 2,
-          rhythms: [createLayer({ signature: { count: 3, unit: 4 } })],
-        },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "four-four-cycle",
+            repetitions: 2,
+            rhythms: [createLayer({ signature: { count: 4, unit: 4 } })],
+          },
+          {
+            id: "three-four-cycle",
+            repetitions: 2,
+            rhythms: [createLayer({ signature: { count: 3, unit: 4 } })],
+          },
+        ],
+      },
     },
-  }, 10);
+    10,
+  );
 
   assert.deepEqual(transport.position(14.5), {
     cycleId: "four-four-cycle",
@@ -117,15 +125,18 @@ test("inactive cycles are skipped by scheduling and transport position", () => {
   const active = createLayer({ id: "active", signature: { count: 1, unit: 4 } });
   const transport = new SharedTransport();
 
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        { id: "off-cycle", repetitions: 0, rhythms: [inactive] },
-        { id: "on-cycle", repetitions: 1, rhythms: [active] },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          { id: "off-cycle", repetitions: 0, rhythms: [inactive] },
+          { id: "on-cycle", repetitions: 1, rhythms: [active] },
+        ],
+      },
     },
-  }, 10);
+    10,
+  );
 
   assert.deepEqual(transport.position(9.9), {
     cycleId: "on-cycle",
@@ -142,15 +153,18 @@ test("inactive rhythms have no visual pattern position", () => {
   const first = createLayer({ id: "first", signature: { count: 1, unit: 4 } });
   const second = createLayer({ id: "second", signature: { count: 1, unit: 4 } });
   const transport = new SharedTransport();
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        { id: "one", repetitions: 1, rhythms: [first] },
-        { id: "two", repetitions: 1, rhythms: [second] },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          { id: "one", repetitions: 1, rhythms: [first] },
+          { id: "two", repetitions: 1, rhythms: [second] },
+        ],
+      },
     },
-  }, 0);
+    0,
+  );
 
   assert.equal(transport.patternPosition("first", 1.25), null);
   assert.equal(transport.patternPosition("second", 1.25), 0);
@@ -161,15 +175,18 @@ test("a polymeter cycle does not advance until every rhythm returns to downbeat"
   const three = createLayer({ id: "three", signature: { count: 3, unit: 4 } });
   const next = createLayer({ id: "next", signature: { count: 1, unit: 4 } });
   const transport = new SharedTransport();
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        { id: "polymeter", repetitions: 1, rhythms: [four, three] },
-        { id: "next-cycle", repetitions: 1, rhythms: [next] },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          { id: "polymeter", repetitions: 1, rhythms: [four, three] },
+          { id: "next-cycle", repetitions: 1, rhythms: [next] },
+        ],
+      },
     },
-  }, 0);
+    0,
+  );
 
   const events = transport.plan(0, 13);
   assert.equal(events.find((event) => event.layerId === "next").audioTime, 12);
@@ -396,10 +413,7 @@ test("step-level updates reject legacy flat rhythm shapes", () => {
 
   transport.start(sequence(60, [rhythm]), 0);
 
-  assert.throws(
-    () => transport.updateStepLevels({ bpm: 60, layers: [rhythm] }),
-    TypeError,
-  );
+  assert.throws(() => transport.updateStepLevels({ bpm: 60, layers: [rhythm] }), TypeError);
 });
 
 test("overlapping polls plan each absolute step only once", () => {
@@ -501,9 +515,7 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   const transport = new SharedTransport();
 
   transport.start(sequence(96, [layer]), 0.06);
-  const event = transport
-    .plan(0, 1)
-    .find((candidate) => candidate.absoluteStep === 2);
+  const event = transport.plan(0, 1).find((candidate) => candidate.absoluteStep === 2);
 
   assert.equal(event.audioTime, 0.8933333333333333);
   assert.equal(event.patternPosition, 2);
@@ -512,10 +524,7 @@ test("visual pattern position aligns with a planned fractional event boundary", 
     event.patternPosition,
   );
   assert.equal(
-    transport.patternPosition(
-      "fractional-playhead",
-      event.audioTime - Number.EPSILON,
-    ),
+    transport.patternPosition("fractional-playhead", event.audioTime - Number.EPSILON),
     1,
   );
 });
@@ -545,15 +554,18 @@ test("mute does not change a rhythm layer event timeline", () => {
 test("a sequence with no active cycles schedules nothing and reports no position", () => {
   const transport = new SharedTransport();
 
-  transport.start({
-    bpm: 60,
-    sequence: {
-      cycles: [
-        { id: "first-cycle", repetitions: 0, rhythms: [createLayer({ id: "first" })] },
-        { id: "second-cycle", repetitions: 0, rhythms: [createLayer({ id: "second" })] },
-      ],
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          { id: "first-cycle", repetitions: 0, rhythms: [createLayer({ id: "first" })] },
+          { id: "second-cycle", repetitions: 0, rhythms: [createLayer({ id: "second" })] },
+        ],
+      },
     },
-  }, 10);
+    10,
+  );
 
   assert.deepEqual(transport.plan(10.5, 12), []);
   assert.equal(transport.position(10.5), null);

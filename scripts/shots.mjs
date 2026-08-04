@@ -33,7 +33,12 @@ const PROFILES = [
   { name: "boundary-800", viewport: { width: 800, height: 1000 }, note: "top of the 800px block" },
   // Above every breakpoint. Without it a rule that only ever hides something
   // inside a media query looks correct everywhere the matrix can see.
-  { name: "desktop-1024", viewport: { width: 1024, height: 900 }, desktop: true, note: "no media query applies" },
+  {
+    name: "desktop-1024",
+    viewport: { width: 1024, height: 900 },
+    desktop: true,
+    note: "no media query applies",
+  },
 ];
 
 // Each state leaves the page in the shape its name describes. Anything that
@@ -155,6 +160,7 @@ async function startServer(port) {
   // `settle`, not `resolve`: this module imports `resolve` from node:path, and
   // shadowing it here would hand any later path work in this scope the wrong
   // binding without a word of complaint.
+  /** @type {() => Promise<void>} */
   const stop = () =>
     new Promise((settle) => {
       if (signal.exited) return settle();
@@ -285,9 +291,9 @@ try {
       "manifest.json",
       ...existing.filter((file) => file.endsWith(".png")),
     ];
-    await Promise.all(generatedFiles.map((file) => (
-      rm(resolve(outputDirectory, file), { force: true })
-    )));
+    await Promise.all(
+      generatedFiles.map((file) => rm(resolve(outputDirectory, file), { force: true })),
+    );
   }
 
   browser = await chromium.launch();
@@ -343,17 +349,23 @@ const all = inMatrixOrder(
   PROFILES.map((profile) => profile.name),
 );
 const shownStates = STATES.filter((state) => all.some((shot) => shot.state === state.name));
-const shownProfiles = PROFILES.filter((profile) => all.some((shot) => shot.profile === profile.name));
+const shownProfiles = PROFILES.filter((profile) =>
+  all.some((shot) => shot.profile === profile.name),
+);
 
 await writeFile(`${outputDirectory}/manifest.json`, `${JSON.stringify({ shots: all }, null, 2)}\n`);
 await writeFile(`${outputDirectory}/index.html`, contactSheet(all, shownStates, shownProfiles));
 
 const overflowing = all.filter((shot) => shot.overflows);
-console.log(`Wrote ${shots.length} shots to ${outputDirectory}${kept.length > 0 ? ` (kept ${kept.length})` : ""}`);
+console.log(
+  `Wrote ${shots.length} shots to ${outputDirectory}${kept.length > 0 ? ` (kept ${kept.length})` : ""}`,
+);
 console.log(`Open ${outputDirectory}/index.html`);
 if (overflowing.length > 0) {
   console.log(`\nHorizontal overflow in ${overflowing.length}:`);
   for (const shot of overflowing) {
-    console.log(`  ${shot.state} @ ${shot.profile}: ${shot.scrollWidth}px > ${shot.viewport.width}px`);
+    console.log(
+      `  ${shot.state} @ ${shot.profile}: ${shot.scrollWidth}px > ${shot.viewport.width}px`,
+    );
   }
 }

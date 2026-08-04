@@ -12,10 +12,9 @@ import {
  * offering a choice that repair then clamps away.
  */
 function choiceRange({ minimum, maximum }) {
-  return Object.freeze(Array.from(
-    { length: maximum - minimum + 1 },
-    (_, index) => minimum + index,
-  ));
+  return Object.freeze(
+    Array.from({ length: maximum - minimum + 1 }, (_, index) => minimum + index),
+  );
 }
 
 const STEP_LEVEL_CHOICES = Object.freeze(Object.values(STEP));
@@ -40,8 +39,7 @@ function makeIdentifier(prefix) {
  * else is replaced rather than repaired.
  */
 function safeIdentifier(candidate, prefix) {
-  return typeof candidate === "string"
-    && GENERATED_IDENTIFIER.exec(candidate)?.[1] === prefix
+  return typeof candidate === "string" && GENERATED_IDENTIFIER.exec(candidate)?.[1] === prefix
     ? candidate
     : makeIdentifier(prefix);
 }
@@ -52,29 +50,29 @@ function normaliseStep(step) {
 
 function resizeSteps(steps, length) {
   const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
-  return Array.from({ length }, (_, index) => (
-    source[index] || (index === 0 ? STEP.FULL : STEP.HALF)
-  ));
+  return Array.from(
+    { length },
+    (_, index) => source[index] || (index === 0 ? STEP.FULL : STEP.HALF),
+  );
 }
 
 function createRhythm(overrides = {}) {
   const signature = {
-    count: Math.round(normaliseNumber(
-      overrides.signature?.count,
-      4,
-      METER_COUNT_LIMIT.minimum,
-      METER_COUNT_LIMIT.maximum,
-    )),
+    count: Math.round(
+      normaliseNumber(
+        overrides.signature?.count,
+        4,
+        METER_COUNT_LIMIT.minimum,
+        METER_COUNT_LIMIT.maximum,
+      ),
+    ),
     unit: METER_UNITS.includes(Number(overrides.signature?.unit))
       ? Number(overrides.signature.unit)
       : 4,
   };
-  const subdivision = Math.round(normaliseNumber(
-    overrides.subdivision,
-    1,
-    SUBDIVISION_LIMIT.minimum,
-    SUBDIVISION_LIMIT.maximum,
-  ));
+  const subdivision = Math.round(
+    normaliseNumber(overrides.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
+  );
   return {
     id: safeIdentifier(overrides.id, "layer"),
     signature,
@@ -89,18 +87,15 @@ function createRhythm(overrides = {}) {
 
 function createCycle(overrides = {}) {
   const rhythms = Array.isArray(overrides.rhythms)
-    ? overrides.rhythms.map((rhythm) => createRhythm(
-        rhythm && typeof rhythm === "object" ? rhythm : {},
-      ))
+    ? overrides.rhythms.map((rhythm) =>
+        createRhythm(rhythm && typeof rhythm === "object" ? rhythm : {}),
+      )
     : [];
   return {
     id: safeIdentifier(overrides.id, "cycle"),
-    repetitions: Math.round(normaliseNumber(
-      overrides.repetitions,
-      1,
-      REPETITION_LIMIT.minimum,
-      REPETITION_LIMIT.maximum,
-    )),
+    repetitions: Math.round(
+      normaliseNumber(overrides.repetitions, 1, REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum),
+    ),
     rhythms: rhythms.length ? rhythms : [createRhythm()],
   };
 }
@@ -139,9 +134,7 @@ function uniqueIdentifiers(cycles) {
 export function createConfiguration(input) {
   const source = input && typeof input === "object" ? input : {};
   let remainingRhythms = MAX_RHYTHMS;
-  const sourceCycles = Array.isArray(source.sequence?.cycles)
-    ? source.sequence.cycles
-    : [];
+  const sourceCycles = Array.isArray(source.sequence?.cycles) ? source.sequence.cycles : [];
   const cycles = sourceCycles.flatMap((candidate) => {
     if (!candidate || typeof candidate !== "object" || remainingRhythms === 0) {
       return [];
@@ -154,13 +147,12 @@ export function createConfiguration(input) {
     return [cycle];
   });
   const populated = uniqueIdentifiers(cycles.length ? cycles : [createCycle()]);
-  const validCycles = populated.length === 1
-    ? [{ ...populated[0], repetitions: 1 }]
-    : populated.some((cycle) => cycle.repetitions > 0)
-      ? populated
-      : populated.map((cycle, index) => (
-          index === 0 ? { ...cycle, repetitions: 1 } : cycle
-        ));
+  const validCycles =
+    populated.length === 1
+      ? [{ ...populated[0], repetitions: 1 }]
+      : populated.some((cycle) => cycle.repetitions > 0)
+        ? populated
+        : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 96, 30, 300)),
@@ -173,13 +165,15 @@ function createPresetConfiguration(name) {
     return createConfiguration({
       bpm: 112,
       sequence: {
-        cycles: [{
-          repetitions: 1,
-          rhythms: [
-            { signature: { count: 4, unit: 4 }, sound: "high" },
-            { signature: { count: 3, unit: 4 }, sound: "low" },
-          ],
-        }],
+        cycles: [
+          {
+            repetitions: 1,
+            rhythms: [
+              { signature: { count: 4, unit: 4 }, sound: "high" },
+              { signature: { count: 3, unit: 4 }, sound: "low" },
+            ],
+          },
+        ],
       },
     });
   }
@@ -211,54 +205,58 @@ function freshPresetConfiguration(configuration) {
  * carries new identifiers by construction.
  */
 function sameFields(repaired, candidate) {
-  return Boolean(candidate)
-    && typeof candidate === "object"
-    && Object.keys(candidate).length === Object.keys(repaired).length;
+  return (
+    Boolean(candidate) &&
+    typeof candidate === "object" &&
+    Object.keys(candidate).length === Object.keys(repaired).length
+  );
 }
 
 function sameRhythm(rhythm, candidate) {
-  return sameFields(rhythm, candidate)
-    && sameFields(rhythm.signature, candidate.signature)
-    && rhythm.signature.count === candidate.signature.count
-    && rhythm.signature.unit === candidate.signature.unit
-    && rhythm.subdivision === candidate.subdivision
-    && rhythm.volume === candidate.volume
-    && rhythm.pan === candidate.pan
-    && rhythm.sound === candidate.sound
-    && rhythm.muted === candidate.muted
-    && Array.isArray(candidate.steps)
-    && rhythm.steps.length === candidate.steps.length
-    && rhythm.steps.every((step, position) => step === candidate.steps[position]);
+  return (
+    sameFields(rhythm, candidate) &&
+    sameFields(rhythm.signature, candidate.signature) &&
+    rhythm.signature.count === candidate.signature.count &&
+    rhythm.signature.unit === candidate.signature.unit &&
+    rhythm.subdivision === candidate.subdivision &&
+    rhythm.volume === candidate.volume &&
+    rhythm.pan === candidate.pan &&
+    rhythm.sound === candidate.sound &&
+    rhythm.muted === candidate.muted &&
+    Array.isArray(candidate.steps) &&
+    rhythm.steps.length === candidate.steps.length &&
+    rhythm.steps.every((step, position) => step === candidate.steps[position])
+  );
 }
 
 function sameCycle(cycle, candidate) {
-  return sameFields(cycle, candidate)
-    && cycle.repetitions === candidate.repetitions
-    && Array.isArray(candidate.rhythms)
-    && cycle.rhythms.length === candidate.rhythms.length
-    && cycle.rhythms.every((rhythm, index) => sameRhythm(
-      rhythm,
-      candidate.rhythms[index],
-    ));
+  return (
+    sameFields(cycle, candidate) &&
+    cycle.repetitions === candidate.repetitions &&
+    Array.isArray(candidate.rhythms) &&
+    cycle.rhythms.length === candidate.rhythms.length &&
+    cycle.rhythms.every((rhythm, index) => sameRhythm(rhythm, candidate.rhythms[index]))
+  );
 }
 
 function sameConfiguration(configuration, candidate) {
-  return sameFields(configuration, candidate)
-    && configuration.bpm === candidate.bpm
-    && sameFields(configuration.sequence, candidate.sequence)
-    && Array.isArray(candidate.sequence.cycles)
-    && configuration.sequence.cycles.length === candidate.sequence.cycles.length
-    && configuration.sequence.cycles.every((cycle, index) => sameCycle(
-      cycle,
-      candidate.sequence.cycles[index],
-    ));
+  return (
+    sameFields(configuration, candidate) &&
+    configuration.bpm === candidate.bpm &&
+    sameFields(configuration.sequence, candidate.sequence) &&
+    Array.isArray(candidate.sequence.cycles) &&
+    configuration.sequence.cycles.length === candidate.sequence.cycles.length &&
+    configuration.sequence.cycles.every((cycle, index) =>
+      sameCycle(cycle, candidate.sequence.cycles[index]),
+    )
+  );
 }
 
 function selectedPreset(configuration) {
-  return PRESETS.find((name) => sameConfiguration(
-    createPresetConfiguration(name),
-    configuration,
-  )) || null;
+  return (
+    PRESETS.find((name) => sameConfiguration(createPresetConfiguration(name), configuration)) ||
+    null
+  );
 }
 
 function presetName(candidate) {
@@ -279,15 +277,13 @@ function normalisedPresetName(candidate) {
 }
 
 function reservedPresetName(name) {
-  return PRESETS.some((builtIn) => (
-    normalisedPresetName(builtIn) === normalisedPresetName(name)
-  ));
+  return PRESETS.some((builtIn) => normalisedPresetName(builtIn) === normalisedPresetName(name));
 }
 
 function findPresetNamed(presets, name) {
-  return presets.findIndex((stored) => (
-    normalisedPresetName(stored.name) === normalisedPresetName(name)
-  ));
+  return presets.findIndex(
+    (stored) => normalisedPresetName(stored.name) === normalisedPresetName(name),
+  );
 }
 
 /**
@@ -307,16 +303,20 @@ export function createSavedPresets(input) {
     // Sharing an identifier with the entry this one replaces is not a
     // collision: that entry is about to stop existing, and regenerating here
     // would move the surviving Preset's identity on every load.
-    const collides = presets.some(({ id }, index) => (
-      id === candidateId && index !== duplicate
-    ));
+    const collides = presets.some(({ id }, index) => id === candidateId && index !== duplicate);
     const preset = {
       id: collides ? makeIdentifier("preset") : candidateId,
       name,
       configuration: createConfiguration(candidate.configuration),
     };
+    // The spread is not what makes this quadratic. Every candidate already
+    // scans the accumulator to find a duplicate and rebuilds it through `map`
+    // on the line below, so removing the spread alone would leave the
+    // complexity exactly where it is while making the immutable style harder
+    // to read. A saved-preset list is a person's own, measured in dozens.
+    // biome-ignore lint/performance/noAccumulatingSpread: the map below is already O(n)
     if (duplicate < 0) return [...presets, preset];
-    return presets.map((stored, index) => index === duplicate ? preset : stored);
+    return presets.map((stored, index) => (index === duplicate ? preset : stored));
   }, []);
 }
 
@@ -339,7 +339,7 @@ export function savePreset(savedPresets, nameCandidate, configuration) {
   };
   return {
     presets: duplicate
-      ? presets.map((stored) => stored.id === duplicate.id ? preset : stored)
+      ? presets.map((stored) => (stored.id === duplicate.id ? preset : stored))
       : [...presets, preset],
     preset,
     reason: null,
@@ -365,11 +365,15 @@ export function removeSavedPreset(savedPresets, presetId) {
  * identifier is derived from the name rather than generated, because it has to
  * survive a reload to be worth addressing a button by.
  */
-const BUILT_IN_PRESETS = Object.freeze(PRESETS.map((name) => Object.freeze({
-  id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
-  name,
-  configuration: createPresetConfiguration(name),
-})));
+const BUILT_IN_PRESETS = Object.freeze(
+  PRESETS.map((name) =>
+    Object.freeze({
+      id: `built-in-${name.replaceAll(/[^0-9a-z]+/gi, "-").toLowerCase()}`,
+      name,
+      configuration: createPresetConfiguration(name),
+    }),
+  ),
+);
 
 /**
  * Runs on every render, so it repairs nothing: `createSavedPresets` is the only
@@ -398,25 +402,20 @@ function availability(available, reason = null) {
 }
 
 function sequenceRhythmCount(configuration) {
-  return configuration.sequence.cycles.reduce(
-    (total, cycle) => total + cycle.rhythms.length,
-    0,
-  );
+  return configuration.sequence.cycles.reduce((total, cycle) => total + cycle.rhythms.length, 0);
 }
 
 function addStructurePolicy(configuration) {
-  return availability(
-    sequenceRhythmCount(configuration) < MAX_RHYTHMS,
-    "sequence-rhythm-limit",
-  );
+  return availability(sequenceRhythmCount(configuration) < MAX_RHYTHMS, "sequence-rhythm-limit");
 }
 
 function removeCyclePolicy(configuration, cycle) {
   if (configuration.sequence.cycles.length === 1) {
     return availability(false, "sequence-requires-cycle");
   }
-  const activeCycleCount = configuration.sequence.cycles
-    .filter((candidate) => candidate.repetitions > 0).length;
+  const activeCycleCount = configuration.sequence.cycles.filter(
+    (candidate) => candidate.repetitions > 0,
+  ).length;
   return availability(
     !(cycle.repetitions > 0 && activeCycleCount === 1),
     "sequence-requires-active-cycle",
@@ -427,8 +426,9 @@ function cycleRepetitionsPolicy(configuration, cycle, repetitions) {
   if (configuration.sequence.cycles.length === 1 && repetitions !== 1) {
     return availability(false, "single-cycle-requires-one-repetition");
   }
-  const activeCycleCount = configuration.sequence.cycles
-    .filter((candidate) => candidate.repetitions > 0).length;
+  const activeCycleCount = configuration.sequence.cycles.filter(
+    (candidate) => candidate.repetitions > 0,
+  ).length;
   return availability(
     !(repetitions === 0 && cycle.repetitions > 0 && activeCycleCount === 1),
     "sequence-requires-active-cycle",
@@ -436,10 +436,7 @@ function cycleRepetitionsPolicy(configuration, cycle, repetitions) {
 }
 
 function removeRhythmPolicy(cycle) {
-  return availability(
-    cycle.rhythms.length > 1,
-    "cycle-requires-rhythm",
-  );
+  return availability(cycle.rhythms.length > 1, "cycle-requires-rhythm");
 }
 
 export function describeConfiguration(configuration) {
@@ -457,23 +454,29 @@ export function describeConfiguration(configuration) {
     },
     availability: {
       addCycle: addStructurePolicy(valid),
-      cycles: Object.fromEntries(valid.sequence.cycles.map((cycle) => [
-        cycle.id,
-        {
-          remove: removeCyclePolicy(valid, cycle),
-          addRhythm: addStructurePolicy(valid),
-          repetitions: Object.fromEntries(REPETITIONS.map((repetitions) => [
-            repetitions,
-            cycleRepetitionsPolicy(valid, cycle, repetitions),
-          ])),
-          rhythms: Object.fromEntries(cycle.rhythms.map((rhythm) => [
-            rhythm.id,
-            {
-              remove: removeRhythmPolicy(cycle),
-            },
-          ])),
-        },
-      ])),
+      cycles: Object.fromEntries(
+        valid.sequence.cycles.map((cycle) => [
+          cycle.id,
+          {
+            remove: removeCyclePolicy(valid, cycle),
+            addRhythm: addStructurePolicy(valid),
+            repetitions: Object.fromEntries(
+              REPETITIONS.map((repetitions) => [
+                repetitions,
+                cycleRepetitionsPolicy(valid, cycle, repetitions),
+              ]),
+            ),
+            rhythms: Object.fromEntries(
+              cycle.rhythms.map((rhythm) => [
+                rhythm.id,
+                {
+                  remove: removeRhythmPolicy(cycle),
+                },
+              ]),
+            ),
+          },
+        ]),
+      ),
     },
   };
 }
@@ -491,27 +494,31 @@ function editRhythm(current, cycleId, rhythmId, updater) {
   return {
     configuration: {
       ...current,
-      sequence: { cycles: current.sequence.cycles.map((candidate) => (
-        candidate.id === cycleId
-          ? {
-              ...candidate,
-              rhythms: candidate.rhythms.map((rhythm) => (
-                rhythm.id === rhythmId ? updater(rhythm) : rhythm
-              )),
-            }
-          : candidate
-      )) },
+      sequence: {
+        cycles: current.sequence.cycles.map((candidate) =>
+          candidate.id === cycleId
+            ? {
+                ...candidate,
+                rhythms: candidate.rhythms.map((rhythm) =>
+                  rhythm.id === rhythmId ? updater(rhythm) : rhythm,
+                ),
+              }
+            : candidate,
+        ),
+      },
     },
   };
 }
 
 function nextStepLevel(level) {
-  return {
-    [STEP.FULL]: STEP.HALF,
-    [STEP.HALF]: STEP.QUARTER,
-    [STEP.QUARTER]: STEP.OFF,
-    [STEP.OFF]: STEP.FULL,
-  }[level] || STEP.FULL;
+  return (
+    {
+      [STEP.FULL]: STEP.HALF,
+      [STEP.HALF]: STEP.QUARTER,
+      [STEP.QUARTER]: STEP.OFF,
+      [STEP.OFF]: STEP.FULL,
+    }[level] || STEP.FULL
+  );
 }
 
 function formNumber(value) {
@@ -525,8 +532,7 @@ function hasString(edit, property) {
 }
 
 function hasFormNumber(edit, property) {
-  return typeof edit[property] === "number"
-    || typeof edit[property] === "string";
+  return typeof edit[property] === "number" || typeof edit[property] === "string";
 }
 
 function targetsCycle(edit) {
@@ -539,10 +545,9 @@ function targetsRhythm(edit) {
 
 function numberInRange(edit, property, minimum, maximum, integer = false) {
   const value = formNumber(edit[property]);
-  return value !== null
-    && value >= minimum
-    && value <= maximum
-    && (!integer || Number.isInteger(value));
+  return (
+    value !== null && value >= minimum && value <= maximum && (!integer || Number.isInteger(value))
+  );
 }
 
 function findCycle(configuration, cycleId) {
@@ -550,8 +555,7 @@ function findCycle(configuration, cycleId) {
 }
 
 function findRhythm(configuration, cycleId, rhythmId) {
-  return findCycle(configuration, cycleId)
-    ?.rhythms.find(({ id }) => id === rhythmId);
+  return findCycle(configuration, cycleId)?.rhythms.find(({ id }) => id === rhythmId);
 }
 
 function unchanged(configuration, reason = null) {
@@ -563,12 +567,7 @@ function rejectedByPolicy(configuration, policy) {
 }
 
 function changeRhythm(current, edit, consequence, updater) {
-  const result = editRhythm(
-    current,
-    edit.cycleId,
-    edit.rhythmId,
-    updater,
-  );
+  const result = editRhythm(current, edit.cycleId, edit.rhythmId, updater);
   return result.reason
     ? unchanged(current, result.reason)
     : changed(result.configuration, consequence);
@@ -580,12 +579,15 @@ const COMMANDS = Object.freeze({
     apply(current, _edit) {
       const rejection = rejectedByPolicy(current, addStructurePolicy(current));
       if (rejection) return rejection;
-      return changed({
-        ...current,
-        sequence: {
-          cycles: [...current.sequence.cycles, createCycle()],
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: [...current.sequence.cycles, createCycle()],
+          },
         },
-      }, "restart-transport-run");
+        "restart-transport-run",
+      );
     },
   },
   "add-rhythm": {
@@ -595,25 +597,24 @@ const COMMANDS = Object.freeze({
       if (!cycle) return unchanged(current, "cycle-not-found");
       const rejection = rejectedByPolicy(current, addStructurePolicy(current));
       if (rejection) return rejection;
-      return changed({
-        ...current,
-        sequence: { cycles: current.sequence.cycles.map((candidate) => (
-          candidate.id === edit.cycleId
-            ? { ...candidate, rhythms: [...candidate.rhythms, createRhythm()] }
-            : candidate
-        )) },
-      }, "restart-transport-run");
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId
+                ? { ...candidate, rhythms: [...candidate.rhythms, createRhythm()] }
+                : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
     },
   },
   "advance-step-level": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "position"),
-    validValue: (edit) => numberInRange(
-      edit,
-      "position",
-      0,
-      Number.MAX_SAFE_INTEGER,
-      true,
-    ),
+    validValue: (edit) => numberInRange(edit, "position", 0, Number.MAX_SAFE_INTEGER, true),
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       const rhythm = findRhythm(current, edit.cycleId, edit.rhythmId);
@@ -623,26 +624,20 @@ const COMMANDS = Object.freeze({
       if (targetPosition >= rhythm.steps.length) {
         return unchanged(current, "pattern-position-not-found");
       }
-      return changeRhythm(
-        current,
-        edit,
-        "update-step-levels",
-        (candidate) => ({
-          ...candidate,
-          steps: candidate.steps.map((level, position) => (
-            position === targetPosition ? nextStepLevel(level) : level
-          )),
-        }),
-      );
+      return changeRhythm(current, edit, "update-step-levels", (candidate) => ({
+        ...candidate,
+        steps: candidate.steps.map((level, position) =>
+          position === targetPosition ? nextStepLevel(level) : level,
+        ),
+      }));
     },
   },
   "apply-preset": {
-    validPayload: (edit) => (
-      (hasString(edit, "name") && !Object.hasOwn(edit, "configuration"))
-      || (!Object.hasOwn(edit, "name")
-        && edit.configuration
-        && typeof edit.configuration === "object")
-    ),
+    validPayload: (edit) =>
+      (hasString(edit, "name") && !Object.hasOwn(edit, "configuration")) ||
+      (!Object.hasOwn(edit, "name") &&
+        edit.configuration &&
+        typeof edit.configuration === "object"),
     leavesUnchanged: (current, edit) => {
       const preset = hasString(edit, "name")
         ? PRESETS.includes(edit.name) && createPresetConfiguration(edit.name)
@@ -666,17 +661,17 @@ const COMMANDS = Object.freeze({
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       if (!cycle) return unchanged(current, "cycle-not-found");
-      const rejection = rejectedByPolicy(
-        current,
-        removeCyclePolicy(current, cycle),
-      );
+      const rejection = rejectedByPolicy(current, removeCyclePolicy(current, cycle));
       if (rejection) return rejection;
-      return changed(createConfiguration({
-        ...current,
-        sequence: {
-          cycles: current.sequence.cycles.filter(({ id }) => id !== edit.cycleId),
-        },
-      }), "restart-transport-run");
+      return changed(
+        createConfiguration({
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.filter(({ id }) => id !== edit.cycleId),
+          },
+        }),
+        "restart-transport-run",
+      );
     },
   },
   "remove-rhythm": {
@@ -689,33 +684,30 @@ const COMMANDS = Object.freeze({
       }
       const rejection = rejectedByPolicy(current, removeRhythmPolicy(cycle));
       if (rejection) return rejection;
-      return changed({
-        ...current,
-        sequence: { cycles: current.sequence.cycles.map((candidate) => (
-          candidate.id === edit.cycleId
-            ? {
-                ...candidate,
-                rhythms: candidate.rhythms.filter(({ id }) => id !== edit.rhythmId),
-              }
-            : candidate
-        )) },
-      }, "restart-transport-run");
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId
+                ? {
+                    ...candidate,
+                    rhythms: candidate.rhythms.filter(({ id }) => id !== edit.rhythmId),
+                  }
+                : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
     },
   },
   "set-cycle-repetitions": {
-    validPayload: (edit) => targetsCycle(edit)
-      && hasFormNumber(edit, "repetitions"),
-    validValue: (edit) => numberInRange(
-      edit,
-      "repetitions",
-      REPETITION_LIMIT.minimum,
-      REPETITION_LIMIT.maximum,
-      true,
-    ),
-    leavesUnchanged: (current, edit) => (
-      findCycle(current, edit.cycleId)?.repetitions
-        === formNumber(edit.repetitions)
-    ),
+    validPayload: (edit) => targetsCycle(edit) && hasFormNumber(edit, "repetitions"),
+    validValue: (edit) =>
+      numberInRange(edit, "repetitions", REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum, true),
+    leavesUnchanged: (current, edit) =>
+      findCycle(current, edit.cycleId)?.repetitions === formNumber(edit.repetitions),
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       if (!cycle) return unchanged(current, "cycle-not-found");
@@ -725,159 +717,113 @@ const COMMANDS = Object.freeze({
         cycleRepetitionsPolicy(current, cycle, repetitions),
       );
       if (rejection) return rejection;
-      return changed({
-        ...current,
-        sequence: {
-          cycles: current.sequence.cycles.map((candidate) => (
-            candidate.id === edit.cycleId
-              ? { ...candidate, repetitions }
-              : candidate
-          )),
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId ? { ...candidate, repetitions } : candidate,
+            ),
+          },
         },
-      }, "restart-transport-run");
+        "restart-transport-run",
+      );
     },
   },
   "set-meter-count": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "count"),
-    validValue: (edit) => numberInRange(
-      edit,
-      "count",
-      METER_COUNT_LIMIT.minimum,
-      METER_COUNT_LIMIT.maximum,
-      true,
-    ),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.count
-        === formNumber(edit.count)
-    ),
+    validValue: (edit) =>
+      numberInRange(edit, "count", METER_COUNT_LIMIT.minimum, METER_COUNT_LIMIT.maximum, true),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.count === formNumber(edit.count),
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "restart-transport-run",
-        (rhythm) => {
-          const signature = {
-            ...rhythm.signature,
-            count: formNumber(edit.count),
-          };
-          return {
-            ...rhythm,
-            signature,
-            steps: resizeSteps(
-              rhythm.steps,
-              signature.count * rhythm.subdivision,
-            ),
-          };
-        },
-      );
+      return changeRhythm(current, edit, "restart-transport-run", (rhythm) => {
+        const signature = {
+          ...rhythm.signature,
+          count: formNumber(edit.count),
+        };
+        return {
+          ...rhythm,
+          signature,
+          steps: resizeSteps(rhythm.steps, signature.count * rhythm.subdivision),
+        };
+      });
     },
   },
   "set-meter-unit": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "unit"),
     validValue: (edit) => METER_UNITS.includes(formNumber(edit.unit)),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit
-        === formNumber(edit.unit)
-    ),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "restart-transport-run",
-        (rhythm) => ({
-          ...rhythm,
-          signature: { ...rhythm.signature, unit: formNumber(edit.unit) },
-        }),
-      );
+      return changeRhythm(current, edit, "restart-transport-run", (rhythm) => ({
+        ...rhythm,
+        signature: { ...rhythm.signature, unit: formNumber(edit.unit) },
+      }));
     },
   },
   "set-muted": {
-    validPayload: (edit) => targetsRhythm(edit)
-      && typeof edit.muted === "boolean",
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.muted === edit.muted
-    ),
+    validPayload: (edit) => targetsRhythm(edit) && typeof edit.muted === "boolean",
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.muted === edit.muted,
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "update-mix",
-        (rhythm) => ({ ...rhythm, muted: edit.muted }),
-      );
+      return changeRhythm(current, edit, "update-mix", (rhythm) => ({
+        ...rhythm,
+        muted: edit.muted,
+      }));
     },
   },
   "set-rhythm-volume": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "volume"),
     validValue: (edit) => numberInRange(edit, "volume", 0, 1),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.volume
-        === formNumber(edit.volume)
-    ),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.volume === formNumber(edit.volume),
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "update-mix",
-        (rhythm) => ({ ...rhythm, volume: formNumber(edit.volume) }),
-      );
+      return changeRhythm(current, edit, "update-mix", (rhythm) => ({
+        ...rhythm,
+        volume: formNumber(edit.volume),
+      }));
     },
   },
   "set-sound": {
     validPayload: (edit) => targetsRhythm(edit) && hasString(edit, "sound"),
     validValue: (edit) => SOUNDS.includes(edit.sound),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.sound === edit.sound
-    ),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.sound === edit.sound,
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "update-mix",
-        (rhythm) => ({ ...rhythm, sound: edit.sound }),
-      );
+      return changeRhythm(current, edit, "update-mix", (rhythm) => ({
+        ...rhythm,
+        sound: edit.sound,
+      }));
     },
   },
   "set-stereo-position": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "pan"),
     validValue: (edit) => numberInRange(edit, "pan", -1, 1),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.pan
-        === formNumber(edit.pan)
-    ),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.pan === formNumber(edit.pan),
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "update-mix",
-        (rhythm) => ({ ...rhythm, pan: formNumber(edit.pan) }),
-      );
+      return changeRhythm(current, edit, "update-mix", (rhythm) => ({
+        ...rhythm,
+        pan: formNumber(edit.pan),
+      }));
     },
   },
   "set-subdivision": {
-    validPayload: (edit) => targetsRhythm(edit)
-      && hasFormNumber(edit, "subdivision"),
+    validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "subdivision"),
     validValue: (edit) => SUBDIVISIONS.includes(formNumber(edit.subdivision)),
-    leavesUnchanged: (current, edit) => (
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.subdivision
-        === formNumber(edit.subdivision)
-    ),
+    leavesUnchanged: (current, edit) =>
+      findRhythm(current, edit.cycleId, edit.rhythmId)?.subdivision ===
+      formNumber(edit.subdivision),
     apply(current, edit) {
-      return changeRhythm(
-        current,
-        edit,
-        "restart-transport-run",
-        (rhythm) => {
-          const subdivision = formNumber(edit.subdivision);
-          return {
-            ...rhythm,
-            subdivision,
-            steps: resizeSteps(
-              rhythm.steps,
-              rhythm.signature.count * subdivision,
-            ),
-          };
-        },
-      );
+      return changeRhythm(current, edit, "restart-transport-run", (rhythm) => {
+        const subdivision = formNumber(edit.subdivision);
+        return {
+          ...rhythm,
+          subdivision,
+          steps: resizeSteps(rhythm.steps, rhythm.signature.count * subdivision),
+        };
+      });
     },
   },
   "set-tempo": {
