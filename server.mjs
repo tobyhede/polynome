@@ -140,6 +140,12 @@ const listener = createServer(async (request, response) => {
 // asks the operating system to pick a free one, and the only way to find out
 // what it picked.
 listener.listen(port, "0.0.0.0", () => {
-  console.log(`Polynome running at http://localhost:${listener.address().port}`);
+  // A listener bound to a pipe reports its address as a string and has no port
+  // at all. This one is always bound to a host and a number, so the fallback is
+  // for the reader and the type checker rather than for a case that arrives.
+  const bound = listener.address();
+  console.log(
+    `Polynome running at http://localhost:${typeof bound === "object" && bound ? bound.port : port}`,
+  );
   if (reloading) startWatching();
 });

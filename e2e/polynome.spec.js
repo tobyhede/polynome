@@ -558,6 +558,31 @@ test("the tempo track bands the range an envelope moves through", async ({ page 
 });
 
 /**
+ * A Flat changes tempo without passing through anything on the way: it sounds
+ * the tempo before the boundary and the tempo after it and none of the ones
+ * between, so a bar drawn across that gap would claim a stretch the run never
+ * plays. The label still gives up its slot — the tempo has left where it started
+ * and the large number is no longer showing it — which is the point at which
+ * these two stopped being the same question.
+ */
+test("a Flat envelope moves the tempo without banding the track", async ({ page }) => {
+  const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
+  await slider.fill("96");
+
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await envelopeAmount(page).fill("40");
+  await envelopeAmount(page).blur();
+  await expect(cycleDrawer(page).locator("output")).toHaveText("136");
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(slider).not.toHaveClass(/\bis-banded\b/);
+  await expect(page.locator("#bpm-ticks")).not.toHaveClass(/\bis-banded\b/);
+  await expect(page.locator("#bpm-readout label")).toHaveText("96");
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+});
+
+/**
  * A Sequence with every Cycle at Flat zero plays one tempo from beginning to
  * end, so the large number is already showing the tempo the run started from.
  * The label has nothing to add there and says what it always said.

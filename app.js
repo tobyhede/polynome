@@ -110,13 +110,17 @@ const engine = new MetronomeEngine();
 const openRhythms = new Set();
 const openCycles = new Set();
 /**
- * The stretch of the tempo range the current run travels, while it is travelling
- * it, and null whenever the tempo is holding still. It is remembered rather than
- * passed because the readout is drawn from two places — a full render, and the
- * per-frame write that follows a live tempo — and both have to agree on whether
- * the number is moving under an envelope.
+ * The stretch of the tempo range the current run travels through, while it is
+ * travelling it, and null the rest of the time — including under a Flat, which
+ * changes tempo without passing through anything on the way.
+ *
+ * The tempo the readout is sized from while the number is moving, and null while
+ * it is not. Both are remembered rather than passed because the readout is drawn
+ * from two places — a full render, and the per-frame write that follows a live
+ * tempo — and the two have to agree.
  */
 let tempoBand = null;
+let heldTempo = null;
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
@@ -330,28 +334,36 @@ function renderTransport() {
     "aria-label",
     `${playing ? "Current" : "Starting"} tempo in beats per minute`,
   );
-  // The label gives its slot up to the starting tempo only when the large
-  // number has stopped showing it. That is narrower than "while playing": with
-  // every Cycle at Flat zero the tempo never leaves where it started, so the
-  // live number and the starting one are the same number, and printing it twice
-  // would say nothing while looking like it said something.
-  // Whether the tempo actually moves during this run, rather than whether an
-  // envelope is written down anywhere: a Cycle switched off keeps the envelope
-  // it was given and contributes none of it, so asking the Cycles directly would
-  // band the track to a range of no width and freeze the readout for a run that
-  // holds one tempo throughout.
-  const { minimum, maximum } = description.tempoRange;
-  const envelopedRun = playing && minimum !== maximum;
-  elements.bpmLabel.textContent = envelopedRun ? String(state.bpm) : "BPM";
-  elements.bpmLabel.classList.toggle("is-starting-tempo", envelopedRun);
-  // The same condition marks the track. Stopped, or on a Sequence that holds one
-  // tempo throughout, the fill reads from the bottom of the range to where the
-  // thumb is, which is what a control someone is about to drag should say. Under
-  // an envelope nobody is dragging it and there is a better thing to say: the
-  // stretch of the range this run moves through, with the thumb inside it.
-  elements.bpmSlider.classList.toggle("is-banded", envelopedRun);
-  elements.bpmTicks.classList.toggle("is-banded", envelopedRun);
-  tempoBand = envelopedRun ? description.tempoRange : null;
+  /*
+   * Two different questions, and they used to be one.
+   *
+   * Whether the tempo moves at all decides the label and the readout's size: a
+   * Sequence that holds one tempo throughout is already showing it in the large
+   * number, and a readout sized from a number nobody is watching change has
+   * nothing to hold still for. What is asked is whether the tempo moves, not
+   * whether an envelope is written down somewhere — a Cycle switched off keeps
+   * the envelope it was given and contributes none of it.
+   *
+   * Whether it *travels* decides the band, and only a ramp travels. A Flat jumps
+   * from one tempo to the next and sounds neither of the ones between, so a bar
+   * drawn across that gap would claim a stretch the run never plays.
+   */
+  const tempoMoves = playing && description.tempoRange.minimum !== description.tempoRange.maximum;
+  const tempoTravels =
+    playing &&
+    state.sequence.cycles.some(
+      (cycle, index) =>
+        description.cycles[index].active &&
+        cycle.envelope.amount &&
+        cycle.envelope.shape !== ENVELOPE.FLAT,
+    );
+
+  elements.bpmLabel.textContent = tempoMoves ? String(state.bpm) : "BPM";
+  elements.bpmLabel.classList.toggle("is-starting-tempo", tempoMoves);
+  heldTempo = tempoMoves ? state.bpm : null;
+  elements.bpmSlider.classList.toggle("is-banded", tempoTravels);
+  elements.bpmTicks.classList.toggle("is-banded", tempoTravels);
+  tempoBand = tempoTravels ? description.tempoRange : null;
   // Collapsed to nothing when there is no band, so a stale pair of stops cannot
   // be left behind the class that stopped drawing them.
   const band = tempoBand ?? { minimum: 0, maximum: 0 };
@@ -395,16 +407,18 @@ function tempoFraction(bpm) {
  * it: the size of the glyphs, the gap above them, the glitch at the top of the
  * range, how far the track is filled, and how much of the tick row is lit.
  *
- * Which tempo, though, is not always the one on screen. Under an envelope the
- * number changes every frame, and letting the glyphs swell and shrink with it
- * turns a reading into an animation — the one thing on the panel a listener is
- * trying to read becomes the one thing that will not sit still. So the run's
- * own starting tempo sizes the number for as long as an envelope is moving it,
- * and the tick row lights the stretch the run travels rather than creeping
- * along behind the digits. The digits change; nothing around them does.
+ * Which tempo, though, is not always the one on screen. While an envelope is
+ * moving the number, letting the glyphs swell and shrink with it turns a reading
+ * into an animation — the one thing on the panel a listener is trying to read
+ * becomes the one thing that will not sit still — so the run's own starting
+ * tempo sizes them instead.
+ *
+ * The marks answer the band rather than the size: under a ramp they light the
+ * stretch being travelled, and under a Flat, which travels nothing, they go on
+ * marking where the tempo has reached.
  */
 function renderDisplayedTempo(displayedBpm) {
-  const shapedBy = tempoBand ? state.bpm : displayedBpm;
+  const shapedBy = heldTempo ?? displayedBpm;
   const progress = tempoFraction(shapedBy);
   elements.bpmSlider.style.setProperty("--tempo-fill", String(tempoFraction(displayedBpm)));
   const size = 2.1 + progress * 2.1;

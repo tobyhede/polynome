@@ -648,21 +648,15 @@ h1.is-glitching {
   background: transparent;
 }
 
-/*
- * The band replaces the fill rather than joining it: two lit stretches on one
- * track would read as two values, and there is only one.
- *
- * It is drawn in ink and not in the accent, because the accent is what this
- * interface uses to say a control will answer a press. Nothing here will: the
- * slider is disabled for as long as the band is on it. Ink is what the readout
- * beside it is already drawn in, and what the band is showing is the same kind
- * of thing — a reading, not a reach.
- */
+/* The band replaces the fill rather than joining it: two lit stretches on one
+   track would read as two values, and there is only one. It keeps the accent the
+   fill was drawn in, so the track's lit part means the same thing either way —
+   this is the tempo — and only its extent changes. */
 .tempo-slider.is-banded {
   --tempo-track: linear-gradient(
     to right,
     var(--line) 0 var(--band-from),
-    var(--ink) var(--band-from) var(--band-to),
+    var(--accent) var(--band-from) var(--band-to),
     var(--line) var(--band-to) 100%
   );
 }
@@ -747,13 +741,6 @@ h1.is-glitching {
   opacity: 0.9;
 }
 
-/* Lit marks follow the track above them, in both what they mean and what they
-   are drawn in: a reach while the tempo can be set, a reading while it is being
-   played to a listener who cannot touch it. */
-.bpm-ticks.is-banded span.is-passed {
-  background: var(--ink);
-}
-
 .bpm-ticks span::after {
   content: attr(data-label);
   position: absolute;
@@ -772,10 +759,6 @@ h1.is-glitching {
 
 .bpm-ticks span.is-passed::after {
   color: var(--accent);
-}
-
-.bpm-ticks.is-banded span.is-passed::after {
-  color: var(--ink);
 }
 
 .cycle-list {
