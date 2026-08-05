@@ -155,7 +155,7 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
     "true",
   );
   await expect(envelopeAmount(page)).toHaveValue("0");
-  await expect(drawer.locator("output")).toHaveText("96");
+  await expect(drawer.locator("output")).toHaveText("120");
 });
 
 /**
@@ -307,7 +307,7 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
   await up.click();
   await expect(up).toBeFocused();
   await expect(amount).toHaveValue("20");
-  await expect(tempo).toHaveText("96 → 116");
+  await expect(tempo).toHaveText("120 → 140");
 
   // Blurred explicitly: the field commits on `change`, and leaving that to the
   // click on the next control makes the commit a side effect of where the
@@ -316,19 +316,19 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
   await amount.blur();
   await drawer.getByRole("button", { name: "Down" }).click();
   await expect(amount).toHaveValue("40");
-  await expect(tempo).toHaveText("96 → 56");
+  await expect(tempo).toHaveText("120 → 80");
 
   // Down carries its direction in its name, so becoming a Flat is where that
   // direction turns back into a sign — written with a real minus.
   await drawer.getByRole("button", { name: "Flat" }).click();
   await expect(amount).toHaveValue("−40");
-  await expect(tempo).toHaveText("56");
+  await expect(tempo).toHaveText("80");
 
   const peak = drawer.getByRole("button", { name: "Peak" });
   await peak.click();
   await expect(peak).toBeFocused();
   await expect(amount).toHaveValue("40");
-  await expect(tempo).toHaveText("96 → 136 → 96");
+  await expect(tempo).toHaveText("120 → 160 → 120");
 
   await peak.click();
   await expect(peak).toBeFocused();
@@ -349,15 +349,15 @@ test("a Flat is one number where a ramp is the pair it crosses", async ({ page }
   await drawer.getByRole("button", { name: "Up" }).click();
   await amount.fill("20");
   await amount.blur();
-  await expect(drawer.locator("output")).toHaveText("96 → 116");
+  await expect(drawer.locator("output")).toHaveText("120 → 140");
 
   await drawer.getByRole("button", { name: "Flat" }).click();
-  await expect(drawer.locator("output")).toHaveText("116");
+  await expect(drawer.locator("output")).toHaveText("140");
 
   // Flat zero is the same reading, holding the tempo it was handed.
   await amount.fill("0");
   await amount.blur();
-  await expect(drawer.locator("output")).toHaveText("96");
+  await expect(drawer.locator("output")).toHaveText("120");
 });
 
 /**
@@ -376,7 +376,7 @@ test("the envelope amount accepts either minus, clamps, and refuses a fraction",
   await amount.fill("-30");
   await amount.blur();
   await expect(amount).toHaveValue("−30");
-  await expect(tempo).toHaveText("66");
+  await expect(tempo).toHaveText("90");
 
   await amount.fill("−45");
   await amount.blur();
@@ -420,23 +420,23 @@ test("Cycle envelopes fold forward and skip an inactive Cycle", async ({ page })
   await envelopeAmount(page, "Cycle 3").fill("20");
   await envelopeAmount(page, "Cycle 3").blur();
 
-  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 116");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("96");
-  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("96 → 116 → 96");
+  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("120 → 140");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("120");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("120 → 140 → 120");
 
   // One edit to the first Cycle, and both readings after it move with it.
   await first.fill("40");
   await first.blur();
-  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 136");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("116");
-  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("116 → 136 → 116");
+  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("120 → 160");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("140");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("140 → 160 → 140");
 
   // Switched off, the middle Cycle stops affecting the tempo and keeps its
   // envelope, so the third now reads against the first's endpoint.
   await page.getByRole("button", { name: "Disable Cycle 2" }).click();
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("136");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("160");
   await expect(envelopeAmount(page, "Cycle 2")).toHaveValue("−20");
-  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("136 → 156 → 136");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("160 → 180 → 160");
 });
 
 /**
@@ -470,7 +470,7 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   page,
 }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await presetCard(page, "4/4").locator(".preset-button").click();
+  await presetCard(page, "4/4 8ths").locator(".preset-button").click();
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
   await envelopeAmount(page).fill("120");
@@ -496,7 +496,7 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   await expect(page.getByRole("button", { name: "Decrease tempo" })).toBeDisabled();
   // This run has an envelope, so the slot gives its word up to the tempo the
   // run started from — the accent, and nothing else about the slot, changing.
-  await expect(label).toHaveText("96");
+  await expect(label).toHaveText("120");
   await expect(label).toHaveCSS("color", "rgb(126, 163, 240)");
   // The live number is the playback indicator and stays at full strength.
   await expect(live).toHaveCSS("opacity", "1");
@@ -507,7 +507,7 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   await expect(number).not.toHaveAttribute("readonly", "");
   await expect(slider).toBeEnabled();
   await expect(label).toHaveText("BPM");
-  await expect(number).toHaveValue("96");
+  await expect(number).toHaveValue("120");
   await saveNotOffered(page);
 });
 
@@ -530,11 +530,11 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
       ),
     );
 
-  await slider.fill("96");
+  await slider.fill("120");
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
   // Counting up from the bottom of the range to the tempo set.
   expect((await lit()).at(0)).toBe(30);
-  expect((await lit()).at(-1)).toBe(90);
+  expect((await lit()).at(-1)).toBe(120);
 
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
@@ -545,12 +545,12 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).toHaveClass(/\bis-banded\b/);
-  // 96 through 150, so every ten from 100 to 150 and nothing either side.
-  expect(await lit()).toEqual([100, 110, 120, 130, 140, 150]);
+  // 120 through 174, so every ten from 120 to 170 and nothing either side.
+  expect(await lit()).toEqual([120, 130, 140, 150, 160, 170]);
 
   // The tempo climbs and the marks do not follow it.
-  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(96);
-  expect(await lit()).toEqual([100, 110, 120, 130, 140, 150]);
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(120);
+  expect(await lit()).toEqual([120, 130, 140, 150, 160, 170]);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
@@ -585,23 +585,23 @@ test("the tempo slider is left to the browser to draw", async ({ page }) => {
  */
 test("a Flat envelope moves the tempo without marking a range", async ({ page }) => {
   const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
-  await slider.fill("96");
+  await slider.fill("120");
 
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await envelopeAmount(page).fill("40");
   await envelopeAmount(page).blur();
-  await expect(cycleDrawer(page).locator("output")).toHaveText("136");
+  await expect(cycleDrawer(page).locator("output")).toHaveText("160");
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(page.locator("#bpm-ticks")).not.toHaveClass(/\bis-banded\b/);
-  await expect(page.locator("#bpm-readout label")).toHaveText("96");
-  // 136 is what it plays from the first beat, so 136 is what sizes the glyphs.
+  await expect(page.locator("#bpm-readout label")).toHaveText("120");
+  // 160 is what it plays from the first beat, so 160 is what sizes the glyphs.
   // The tempo it inherited is never sounded and has no claim on how they look.
   const held = await page
     .locator("#bpm-readout")
     .evaluate((element) => element.style.getPropertyValue("--bpm-size"));
   await page.getByRole("button", { name: "Stop metronome" }).click();
-  await slider.fill("136");
+  await slider.fill("160");
   expect(
     await page.locator("#bpm-readout").evaluate((el) => el.style.getPropertyValue("--bpm-size")),
   ).toBe(held);
@@ -627,7 +627,7 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
   // returns the word — the reading follows the Sequence, not the transport.
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
-  await expect(label).toHaveText("96");
+  await expect(label).toHaveText("120");
 
   await cycleDrawer(page).getByRole("button", { name: "Flat" }).click();
   await envelopeAmount(page).fill("0");
@@ -1551,7 +1551,7 @@ test("an example Preset's name is the listener's to take back", async ({ page })
   await typeTempo(page, 96);
 
   await presetCard(page, "4/4 8ths").locator(".preset-button").click();
-  await expect(page.getByLabel("BPM")).toHaveValue("144");
+  await expect(page.getByLabel("Starting tempo in beats per minute")).toHaveValue("144");
 });
 
 /**
@@ -1760,7 +1760,9 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   await slider.focus();
   for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" })).toHaveValue("150");
+  await expect(
+    page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
+  ).toHaveValue("150");
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
