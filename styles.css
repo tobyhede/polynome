@@ -653,40 +653,37 @@ h1.is-glitching {
   opacity: 0.9;
 }
 
-/* A travelled range is a stretch, so it is drawn as one. The lit marks alone
-   drew that stretch at the tick interval and nothing finer: a ramp from 157 to
-   174 lit the two at 160 and 170 with nothing between them, and a range that
-   falls between two marks — 152 to 158 — lit none at all and left the band
-   invisible. The bar spans the tempos themselves, so a short ramp is a short bar
-   rather than a rounding of one.
+/* A travelled range is a stretch, so it is drawn as one. Marking it on the scale
+   itself drew it at the tick interval and nothing finer: a ramp from 157 to 174
+   reached the two marks at 160 and 170 with nothing between them, and a range
+   falling between two marks — 152 to 158 — reached none at all and left the band
+   invisible at exactly the sizes a reader most needs told about it. The band is
+   its own object, placed from the two tempos, so a short ramp is a short band
+   rather than a rounding of one and the scale underneath is left alone.
 
-   It runs through the marks at their midline rather than above them, so the two
-   read as one object: the bar carries the range and the marks it crosses say
-   which tempos on the scale that range covers.
+   Three background layers rather than a bordered box. The ends are the piece
+   that has to be read — they are the tempos the range stops at, so they take the
+   labelled marks' height and twice the scale's weight — and the line joining
+   them runs at their midline. As borders they would have had to come out of the
+   element's own width, which at the floor below is narrower than the two of them
+   put together.
 
-   `max()` holds a floor under the width: a range of a beat or two is a fraction
-   of a percent of the 270bpm the control offers, and a bar thinner than the
-   marks it crosses would trade one invisible indication for another. */
+   `max()` holds that floor: a range of a beat or two is a fraction of a percent
+   of the 270bpm the control offers, and a band thinner than its own ends would
+   trade one invisible indication for another. */
 .bpm-ticks.is-banded::before {
   content: "";
   position: absolute;
-  /* Centred on 4.5px, which is the midline of a major tick and of the lit ones
-     below, since they take the same height. */
-  top: 3px;
+  /* The marks hang from this edge, so an element of a labelled mark's height
+     starts here and the two agree without either restating the other's size. */
+  top: 0;
   left: var(--band-start, 0%);
   width: max(3px, calc(var(--band-end, 0%) - var(--band-start, 0%)));
-  height: 3px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-
-/* Inside a band the marks stand to the majors' height and drop the half opacity
-   every other mark carries. Height rather than width: these are flex items in a
-   `space-between` row, so widening the lit ones would redistribute the whole
-   scale, and scaling them would stretch the labels the majors hang. */
-.bpm-ticks.is-banded span.is-passed {
   height: 9px;
-  opacity: 1;
+  background:
+    linear-gradient(var(--accent), var(--accent)) no-repeat left center / 2px 100%,
+    linear-gradient(var(--accent), var(--accent)) no-repeat right center / 2px 100%,
+    linear-gradient(var(--accent), var(--accent)) no-repeat center center / 100% 3px;
 }
 
 .bpm-ticks span::after {

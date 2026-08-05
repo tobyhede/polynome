@@ -412,11 +412,11 @@ function tempoFraction(bpm) {
  * becomes the one thing that will not sit still — so the run's own starting
  * tempo sizes them instead.
  *
- * The marks answer the band rather than the size: under a ramp they light the
- * stretch being travelled, with a bar drawn through them at the tempos
- * themselves for the resolution a tenth-of-the-range mark cannot carry, and
- * under a Flat, which travels nothing, they go on marking where the tempo has
- * reached.
+ * The marks answer the band rather than the size, by giving way to it: under a
+ * ramp the band is drawn over them from the tempos themselves, at a resolution
+ * a scale a tenth of the range apart cannot carry, and they stay the plain
+ * scale it is drawn against. Under a Flat, which travels nothing, there is no
+ * band and they go on marking where the tempo has reached.
  */
 function renderDisplayedTempo(displayedBpm) {
   const shapedBy = heldTempo ?? displayedBpm;
@@ -489,11 +489,10 @@ function renderDisplayedTempo(displayedBpm) {
     ticks.removeProperty("--band-end");
   }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
-    const bpm = Number(tick.dataset.bpm);
-    const lit = tempoBand
-      ? bpm >= tempoBand.minimum && bpm <= tempoBand.maximum
-      : bpm <= displayedBpm;
-    tick.classList.toggle("is-passed", lit);
+    // Nothing on the scale answers a band: the band draws its own ends, at the
+    // tempos rather than at the marks nearest them, and marking the scale as
+    // well would say the same thing a second time and less accurately.
+    tick.classList.toggle("is-passed", !tempoBand && Number(tick.dataset.bpm) <= displayedBpm);
   });
 }
 

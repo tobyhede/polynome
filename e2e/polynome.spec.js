@@ -516,7 +516,12 @@ test("playback shows live rounded BPM without changing the saved Configuration",
  * start to the thumb and nothing else — so the stretch a run travels is marked
  * on the tick row beneath it, which is markup this page owns. Stopped, the marks
  * count up to where the thumb is, the way a control about to be dragged should.
- * Under a ramp they light the span instead, ends included and nothing outside.
+ *
+ * Under a ramp they hand the job over. The span is drawn as a band of its own,
+ * placed from the two tempos rather than from the marks nearest them: the marks
+ * stand every ten, and a ramp shorter than that either reaches one of them or
+ * none. The band's ends are read back here as the tempos they stand on, which is
+ * the whole of what placing it from tempos is worth.
  */
 test("the tick row marks the range a ramp travels rather than the tempo of the moment", async ({
   page,
@@ -529,6 +534,24 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
         Number(mark.dataset.bpm),
       ),
     );
+  // The band is placed in percentages of the tempo range, so reading it back as
+  // a pair of tempos is what the assertions below are actually about.
+  const band = () =>
+    page.evaluate(async () => {
+      const { TEMPO_LIMIT } = await import("/model.js");
+      const row = document.querySelector("#bpm-ticks");
+      const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
+      const bpm = (property) => {
+        const percentage = row.style.getPropertyValue(property);
+        if (!percentage) return null;
+        // A tempo that went out as a share of the range and came back divided by
+        // it lands a few parts in 10^15 off the whole number it left as.
+        return (
+          Math.round((TEMPO_LIMIT.minimum + (parseFloat(percentage) / 100) * span) * 1e4) / 1e4
+        );
+      };
+      return [bpm("--band-start"), bpm("--band-end")];
+    });
 
   await slider.fill("120");
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
@@ -542,18 +565,23 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   await envelopeAmount(page).blur();
   // Still counting up: the span is only marked once it is being travelled.
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
+  expect(await band()).toEqual([null, null]);
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).toHaveClass(/\bis-banded\b/);
-  // 120 through 174, so every ten from 120 to 170 and nothing either side.
-  expect(await lit()).toEqual([120, 130, 140, 150, 160, 170]);
+  // The two tempos themselves, not the marks at 120 and 170 that bracket them.
+  expect(await band()).toEqual([120, 174]);
+  // And the scale it is drawn over is left alone: the band says this, once.
+  expect(await lit()).toEqual([]);
 
-  // The tempo climbs and the marks do not follow it.
+  // The tempo climbs and the band does not follow it.
   await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(120);
-  expect(await lit()).toEqual([120, 130, 140, 150, 160, 170]);
+  expect(await band()).toEqual([120, 174]);
+  expect(await lit()).toEqual([]);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
+  expect(await band()).toEqual([null, null]);
 });
 
 /**
@@ -642,8 +670,8 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
  * in the readout, not off the number showing in it — and under an envelope those
  * are not the same tempo. Sizing the glyphs from a number that changes every
  * frame turns the one thing a listener is trying to read into the one thing that
- * will not sit still, and a tick row creeping along behind the digits says less
- * than the stretch the whole run travels. Both are held: the digits change and
+ * will not sit still, and a band creeping along behind the digits says less than
+ * the stretch the whole run travels. Both are held: the digits change and
  * nothing around them does.
  *
  * The three are read in one evaluation so they come from a single frame. Read
@@ -661,14 +689,23 @@ test("the readout holds its size and its marks while an envelope moves the tempo
   await envelopeAmount(page).fill("120");
   await envelopeAmount(page).blur();
 
-  // The custom property is written straight onto the element, so the inline
-  // declaration is the whole of what the readout has been told about its size.
+  // The custom properties are written straight onto the elements, so the inline
+  // declarations are the whole of what the readout has been told about its size
+  // and the row about its band. They are compared as they were written rather
+  // than as tempos: an unchanged string is the strongest form of "did not move".
   const reading = () =>
-    page.evaluate(() => ({
-      bpm: Number(document.querySelector("#bpm-input").value),
-      passed: document.querySelectorAll("#bpm-ticks span.is-passed").length,
-      size: document.querySelector("#bpm-readout").style.getPropertyValue("--bpm-size"),
-    }));
+    page.evaluate(() => {
+      const row = document.querySelector("#bpm-ticks");
+      return {
+        bpm: Number(document.querySelector("#bpm-input").value),
+        band: [
+          row.style.getPropertyValue("--band-start"),
+          row.style.getPropertyValue("--band-end"),
+        ],
+        lit: row.querySelectorAll("span.is-passed").length,
+        size: document.querySelector("#bpm-readout").style.getPropertyValue("--bpm-size"),
+      };
+    });
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   const start = await reading();
@@ -690,10 +727,15 @@ test("the readout holds its size and its marks while an envelope moves the tempo
 
   // The number moved and the readout around it did not.
   expect(climbing.size).toBe(start.size);
-  expect(climbing.passed).toBe(start.passed);
-  // What the marks are lit to is the run's whole span rather than the tempo of
-  // the moment: 60 through 180 of a row that marks every ten from 30.
-  expect(start.passed).toBe(13);
+  expect(climbing.band).toEqual(start.band);
+  // The band stands on the run's whole span rather than on the tempo of the
+  // moment: 60 through 180, as shares of the 30-to-300 the control offers.
+  const [from, to] = start.band.map(Number.parseFloat);
+  expect(30 + (from / 100) * 270).toBeCloseTo(60, 6);
+  expect(30 + (to / 100) * 270).toBeCloseTo(180, 6);
+  // And the scale underneath is untouched while it is drawn over.
+  expect(start.lit).toBe(0);
+  expect(climbing.lit).toBe(0);
 });
 
 test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
