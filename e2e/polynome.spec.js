@@ -125,15 +125,22 @@ test("playback toggles from the button and Space key", async ({ page }) => {
 /**
  * The Cycle card is visible even when there is only one Cycle, so its envelope
  * and its repetitions are reachable in the simplest Sequence there is. The sole
- * active Cycle's first dot stays locked, because a Sequence with nothing active
- * plays nothing.
+ * active Cycle cannot be switched off, but its first dot stays lit and stays
+ * pressable — it offers the count it already holds.
  */
 test("the lone Cycle exposes repetitions and an accessible envelope drawer", async ({ page }) => {
   const cycle = page.locator(".cycle-card").first();
   await expect(cycle).toBeVisible();
   const repetitions = page.getByRole("group", { name: "Cycle repetitions" });
+  const firstDot = repetitions.getByRole("button").first();
   await expect(repetitions.getByRole("button")).toHaveCount(8);
-  await expect(repetitions.getByRole("button").first()).toBeDisabled();
+  await expect(firstDot).toBeEnabled();
+  await expect(firstDot).toHaveAccessibleName("Set Cycle to 1 repetition");
+  await expect(firstDot).toHaveCSS("opacity", "1");
+
+  await firstDot.click();
+  await expect(firstDot).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".cycle-heading .heading-count")).toHaveText("1");
 
   const edit = page.getByRole("button", { name: "Edit Cycle envelope" });
   await expect(edit).toHaveAttribute("aria-expanded", "false");
@@ -149,6 +156,77 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
   );
   await expect(envelopeAmount(page)).toHaveValue("0");
   await expect(drawer.locator("output")).toHaveText("96");
+});
+
+/**
+ * With the drawer closed the controls that set the envelope are out of sight,
+ * so the shape itself stands in for them at the end of the repetition row. It
+ * is the mark alone — the same glyph the drawer's segment carries — and pressing
+ * it opens the drawer that set it.
+ */
+test("a closed Cycle shows its envelope shape after the repetition dots", async ({ page }) => {
+  const mark = page.locator(".envelope-mark");
+  // Flat zero is the no-envelope state, so there is no shape to stand in for.
+  await expect(mark).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Down" }).click();
+  // Open, the drawer is already showing the shape, so the mark stays away.
+  await expect(mark).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveAccessibleName("Edit Cycle envelope, falling 20 bpm over 1 repetition");
+  await expect(mark.locator("polyline")).toHaveAttribute("points", "2,4 32,15");
+  // It carries no text, and it is not one of the repetition controls.
+  await expect(mark).toHaveText("");
+  await expect(
+    page.getByRole("group", { name: "Cycle repetitions" }).getByRole("button"),
+  ).toHaveCount(8);
+
+  // It sits after the dots, at the right of the row.
+  const dots = page.locator(".repeat-dot").last();
+  expect((await mark.boundingBox()).x).toBeGreaterThan((await dots.boundingBox()).x);
+
+  await mark.click();
+  await expect(cycleDrawer(page)).toBeVisible();
+  await expect(mark).toHaveCount(0);
+});
+
+/**
+ * Eight dots stop fitting one line on a narrow viewport, and a wrap left to
+ * itself breaks wherever the width runs out. A Cycle count is read in fours, so
+ * the row breaks in the one place that means anything — and the mark keeps the
+ * first row's company rather than centring itself against both.
+ */
+test("repetition dots break into two rows of four on a narrow viewport", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await settleLayout(page);
+
+  const tops = await page
+    .locator(".repeat-dot")
+    .evaluateAll((dots) => dots.map((dot) => Math.round(dot.getBoundingClientRect().top)));
+  const rows = [...new Set(tops)].sort((left, right) => left - right);
+  expect(rows).toHaveLength(2);
+  expect(tops.filter((top) => top === rows[0])).toHaveLength(4);
+  expect(tops.filter((top) => top === rows[1])).toHaveLength(4);
+
+  const mark = await page.locator(".envelope-mark").boundingBox();
+  const firstDot = await page.locator(".repeat-dot").first().boundingBox();
+  const lastDot = await page.locator(".repeat-dot").last().boundingBox();
+  // On the first row, and to the right of every dot on it.
+  expect(mark.y).toBeLessThan(lastDot.y);
+  expect(mark.x).toBeGreaterThan(firstDot.x);
+
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 });
 
 test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
@@ -1105,19 +1183,29 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
   const enableSecond = secondRepetitions.getByRole("button", {
     name: "Set Cycle 2 to 1 repetition",
   });
+  // Cycle 1 is now the only active Cycle, so its first dot can no longer switch
+  // it off. It offers the count it already holds rather than going disabled: it
+  // is the lit dot in that row, and a disabled control's dimming would take the
+  // only lit dot down to the strength of an unlit one.
   const lockedFirstDot = firstRepetitions.getByRole("button", {
-    name: "Cycle 1 must remain active at 1 repetition",
+    name: "Set Cycle 1 to 1 repetition",
   });
   await expect(enableSecond).toBeFocused();
   await expect(
     page.locator(".cycle-group.is-inactive").filter({ has: secondRepetitions }),
   ).toBeVisible();
-  await expect(lockedFirstDot).toBeDisabled();
+  await expect(lockedFirstDot).toBeEnabled();
   await expect(lockedFirstDot).toHaveClass(/\bis-current\b/);
   await expect(lockedFirstDot).toHaveCSS("opacity", "1");
   expect(await lockedFirstDot.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(
     "none",
   );
+
+  // Pressing it leaves the Cycle exactly where it was, rather than emptying the
+  // Sequence of everything it could play.
+  await lockedFirstDot.click();
+  await expect(lockedFirstDot).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".cycle-group").first()).not.toHaveClass(/\bis-inactive\b/);
 });
 
 test("sound customization clears preset selection and persists", async ({ page }) => {

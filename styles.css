@@ -162,9 +162,13 @@ h1 {
   text-transform: uppercase;
 }
 
+/* The selected segment is excluded because this rule's colour is the selected
+   segment's own background: hovering it painted the ink of the label onto the
+   ink of the surface behind it, and the word disappeared. A selected control is
+   already showing what a hover would tell it, so it has nothing to say back. */
 .chip-button:hover:not(:disabled, [aria-disabled="true"]),
 .preset-button:hover:not(:disabled),
-.segment-button:hover:not(:disabled),
+.segment-button:hover:not(:disabled, .is-selected),
 .icon-button.is-active {
   border-color: var(--accent);
   color: var(--ink);
@@ -756,12 +760,19 @@ h1.is-glitching {
   margin-left: auto;
 }
 
+.repeat-row {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 30px 18px;
+}
+
 .repeat-dots {
   display: flex;
   flex-wrap: wrap;
   gap: 39px;
   align-items: center;
-  padding: 14px 30px 18px;
 }
 
 .repeat-dot {
@@ -802,9 +813,21 @@ h1.is-glitching {
     0 0 14px color-mix(in srgb, var(--accent) 53%, transparent);
 }
 
-/* The sole active cycle's first dot is locked, but it remains the current repetition. */
-.repeat-dot.is-current:disabled {
-  opacity: 1;
+/* The shape the Cycle is carrying, shown once its drawer is closed and the
+   controls that set it are out of sight. It is the same glyph the drawer's own
+   segment shows, at the same size, so the row and the control agree without a
+   word between them. */
+.envelope-mark {
+  flex: none;
+  width: 44px;
+  height: 36px;
+  border-color: var(--line);
+}
+
+.envelope-mark svg {
+  width: 26px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .rhythm-list {
@@ -1510,8 +1533,21 @@ h1.is-glitching {
     padding-inline: 12px;
   }
 
+  /* Eight dots stop fitting one line somewhere inside this breakpoint, and a
+     wrap left to itself breaks wherever the width happens to run out — five and
+     three, six and two. A Cycle count is read in fours, so the row is laid out
+     in fours and breaks in the one place that means anything. */
   .repeat-dots {
-    gap: 22px;
+    display: grid;
+    grid-template-columns: repeat(4, max-content);
+    gap: 16px 22px;
+  }
+
+  /* The mark keeps the first row's company rather than centring itself against
+     both, so the row still reads left to right: this many repetitions, then
+     what the tempo does. */
+  .repeat-row {
+    align-items: flex-start;
     padding-inline: 20px;
   }
 

@@ -673,6 +673,24 @@ function Cycles({ cycles }) {
   )}`;
 }
 
+/**
+ * What a repetition dot's press writes. A dot sets the count it stands for, and
+ * the dot at the current count switches the Cycle off instead — except where
+ * switching off would leave the Sequence with no active Cycle at all. There the
+ * press writes the count it stands for, which is the count already showing.
+ *
+ * The alternative was `disabled`, and it was worse than doing nothing: that dot
+ * is the selected one, so the global dimming for a disabled control took the
+ * only lit dot in the row down to the strength of an unlit one, and a Cycle
+ * playing its single repetition read as a Cycle switched off. The rule holds
+ * either way — `changeConfiguration` is what enforces it — so this is a choice
+ * about which press to offer, not about which to allow.
+ */
+function repetitionsForDot(cycle, value, cycleAvailability) {
+  const switchesOff = cycle.repetitions === value;
+  return switchesOff && cycleAvailability.repetitions[value - 1].available ? value - 1 : value;
+}
+
 function CycleGroup({ cycle, cycleIndex, cycleCount }) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
@@ -718,29 +736,44 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
         <div id=${drawerId} class="cycle-settings" hidden=${!open}>
           <${CycleSettings} cycle=${cycle} cycleTitle=${cycleTitle} tempo=${tempoDescription?.tempo} />
         </div>
-        <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
-          ${REPETITIONS.slice(1).map((value, index) => {
-            const selected = value <= cycle.repetitions;
-            const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
-            const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
-            const actionLabel = unavailable
-              ? `${cycleTitle} must remain active at 1 repetition`
-              : nextRepetitions === 0
-                ? `Disable ${cycleTitle}`
-                : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
-            return html`
-              <button
-                type="button"
-                class="repeat-dot${selected ? " is-set" : ""}"
-                data-action="set-repetitions"
-                data-repetitions=${value}
-                data-repetition-index=${index}
-                aria-label=${actionLabel}
-                aria-pressed=${String(selected)}
-                disabled=${unavailable}
-              ></button>
-            `;
-          })}
+        <!-- The Cycle's length and, once the drawer that sets it is closed, what
+             its tempo does across that length. The mark is a sibling of the
+             dots rather than one of them: it belongs to the row, not to the
+             group of repetition controls the row is mostly made of. -->
+        <div class="repeat-row">
+          <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
+            ${REPETITIONS.slice(1).map((value, index) => {
+              const selected = value <= cycle.repetitions;
+              const nextRepetitions = repetitionsForDot(cycle, value, cycleAvailability);
+              const actionLabel =
+                nextRepetitions === 0
+                  ? `Disable ${cycleTitle}`
+                  : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
+              return html`
+                <button
+                  type="button"
+                  class="repeat-dot${selected ? " is-set" : ""}"
+                  data-action="set-repetitions"
+                  data-repetitions=${value}
+                  data-repetition-index=${index}
+                  aria-label=${actionLabel}
+                  aria-pressed=${String(selected)}
+                ></button>
+              `;
+            })}
+          </div>
+          ${
+            open || !tempoDescription?.notation
+              ? null
+              : html`<button
+                  type="button"
+                  class="icon-button envelope-mark"
+                  data-action="toggle-cycle-settings"
+                  aria-controls=${drawerId}
+                  aria-expanded="false"
+                  aria-label=${`Edit ${cycleTitle} envelope, ${tempoDescription.accessibleNotation}`}
+                ><${EnvelopeGlyph} shape=${cycle.envelope.shape} /></button>`
+          }
         </div>
       </article>
 
@@ -1744,8 +1777,12 @@ elements.cycles.addEventListener("click", (event) => {
   switch (actionElement.dataset.action) {
     case "set-repetitions": {
       const value = Number(actionElement.dataset.repetitions);
-      const repetitions = cycle.repetitions === value ? value - 1 : value;
-      applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
+      const availability = description.availability.cycles[cycle.id];
+      applyEdit({
+        type: "set-cycle-repetitions",
+        cycleId: cycle.id,
+        repetitions: repetitionsForDot(cycle, value, availability),
+      });
       break;
     }
     case "toggle-cycle-settings":
