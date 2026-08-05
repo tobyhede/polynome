@@ -2205,10 +2205,12 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   const drawer = cycleDrawer(page);
   await expect(drawer).toBeVisible();
   // Four segments do not fit one line at this width, so they wrap two by two
-  // rather than shrinking below a tap target.
+  // rather than shrinking below a tap target. Rounded, because a box laid out
+  // at 44px is measured back as 43.99997 and the fraction is the reading rather
+  // than the target.
   for (const shape of ["Flat", "Up", "Down", "Peak"]) {
     const box = await drawer.getByRole("button", { name: shape }).boundingBox();
-    expect(box.height, `${shape} is under 44px at 375px`).toBeGreaterThanOrEqual(44);
+    expect(Math.round(box.height), `${shape} is under 44px at 375px`).toBeGreaterThanOrEqual(44);
   }
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "4/4 meter denominator" })).toBeVisible();

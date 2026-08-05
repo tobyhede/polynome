@@ -760,11 +760,15 @@ h1.is-glitching {
   margin-left: auto;
 }
 
+/* The mark follows the dots rather than being pushed to the far edge: the row
+   reads as one phrase — this many repetitions, then what the tempo does across
+   them — and a card wide enough to strand the mark at the other end of it would
+   leave the two looking unrelated. */
 .repeat-row {
   display: flex;
-  gap: 18px;
+  gap: 39px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 14px 30px 18px;
 }
 
@@ -1547,6 +1551,7 @@ h1.is-glitching {
      both, so the row still reads left to right: this many repetitions, then
      what the tempo does. */
   .repeat-row {
+    gap: 22px;
     align-items: flex-start;
     padding-inline: 20px;
   }
