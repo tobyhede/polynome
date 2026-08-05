@@ -1,5 +1,10 @@
 # Reset the pattern to the canonical voices on a Meter or Subdivision edit
 
+`canonicalSteps` and `resizeSteps` are named below by function and file. Both
+moved to `grid.js` as `canonicalPattern` and `repairPattern` in
+[ADR-0013](0013-advance-every-grid-control-through-one-edit.md). Everything this
+decision asserts about them still holds; only their address changed.
+
 A `set-meter-count` or `set-subdivision` edit writes the canonical pattern for
 the grid it produces — `primary` on the downbeat, `secondary` on every later
 signature unit, `tertiary` on the pulses Subdivision adds within one — and

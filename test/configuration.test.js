@@ -959,10 +959,10 @@ test("advancing a Step voice cycles the four voices and preserves the transport 
 
   for (const expected of ["secondary", "tertiary", "off", "primary"]) {
     const result = changeConfiguration(current, {
-      type: "advance-step-voice",
+      type: "advance-control-voice",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
-      position: 0,
+      control: 0,
     });
 
     assert.equal(result.configuration.sequence.cycles[0].rhythms[0].steps[0], expected);
@@ -1057,7 +1057,7 @@ test("changing a Rhythm layer to Beat Mode also resets its Step voices", () => {
   assert.equal(result.reason, null);
 });
 
-test("advancing a Beat voice normalises its remaining subdivision pulses", () => {
+test("advancing a Beat Mode Grid control normalises its remaining subdivision pulses", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -1077,10 +1077,10 @@ test("advancing a Beat voice normalises its remaining subdivision pulses", () =>
   const rhythm = cycle.rhythms[0];
 
   const result = changeConfiguration(configuration, {
-    type: "advance-beat-voice",
+    type: "advance-control-voice",
     cycleId: cycle.id,
     rhythmId: rhythm.id,
-    beat: 0,
+    control: 0,
   });
 
   assert.deepEqual(result.configuration.sequence.cycles[0].rhythms[0].steps, [
@@ -1095,12 +1095,12 @@ test("advancing a Beat voice normalises its remaining subdivision pulses", () =>
 });
 
 /**
- * In Beat Mode the beat is the only addressable thing, so its voice has to be
- * the voice of every pulse inside it. Only `off` is silent, so a beat advanced
+ * In Beat Mode a control runs the whole signature unit, so its voice has to be
+ * the voice of every pulse inside it. Only `off` is silent, so a control advanced
  * to `off` that kept `tertiary` trailing pulses would go on sounding under a
  * control announcing it as off.
  */
-test("advancing a Beat voice carries all four voices across the whole beat", () => {
+test("advancing a Beat Mode Grid control carries all four voices across its signature unit", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -1121,10 +1121,10 @@ test("advancing a Beat voice carries all four voices across the whole beat", () 
     ["primary", "tertiary", "tertiary"],
   ]) {
     const result = changeConfiguration(current, {
-      type: "advance-beat-voice",
+      type: "advance-control-voice",
       cycleId: cycle.id,
       rhythmId: rhythm.id,
-      beat: 0,
+      control: 0,
     });
 
     assert.deepEqual(
@@ -1159,54 +1159,92 @@ test("repair rejects inherited object names as Step voices", () => {
   ]);
 });
 
-test("Step-voice positions outside the meter-relative grid are rejected", () => {
-  const configuration = createConfiguration();
-  const cycle = configuration.sequence.cycles[0];
-  const rhythm = cycle.rhythms[0];
-  const outside = [rhythm.steps.length, rhythm.steps.length + 1, 4096];
-
-  for (const position of outside) {
-    const result = changeConfiguration(configuration, {
-      type: "advance-step-voice",
-      cycleId: cycle.id,
-      rhythmId: rhythm.id,
-      position,
-    });
-
-    assert.equal(result.consequence, "none");
-    assert.equal(result.reason, "pattern-position-not-found");
-    assert.deepEqual(result.configuration, configuration);
-  }
-});
-
 /**
- * A Beat control counts signature units, not pattern positions, so the bound it
- * is refused at is the Meter's numerator rather than the grid's length. At any
- * Subdivision above one the two differ, and the wider of them would let a beat
- * past the end of the Meter rewrite the pulses of a beat inside it.
+ * A control is refused at the count of controls its own Display mode offers,
+ * which is the Meter's numerator in Beat Mode and the grid's length in
+ * Subdivision Mode. At any Subdivision above one the two differ, and taking the
+ * wider of them in Beat Mode would let a control past the end of the Meter
+ * rewrite the pulses of a signature unit inside it.
  */
-test("Beats outside the Meter are rejected", () => {
+test("controls outside the Display mode's own count are rejected", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }] }],
     },
   });
   const cycle = configuration.sequence.cycles[0];
-  const rhythm = cycle.rhythms[0];
-  const outside = [rhythm.signature.count, rhythm.signature.count + 1, 4096];
 
-  for (const beat of outside) {
-    const result = changeConfiguration(configuration, {
-      type: "advance-beat-voice",
+  for (const [displayMode, offered] of [
+    ["beat", 2],
+    ["subdivision", 6],
+  ]) {
+    const { configuration: current } = changeConfiguration(configuration, {
+      type: "set-display-mode",
       cycleId: cycle.id,
-      rhythmId: rhythm.id,
-      beat,
+      rhythmId: cycle.rhythms[0].id,
+      displayMode,
     });
 
-    assert.equal(result.consequence, "none");
-    assert.equal(result.reason, "beat-not-found");
-    assert.deepEqual(result.configuration, configuration);
+    for (const control of [offered, offered + 1, 4096]) {
+      const result = changeConfiguration(current, {
+        type: "advance-control-voice",
+        cycleId: cycle.id,
+        rhythmId: current.sequence.cycles[0].rhythms[0].id,
+        control,
+      });
+
+      assert.equal(result.consequence, "none");
+      assert.equal(result.reason, "control-not-found");
+      assert.deepEqual(result.configuration, current);
+    }
   }
+});
+
+/**
+ * One edit for both Display modes, so what a press means has to come from the
+ * layer rather than the payload. The same `control: 1` addresses the second
+ * signature unit in Beat Mode and the second pattern position in Subdivision
+ * Mode, and nothing in the edit says which.
+ */
+test("the same control edit addresses a signature unit or a position, per the layer's mode", () => {
+  const base = createConfiguration({
+    sequence: {
+      cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }] }],
+    },
+  });
+  const cycle = base.sequence.cycles[0];
+  const advance = (configuration) =>
+    changeConfiguration(configuration, {
+      type: "advance-control-voice",
+      cycleId: cycle.id,
+      rhythmId: configuration.sequence.cycles[0].rhythms[0].id,
+      control: 1,
+    }).configuration.sequence.cycles[0].rhythms[0].steps;
+
+  assert.deepEqual(advance(base), [
+    "primary",
+    "tertiary",
+    "tertiary",
+    "tertiary",
+    "tertiary",
+    "tertiary",
+  ]);
+
+  const { configuration: subdivided } = changeConfiguration(base, {
+    type: "set-display-mode",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+    displayMode: "subdivision",
+  });
+
+  assert.deepEqual(advance(subdivided), [
+    "primary",
+    "off",
+    "tertiary",
+    "secondary",
+    "tertiary",
+    "tertiary",
+  ]);
 });
 
 test("sound and mix edits preserve transport position and all affect Preset identity", () => {
@@ -1835,8 +1873,7 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "remove-cycle" },
     { type: "add-rhythm", cycleId: 42 },
     { type: "remove-rhythm", cycleId: cycle.id },
-    { type: "advance-beat-voice", cycleId: cycle.id, rhythmId: rhythm.id },
-    { type: "advance-step-voice", cycleId: cycle.id, rhythmId: rhythm.id },
+    { type: "advance-control-voice", cycleId: cycle.id, rhythmId: rhythm.id },
     { type: "set-display-mode", cycleId: cycle.id, rhythmId: rhythm.id },
   ];
 
@@ -1864,7 +1901,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },
     { type: "set-display-mode", cycleId: cycle.id, rhythmId: rhythm.id, displayMode: "notes" },
-    { type: "advance-beat-voice", cycleId: cycle.id, rhythmId: rhythm.id, beat: -1 },
+    { type: "advance-control-voice", cycleId: cycle.id, rhythmId: rhythm.id, control: -1 },
     { type: "set-rhythm-volume", cycleId: cycle.id, rhythmId: rhythm.id, volume: 2 },
     { type: "set-sound", cycleId: cycle.id, rhythmId: rhythm.id, sound: "clap" },
     { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: -2 },

@@ -1,3 +1,4 @@
+import { canonicalPattern, controls, DISPLAY_MODES, repairPattern } from "./grid.js";
 import {
   createSequenceTempoCurves,
   ENVELOPE,
@@ -26,7 +27,6 @@ function choiceRange({ minimum, maximum }) {
 }
 
 const STEP_VOICE_CHOICES = Object.freeze(Object.values(STEP));
-const DISPLAY_MODES = Object.freeze(["beat", "subdivision"]);
 const SOUNDS = Object.freeze(Object.values(SOUND));
 const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
@@ -53,34 +53,6 @@ function safeIdentifier(candidate, prefix) {
     : makeIdentifier(prefix);
 }
 
-function normaliseStep(step) {
-  return STEP_VOICE_CHOICES.includes(step) ? step : STEP.SECONDARY;
-}
-
-/**
- * The pattern a grid of this shape holds when nobody has said otherwise: the
- * downbeat, a `secondary` on every later signature unit, and the pulses
- * Subdivision adds within a unit beneath both. A Meter or Subdivision edit
- * writes it outright; repair fills the positions a stored pattern leaves.
- */
-function canonicalSteps(count, subdivision) {
-  return Array.from({ length: count * subdivision }, (_, position) => {
-    if (position % subdivision !== 0) return STEP.TERTIARY;
-    return position === 0 ? STEP.PRIMARY : STEP.SECONDARY;
-  });
-}
-
-/**
- * A stored pattern decides every position it supplies, and nothing else. What it
- * is missing — because it is short, or because the grid it was saved against was
- * smaller — falls to the canonical pattern, which is the same one an edit to
- * this grid shape would have written.
- */
-function resizeSteps(steps, count, subdivision) {
-  const source = Array.isArray(steps) ? steps.map(normaliseStep) : [];
-  return canonicalSteps(count, subdivision).map((voice, position) => source[position] || voice);
-}
-
 function createRhythm(overrides = {}) {
   const signature = {
     count: Math.round(
@@ -101,7 +73,7 @@ function createRhythm(overrides = {}) {
     signature,
     subdivision,
     displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
-    steps: resizeSteps(overrides.steps, signature.count, subdivision),
+    steps: repairPattern(overrides.steps, signature.count, subdivision),
     // A value the Level slider can actually hold. Its step is `MIX_STEP` in
     // `model.js`, and a default off that grid is rounded onto it by the control
     // itself without an event, leaving the thumb, this Configuration and the
@@ -638,7 +610,7 @@ export function describeConfiguration(configuration) {
    * the only one a bar can claim without saying the run played tempos it never
    * sounded.
    *
-   * Two things are left out, and they are the two ADR-0013 names as the only
+   * Two things are left out, and they are the two ADR-0016 names as the only
    * intentional discontinuities. A Flat jumps from one tempo to the next and
    * sounds neither of the ones between, so the gap it clears is visited at its
    * ends and travelled nowhere. And a ramp is asked for its endpoints rather
@@ -851,56 +823,45 @@ const COMMANDS = Object.freeze({
       );
     },
   },
-  "advance-beat-voice": {
-    validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "beat"),
-    validValue: (edit) => numberInRange(edit, "beat", 0, Number.MAX_SAFE_INTEGER, true),
+  /**
+   * One gesture — a listener presses a Grid control — and therefore one edit.
+   * What the press means is a property of the layer rather than of the payload:
+   * `displayMode` decides how many pattern positions the control runs across,
+   * and it is in the Configuration, so this command derives the run rather than
+   * being told it. That is what keeps the interface from being able to describe
+   * a control the layer does not offer.
+   *
+   * The run is the whole of what a control addresses, so its voice is the voice
+   * of every position inside it: the leading position takes the advanced voice
+   * and the rest take the canonical `tertiary` beneath it. `off` is the
+   * exception, and it is the one that has to be, because `off` is the only
+   * silent voice — a control announced as off with trailing `tertiary`
+   * positions would go on sounding under a control that says it does not.
+   *
+   * In Subdivision Mode a run is one position, so the trailing rule has nothing
+   * to write and the `off` exception cannot arise. The two Display modes reach
+   * the same code and differ only in the length of the run.
+   */
+  "advance-control-voice": {
+    validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "control"),
+    validValue: (edit) => numberInRange(edit, "control", 0, Number.MAX_SAFE_INTEGER, true),
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       const rhythm = findRhythm(current, edit.cycleId, edit.rhythmId);
       if (!cycle) return unchanged(current, "cycle-not-found");
       if (!rhythm) return unchanged(current, "rhythm-not-found");
-      const beat = formNumber(edit.beat);
-      if (beat >= rhythm.signature.count) {
-        return unchanged(current, "beat-not-found");
-      }
-      const firstPosition = beat * rhythm.subdivision;
-      // The beat is the only thing a Beat control addresses, so its voice is the
-      // voice of every pulse inside it: the leading pulse takes the advanced
-      // voice and the rest take the canonical `tertiary` beneath it. `off` is
-      // the exception, and it is the one that has to be, because `off` is the
-      // only silent voice — a beat announced as off with trailing `tertiary`
-      // pulses would go on sounding twice under a control that says it does not.
-      const nextVoice = nextStepVoice(rhythm.steps[firstPosition]);
+      const control = controls(rhythm)[formNumber(edit.control)];
+      if (!control) return unchanged(current, "control-not-found");
+      const [firstPosition] = control.positions;
+      const nextVoice = nextStepVoice(control.voice);
       const trailingVoice = nextVoice === STEP.OFF ? STEP.OFF : STEP.TERTIARY;
+      const run = new Set(control.positions);
       return changeRhythm(current, edit, "update-step-voices", (candidate) => ({
         ...candidate,
         steps: candidate.steps.map((voice, position) => {
           if (position === firstPosition) return nextVoice;
-          if (position < firstPosition + candidate.subdivision && position > firstPosition) {
-            return trailingVoice;
-          }
-          return voice;
+          return run.has(position) ? trailingVoice : voice;
         }),
-      }));
-    },
-  },
-  "advance-step-voice": {
-    validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "position"),
-    validValue: (edit) => numberInRange(edit, "position", 0, Number.MAX_SAFE_INTEGER, true),
-    apply(current, edit) {
-      const cycle = findCycle(current, edit.cycleId);
-      const rhythm = findRhythm(current, edit.cycleId, edit.rhythmId);
-      if (!cycle) return unchanged(current, "cycle-not-found");
-      if (!rhythm) return unchanged(current, "rhythm-not-found");
-      const targetPosition = formNumber(edit.position);
-      if (targetPosition >= rhythm.steps.length) {
-        return unchanged(current, "pattern-position-not-found");
-      }
-      return changeRhythm(current, edit, "update-step-voices", (candidate) => ({
-        ...candidate,
-        steps: candidate.steps.map((voice, position) =>
-          position === targetPosition ? nextStepVoice(voice) : voice,
-        ),
       }));
     },
   },
@@ -1044,7 +1005,7 @@ const COMMANDS = Object.freeze({
       return changeRhythm(current, edit, "update-step-voices", (rhythm) => ({
         ...rhythm,
         displayMode: edit.displayMode,
-        steps: canonicalSteps(rhythm.signature.count, rhythm.subdivision),
+        steps: canonicalPattern(rhythm.signature.count, rhythm.subdivision),
       }));
     },
   },
@@ -1063,7 +1024,7 @@ const COMMANDS = Object.freeze({
         return {
           ...rhythm,
           signature,
-          steps: canonicalSteps(signature.count, rhythm.subdivision),
+          steps: canonicalPattern(signature.count, rhythm.subdivision),
         };
       });
     },
@@ -1139,7 +1100,7 @@ const COMMANDS = Object.freeze({
         return {
           ...rhythm,
           subdivision,
-          steps: canonicalSteps(rhythm.signature.count, subdivision),
+          steps: canonicalPattern(rhythm.signature.count, subdivision),
         };
       });
     },

@@ -12,6 +12,10 @@ transport consequence below remains in force, and reads the same with
 `primary`, `secondary`, and `tertiary` substituted for `full`, `half`, and
 `quarter`.
 
+The immutable Preset catalogue below was superseded by
+[ADR-0010](0010-seed-example-presets-into-storage.md), and the examples it now
+seeds are recorded in [ADR-0015](0015-refine-defaults-and-sliders.md).
+
 ## Consequences
 
 - Pattern positions have four amplitude-only step levels: `off`, `quarter`, `half`, and `full`. Their factors are `0`, `0.25`, `0.5`, and `1`; they never alter frequency, click duration, meter, cycle span, or transport phase. Superseded by ADR-0008: the four positions are now Step voices at equal gain, distinguished by pitch instead of amplitude. That they never alter click duration, meter, cycle span, or transport phase still holds; that they never alter frequency does not, and is the point of the replacement.

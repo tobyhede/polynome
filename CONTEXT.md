@@ -116,30 +116,37 @@ leaves empty from the same pattern.
 _Avoid_: Default steps, reset pattern, base pattern
 
 **Display mode**:
-Which of a rhythm layer's two grids its controls show, either Beat Mode or
-Subdivision Mode. It belongs to the rhythm layer and is part of the
+How long a rhythm layer's Grid controls run, either Beat Mode or Subdivision
+Mode. It belongs to the rhythm layer and is part of the
 Configuration, so it survives a reload, saves into a Preset, and tells two
 Configurations apart. Changing modes writes the Canonical pattern outright, so
 no Step voice that the new mode cannot edit survives audibly behind its
 controls.
 _Avoid_: View, zoom level, expanded, collapsed
 
+**Grid control**:
+One control a Display mode offers over a rhythm layer's meter-relative grid: a
+contiguous run of pattern positions whose Step voice advances together. It shows
+the Step voice of the position its run begins on. Advancing it writes the next
+Step voice at that position and normalises the rest of the run to `tertiary`, so
+a run can hold different Step voices at different pattern positions. A run
+advanced to `off` is the exception, silent throughout, because `off` is the only
+silent voice and trailing `tertiary` positions would go on sounding under a
+control that says it does not. A run never crosses a signature unit.
+_Avoid_: Step control, button
+
 **Beat Mode**:
-The display mode offering one control per signature unit. The control shows the
-Step voice of the pattern position that unit begins on, and advancing it writes
-the next Step voice there and normalises the unit's remaining pattern positions
-to `tertiary`, so a beat can hold different Step voices at different pattern
-positions. An `off` beat is the exception, silent throughout. Beat Mode is the
-default.
+The display mode whose Grid controls each run one signature unit. Beat Mode is
+the default.
 _Avoid_: Simple view, collapsed steps
 
 **Subdivision Mode**:
-The display mode offering one control per pattern position, and the only place a
-pattern position is editable on its own.
+The display mode whose Grid controls each run one pattern position, and the only
+place a pattern position is editable on its own.
 _Avoid_: Expanded view, detail view, advanced mode
 
 **Beat control**:
-One Beat Mode control, labelled `Beat N` for the Nth signature unit of the
+One Beat Mode Grid control, labelled `Beat N` for the Nth signature unit of the
 layer's meter. It is the one place Polynome says "beat" to a listener, and what
 it addresses is a signature unit.
 _Avoid_: Step control
@@ -157,5 +164,11 @@ A named reusable snapshot of a Configuration. Applying a preset recalls that Con
 _Avoid_: Pattern, project, session
 
 **Seeding**:
-Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time Polynome runs, when the preset key has never been written. It names the act and nothing else: what it writes are Presets, renameable, replaceable, and deletable like any other, and afterwards nothing tells them apart from the ones a user saved. Deleting them all leaves no Presets, which is a state Polynome stays in.
+Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time
+Polynome runs, when the preset key has never been written. Both recall one 4/4
+Beat Mode rhythm at 120 BPM: the first at Subdivision two and the second at
+Subdivision three. Seeding names the act and nothing else: what it writes are
+Presets, renameable, replaceable, and deletable like any other, and afterwards
+nothing tells them apart from the ones a user saved. Deleting them all leaves no
+Presets, which is a state Polynome stays in.
 _Avoid_: Built-in preset, factory preset, default preset, seed preset

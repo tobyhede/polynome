@@ -923,12 +923,20 @@ test("the tempo slider increments by five BPM", async ({ page }) => {
 });
 
 /**
- * The tick row is the tempo scale a reader aims at, and the slider's own bounds
- * are the range it spans. The row is built from the model's constants and the
- * bounds are attributes in `index.html`, which cannot import anything, so this
- * is where the three are held to one another.
+ * The tick row is the tempo scale a reader aims at, and the bounds on the two
+ * tempo controls are the range it spans. The row is built from the model's
+ * constants and the bounds are attributes in `index.html`, which cannot import
+ * anything, so this is where the four are held to one another.
+ *
+ * The readout is asserted as well as the slider, because its bounds are the ones
+ * the application's own clamp cannot stand in for. `changeTempo` rejects a tempo
+ * outside `TEMPO_LIMIT` whatever the markup says, but the number field's spinner
+ * and the browser's validity check read the attributes and nothing else — so a
+ * shell that drifted here would stop the arrows short of a tempo the
+ * Configuration accepts, or offer one it refuses, with every assertion about the
+ * slider still passing.
  */
-test("the tick row and the slider's bounds are the tempo range the model names", async ({
+test("the tick row and the tempo controls' bounds are the range the model names", async ({
   page,
 }) => {
   const { limit, interval } = await page.evaluate(async () => {
@@ -936,9 +944,15 @@ test("the tick row and the slider's bounds are the tempo range the model names",
     return { limit: TEMPO_LIMIT, interval: TEMPO_TICK_INTERVAL };
   });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  // Named for what it holds rather than for the word above it: the visible label
+  // gives its slot up to the starting tempo once a run is under way, so "BPM" is
+  // not a name this control answers to for the whole of its life.
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
 
   await expect(slider).toHaveAttribute("min", String(limit.minimum));
   await expect(slider).toHaveAttribute("max", String(limit.maximum));
+  await expect(readout).toHaveAttribute("min", String(limit.minimum));
+  await expect(readout).toHaveAttribute("max", String(limit.maximum));
 
   const marks = await page
     .locator("#bpm-ticks span")

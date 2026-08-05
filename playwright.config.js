@@ -1,6 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = 4174;
+// Deliberately not the 4173 `npm start` uses or the 4175 `npm run shots` takes,
+// so a run collides with neither. The override is for the case those three
+// numbers cannot help with: a second checkout of this repo running its own
+// browser suite at the same time, which wants the same 4174 and, because reuse
+// is disabled below, fails outright rather than attaching to the first one's
+// server. `POLYNOME_TEST_PORT` rather than `PORT` because `PORT` is what gets
+// handed to the server process, and a value already exported for some other
+// reason would move this suite without anyone asking it to.
+const port = Number(process.env.POLYNOME_TEST_PORT || 4174);
 
 export default defineConfig({
   testDir: "./e2e",
