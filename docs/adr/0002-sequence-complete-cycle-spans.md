@@ -14,5 +14,5 @@ The repetition range, cycle activity rule, generated summary, and control presen
 - The generated sequence summary and original always-expanded controls are superseded by ADR-0003.
 - Rhythm labels derive from their time signatures. Custom rhythm and cycle names, cycle-level mix controls, cycle reordering, and a displayed calculated span remain out of scope.
 - “Add rhythm” belongs inside a cycle. “Add cycle” appends `1(4/4)` with centred pan. Users cannot remove the final rhythm from a cycle or the final cycle from the sequence.
-- Presets replace the complete sequence. `4/4` creates `1(4/4)`; `4/4 + 3/4` creates `1(4/4 + 3/4)`, with all preset rhythms centred initially.
+- Presets replace the complete sequence. `4/4` creates `1(4/4)`; `4/4 + 3/4` creates `1(4/4 + 3/4)`, with all preset rhythms centred initially. The two names are superseded by ADR-0010, which stopped them being a catalogue at all, and the examples seeded in their place are `4/4 8ths` and `4/4 Triplets` since [PR #22](https://github.com/tobyhede/polynome/pull/22). That applying a Preset replaces the complete Sequence, and that a seeded example's rhythms are centred, both still hold.
 - Persistence takes a clean break. Existing flat rhythm state is discarded rather than migrated.

@@ -124,43 +124,68 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
 });
 
 /**
- * The tick row marks every ten BPM and a drag stops on those marks. Asserting a
- * particular tempo at a particular offset would pin the browser's own mapping
- * from pointer position to value, half a thumb width inset at either end, so
- * what is asserted is the property the snap has: a dragged tempo is either on a
- * mark or clear of one by more than the tolerance, never stranded beside it.
+ * Every value a pointer can leave a slider on, gathered by dragging the full
+ * width of its track. The stride is derived rather than chosen: three samples
+ * inside each position's share of the track, so a position can only go unseen by
+ * being genuinely unreachable rather than by being stepped over, and the three
+ * sliders this serves can be different widths carrying different counts. The
+ * sweep starts and ends outside the usable track, which is inset by half a thumb
+ * at either end, so the extreme positions are covered like any other.
+ *
+ * A drag is the only gesture that can be swallowed. The arrow keys walk the step
+ * itself and reach everything by construction, so what a pointer can reach is a
+ * question only a pointer can answer.
  */
-test("dragging the tempo slider stops on the ten-BPM marks", async ({ page }) => {
-  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+async function draggedValues(page, slider, positions) {
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
-  const from = track.x + track.width * 0.3;
+  const stride = Math.max(1, Math.floor(track.width / positions / 3));
 
-  await page.mouse.move(from, y);
+  await page.mouse.move(track.x, y);
   await page.mouse.down();
-  const dragged = [];
-  for (let offset = 0; offset <= 40; offset += 2) {
-    await page.mouse.move(from + offset, y);
-    dragged.push(Number(await slider.inputValue()));
+  const seen = [];
+  for (let x = track.x; x <= track.x + track.width; x += stride) {
+    await page.mouse.move(x, y);
+    seen.push(await slider.inputValue());
   }
   await page.mouse.up();
+  return seen;
+}
 
-  const distanceToMark = (bpm) => Math.min(bpm % 10, 10 - (bpm % 10));
-  expect(dragged.filter((bpm) => distanceToMark(bpm) > 0 && distanceToMark(bpm) <= 2)).toEqual([]);
-  // Both confirm the drag moved and that it crossed marks rather than sitting
-  // in one gap the whole way, which would satisfy the assertion above trivially.
-  expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
-  expect(new Set(dragged.filter((bpm) => bpm % 10 === 0)).size).toBeGreaterThan(1);
+/**
+ * Nothing swallows a tempo. The slider steps by five BPM and a drag can leave it
+ * on every one of them, which is the property that replaced a snap to the tick
+ * row's tenths: that snap held a value within two BPM of a mark, and no value
+ * the slider can produce is ever one or two BPM from a ten, so it moved nothing
+ * while making the whole range look as though it might.
+ *
+ * The check is that every position is reachable rather than that a particular
+ * offset produces a particular tempo, which would pin the browser's own mapping
+ * from pointer position to value.
+ */
+test("a tempo drag reaches every tempo the slider steps to", async ({ page }) => {
+  const { limit, step } = await page.evaluate(async () => {
+    const { TEMPO_LIMIT, TEMPO_STEP } = await import("/model.js");
+    return { limit: TEMPO_LIMIT, step: TEMPO_STEP };
+  });
+  const expected = Array.from(
+    { length: (limit.maximum - limit.minimum) / step + 1 },
+    (_, index) => limit.minimum + index * step,
+  );
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+
+  const seen = new Set((await draggedValues(page, slider, expected.length)).map(Number));
+
+  expect(expected.filter((bpm) => !seen.has(bpm))).toEqual([]);
 });
 
 /**
- * Only the pointer snaps. The slider moves in five-BPM intervals, so its arrow
- * keys can still reach the point halfway between adjacent ten-BPM marks. The
- * one-BPM buttons and number input provide finer adjustment.
+ * The slider moves in five-BPM intervals, and the one-BPM buttons and the number
+ * input provide finer adjustment.
  *
  * The starting tempo is set here rather than taken from the default, so moving
- * that default reads as a changed default rather than as a snap that stopped
- * working.
+ * that default reads as a changed default rather than as the keys stepping by
+ * something other than what the slider says.
  */
 test("the tempo slider increments by five BPM", async ({ page }) => {
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
@@ -183,42 +208,17 @@ test("the tempo slider increments by five BPM", async ({ page }) => {
 });
 
 /**
- * A press can end without the slider ever seeing a release: the context menu
- * takes a right button's, and a press abandoned when the window loses the
- * pointer ends the same way. The drag flag is raised on `pointerdown`, so one
- * left raised would go on snapping — and the first arrow key after it would be
- * pulled straight back onto the mark it stepped off, which is the state the
- * flag exists to prevent. Pressing a key ends the drag for that reason.
- */
-test("a press the slider is never released from leaves the arrow keys unsnapped", async ({
-  page,
-}) => {
-  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
-  const track = await slider.boundingBox();
-
-  await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
-  await page.mouse.down({ button: "right" });
-
-  await readout.fill("100");
-  await readout.blur();
-  await slider.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("105");
-});
-
-/**
- * The tick row is the drawn form of the marks `snapTempo` stops on, and the
- * slider's own bounds are the range those marks span. The row is built from the
- * model's constants and the bounds are attributes in `index.html`, which cannot
- * import anything, so this is where the three are held to one another.
+ * The tick row is the tempo scale a reader aims at, and the slider's own bounds
+ * are the range it spans. The row is built from the model's constants and the
+ * bounds are attributes in `index.html`, which cannot import anything, so this
+ * is where the three are held to one another.
  */
 test("the tick row and the slider's bounds are the tempo range the model names", async ({
   page,
 }) => {
   const { limit, interval } = await page.evaluate(async () => {
-    const { TEMPO_LIMIT, TEMPO_SNAP } = await import("/model.js");
-    return { limit: TEMPO_LIMIT, interval: TEMPO_SNAP.interval };
+    const { TEMPO_LIMIT, TEMPO_TICK_INTERVAL } = await import("/model.js");
+    return { limit: TEMPO_LIMIT, interval: TEMPO_TICK_INTERVAL };
   });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
 
@@ -420,91 +420,134 @@ for (const [field, control, expected] of [
 }
 
 /**
- * Level and Balance stop on marks the way the tempo does. Asserting a particular
- * value at a particular offset would pin the browser's own mapping from pointer
- * position to value, half a thumb width inset at either end, so what is asserted
- * is the property the snap has: a dragged value is either on a mark or clear of
- * one by more than the tolerance, never stranded beside it.
+ * A range control silently rounds a value that is not on its step onto one that
+ * is, firing no event, so a default off the grid leaves three different values
+ * in play: the thumb on the nearest step, the readout speaking the Configuration
+ * it was rendered from, and the audio graph playing that same unreachable
+ * number. Nothing on screen says so — the thumb looks placed and the readout
+ * looks right — which is why this asserts the two against each other rather than
+ * either against a literal, and why the arrow key follows: a first step from an
+ * off-grid value moves the Configuration by the mismatch instead of by the step
+ * the control promises.
  *
- * Both are counted in the percent their marks are spaced in rather than in the
- * fraction the slider carries, because that is the domain the snap works in and
- * a comparison in the other one is a comparison against float dust.
+ * Every test gets its own browser context, so nothing is stored and this is the
+ * default a first run puts on screen.
  */
-for (const { name, control, interval, tolerance } of [
-  { name: "Level", control: "4/4 level", interval: 10, tolerance: 2 },
-  { name: "Balance", control: "4/4 stereo balance", interval: 25, tolerance: 5 },
+test("a freshly loaded Level reads as the value its slider is holding", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const slider = page.getByRole("slider", { name: "4/4 level" });
+  const readout = page.locator('[data-output="volume"]');
+
+  const held = Math.round(Number(await slider.inputValue()) * 100);
+  await expect(readout, "the Level readout and its thumb disagree on a fresh load").toHaveText(
+    `${held}%`,
+  );
+
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveText(`${held + 5}%`);
+});
+
+/**
+ * What each mix slider costs its listener in reach. The Level costs nothing: a
+ * drag can leave it on all twenty-one of the positions it steps to. The Balance
+ * costs exactly two — the step either side of centre, which the centre tolerance
+ * pulls in — and those two are named here rather than derived from the tolerance
+ * so that widening it has to be argued for rather than absorbed.
+ *
+ * The table this replaced had marks at every quarter and swallowed sixteen of
+ * the Balance's forty-one positions, which is what a test asserting only "on a
+ * mark or clear of one" could not see: a snap that never fires and a snap that
+ * eats a third of the control both satisfy it.
+ *
+ * Values are counted in whole percent rather than compared as the fractions the
+ * slider carries, because a comparison in the other domain is a comparison
+ * against float dust.
+ */
+for (const { name, control, minimum, maximum, unreachable } of [
+  { name: "Level", control: "4/4 level", minimum: 0, maximum: 100, unreachable: [] },
+  {
+    name: "Balance",
+    control: "4/4 stereo balance",
+    minimum: -100,
+    maximum: 100,
+    unreachable: [-5, 5],
+  },
 ]) {
-  test(`dragging the ${name} stops on its marks`, async ({ page }) => {
+  test(`a ${name} drag reaches every position the slider steps to`, async ({ page }) => {
     await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+    const step = await page.evaluate(async () => {
+      const { MIX_STEP } = await import("/model.js");
+      return Math.round(MIX_STEP * 100);
+    });
+    const expected = [];
+    for (let percent = minimum; percent <= maximum; percent += step) expected.push(percent);
     const slider = page.getByRole("slider", { name: control });
-    const track = await slider.boundingBox();
-    const y = track.y + track.height / 2;
-    const from = track.x + track.width * 0.2;
-    const span = Math.round(track.width * 0.5);
 
-    await page.mouse.move(from, y);
-    await page.mouse.down();
-    const dragged = [];
-    for (let offset = 0; offset <= span; offset += 2) {
-      await page.mouse.move(from + offset, y);
-      dragged.push(Math.round(Number(await slider.inputValue()) * 100));
-    }
-    await page.mouse.up();
+    const dragged = await draggedValues(page, slider, expected.length);
+    const seen = new Set(dragged.map((value) => Math.round(Number(value) * 100)));
 
-    const distanceToMark = (percent) => {
-      const remainder = ((percent % interval) + interval) % interval;
-      return Math.min(remainder, interval - remainder);
-    };
     expect(
-      dragged.filter((percent) => {
-        const distance = distanceToMark(percent);
-        return distance > 0 && distance <= tolerance;
-      }),
-      `${name} settled beside a mark rather than on it: ${dragged.join(", ")}`,
-    ).toEqual([]);
-    // Both confirm the drag moved and that it crossed marks rather than sitting
-    // in one gap the whole way, which would satisfy the assertion above
-    // trivially.
-    expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
-    expect(new Set(dragged.filter((percent) => percent % interval === 0)).size).toBeGreaterThan(1);
+      expected.filter((percent) => !seen.has(percent)),
+      `the ${name} positions a drag could not reach`,
+    ).toEqual(unreachable);
   });
 }
 
 /**
- * Centre is the mark that has to be exactly reachable, because `panLabel` calls
- * anything inside four percent of the middle "Centre" — a reading a drag could
- * not make true before, leaving the word over a Balance that was audibly off to
- * one side. The tolerance is wider than that window, so what reads Centre is
- * centred.
+ * Centre has to be exactly reachable, because `panLabel` calls anything inside
+ * four percent of the middle "Centre" — a reading a drag could not make true
+ * before, leaving the word over a Balance that was audibly off to one side.
+ *
+ * Reaching it is not the assertion, though: the slider steps to zero like any
+ * other position, so a pointer would find it with no snap at all. What the snap
+ * buys is that centre is sticky, and stickiness is measured rather than assumed
+ * — the run of pointer positions that leave the slider centred is three steps
+ * wide where an ordinary position's is one, because the tolerance takes the step
+ * either side. Comparing the two runs against each other keeps this independent
+ * of the browser's own mapping from pointer position to value, and of how wide
+ * the track happens to be drawn.
  */
-test("dragging the Balance through the middle lands on centre exactly", async ({ page }) => {
+test("a Balance drag through the middle sticks to centre", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const slider = page.getByRole("slider", { name: "4/4 stereo balance" });
   const readout = page.locator('[data-output="pan"]');
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
+  const middle = track.x + track.width / 2;
+  // A fifth of the track either side of the middle, which is several steps'
+  // worth at any width this is drawn at: wide enough that the neighbouring
+  // positions are crossed whole, and the assertion below confirms it was.
+  const reach = Math.round(track.width * 0.2);
 
-  await page.mouse.move(track.x + track.width * 0.3, y);
+  await page.mouse.move(middle - reach, y);
   await page.mouse.down();
   const crossing = [];
-  for (let offset = -6; offset <= 6; offset += 1) {
-    await page.mouse.move(track.x + track.width / 2 + offset, y);
+  for (let offset = -reach; offset <= reach; offset += 1) {
+    await page.mouse.move(middle + offset, y);
     crossing.push(await slider.inputValue());
   }
   // Released on the middle rather than wherever the sweep ended, because what
-  // the sweep shows is that centre is reachable and what this shows is that it
-  // is what a pointer resting there leaves behind.
-  await page.mouse.move(track.x + track.width / 2, y);
+  // the sweep shows is how the slider behaves on the way past centre and what
+  // this shows is what a pointer resting there leaves behind.
+  await page.mouse.move(middle, y);
   await page.mouse.up();
 
-  expect(crossing, "a pointer crossing the middle never landed on centre").toContain("0");
+  const run = (value) => crossing.filter((held) => held === value).length;
+  expect(crossing, "the sweep did not cross the positions it compares centre against").toEqual(
+    expect.arrayContaining(["-0.15", "0.15"]),
+  );
+  expect(run("0"), "centre held the pointer no longer than an ordinary position").toBeGreaterThan(
+    2 * run("0.1"),
+  );
   await expect(slider).toHaveValue("0");
   await expect(readout).toHaveText("Centre");
 });
 
 /**
- * Only the pointer snaps. The mix sliders use five-percentage-point keyboard
- * steps, independently of the larger marks a pointer drag sticks to.
+ * The keyboard never snaps, so the mix sliders step by the five percentage
+ * points their grid is written in — including the Balance, whose first step
+ * either side of centre is the one position a drag cannot leave it on.
  */
 test("the mix sliders increment by five percentage points", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
@@ -517,35 +560,40 @@ test("the mix sliders increment by five percentage points", async ({ page }) => 
   await expect(level).toHaveValue("0.55");
   await expect(page.locator('[data-output="volume"]')).toHaveText("55%");
 
-  await balance.fill("0.5");
+  // Stepped off centre rather than from anywhere else, because this is the one
+  // position a drag cannot leave the Balance on: the centre tolerance takes it,
+  // and the keyboard is what still reaches it.
+  await balance.fill("0");
   await balance.focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.45");
-  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 45%");
+  await page.keyboard.press("ArrowRight");
+  await expect(balance).toHaveValue("0.05");
+  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 5%");
 });
 
 /**
  * A press can end without the slider ever seeing a release: the context menu
  * takes a right button's, and a press abandoned when the window loses the
- * pointer ends the same way. One flag serves both sliders and every rhythm, so a
- * press left raised on one of them would go on snapping the others — and the
- * first arrow key after it would be pulled straight back onto the mark it
- * stepped off. Pressing a key ends the drag for that reason, and this abandons
- * the press on one slider to step the other.
+ * pointer ends the same way. One flag serves every rhythm's Balance, so a press
+ * left raised on one of them would go on centring the others — and the first
+ * arrow key off centre would be pulled straight back onto it, leaving the slider
+ * stuck there for good. Pressing a key ends the drag for that reason.
+ *
+ * The step is off centre because that is where a raised flag shows: anywhere
+ * else the tolerance has nothing to say, and the test would pass with the
+ * backstop deleted.
  */
 test("a press the mix is never released from leaves the arrow keys unsnapped", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
-  const level = page.getByRole("slider", { name: "4/4 level" });
   const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
-  const track = await level.boundingBox();
+  const track = await balance.boundingBox();
 
   await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
   await page.mouse.down({ button: "right" });
 
-  await balance.fill("0.5");
+  await balance.fill("0");
   await balance.focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.45");
+  await page.keyboard.press("ArrowRight");
+  await expect(balance).toHaveValue("0.05");
 });
 
 test("the Balance slider marks the centred 50% track position", async ({ page }) => {

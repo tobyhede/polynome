@@ -51,6 +51,29 @@ export const SUBDIVISION_LIMIT = Object.freeze({ minimum: 1, maximum: 5 });
 
 export const TEMPO_LIMIT = Object.freeze({ minimum: 30, maximum: 300 });
 
+/**
+ * What each stepped control moves by, and so which values it can hold at all.
+ * A `step` reads like a detail of how a slider is drawn, and it is not one:
+ * `<input type="range">` runs a value sanitization algorithm that rounds a value
+ * off the step onto the nearest value on it — silently, firing no event — so a
+ * default that misses the grid leaves the thumb somewhere the application's own
+ * readout disagrees with, and the first arrow key from there moves by whatever
+ * the mismatch left rather than by the step.
+ *
+ * That is not hypothetical. A default Level of 0.72 rendered at 0.70 while the
+ * readout said 72% and the audio graph played 0.72, and nothing could catch it
+ * while the step existed only as a string in the markup with no name for a test
+ * to reach for. The grid is domain vocabulary for that reason, and
+ * `test/model.test.js` holds every default the application ships against it.
+ *
+ * `index.html` cannot import, so the tempo slider's `step="5"` is still written
+ * there as a literal; the same test reads the shell and holds the two together.
+ */
+export const TEMPO_STEP = 5;
+
+/** Level and Balance share one grid: a twentieth, five percent of either. */
+export const MIX_STEP = 0.05;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -163,87 +186,74 @@ export function subdivisionLabel(subdivision, unit) {
 }
 
 /**
- * The tempo marks a drag stops on. A drag that lands within `tolerance` of a
- * mark takes the mark exactly, so the round tempos musicians actually name are
- * the easy ones to hit. `app.js` draws the tick row from this interval and
- * `TEMPO_LIMIT` rather than from its own tenth, because the marks a reader aims
- * at and the marks a drag stops on are one set or the snap lands nowhere
- * visible. Both ends of the range are marks themselves, which is what keeps the
- * tolerance from pulling a tempo past a bound; `test/model.test.js` holds that.
+ * The interval the tick row under the tempo slider is drawn at. `app.js` builds
+ * the row from this and `TEMPO_LIMIT`, and the row is a scale: major ticks carry
+ * their own number, so it is how a reader knows where on the range the thumb is
+ * sitting. `TEMPO_STEP` divides this interval and the range spans a whole number
+ * of them, so every mark drawn is a tempo the slider can stop on and the first
+ * and last sit on the slider's own ends; `test/model.test.js` holds both.
  *
- * This restores what the browser used to do for free: a `<datalist>` on the
- * slider snapped the thumb to its ticks, and it was dropped when the slider
- * moved above `.bpm-ticks`, where the browser's own marks duplicated the row.
- * The behaviour was the datalist's, not the tick row's, so drawing the marks
- * ourselves did not carry it over.
- *
- * The tolerance leaves each mark's neighbours ±1 and ±2 unreachable by drag.
- * They are reachable by typing and by the arrow keys, which is why only a
- * pointer drag snaps: a keyboard step of one from a mark would be pulled
- * straight back to it, and the slider would never move at all.
+ * The row was once the drawn form of a snap. A drag stopped on these tempos —
+ * restoring what a `<datalist>` on the slider had done for free before the
+ * slider moved above the row and the browser's own marks started duplicating it
+ * — and the two had to be one set of tempos or the snap landed nowhere visible.
+ * That snap is gone. Its tolerance was two BPM either side of a mark, which is
+ * narrower than the five the slider steps by, so it could not catch a single
+ * value the control was able to produce: every tempo it would have moved was
+ * already unreachable. What is left is the scale, which is all a reader ever saw.
  */
-export const TEMPO_SNAP = Object.freeze({ interval: 10, tolerance: 2, scale: 1 });
+export const TEMPO_TICK_INTERVAL = 10;
 
 /**
- * The Level marks, counted in the percent its own readout speaks rather than in
- * the 0-to-1 the slider carries. Every ten percent, with the tolerance the tempo
- * uses in its units — so the two controls are sticky to the same degree, a fifth
- * of the gap on either side of every mark, and a reader who has learned one has
- * learned the other.
+ * How far from the middle a Balance drag is still centred, and the only snap
+ * left anywhere in the interface. It is here for the reading rather than for the
+ * feel: `panLabel` calls anything inside four percent of the middle "Centre",
+ * and a drag that stopped a hundredth or two short left that word over a Balance
+ * that was audibly off to one side. Inside the five percent here it cannot —
+ * everything the label calls Centre arrives at exactly zero.
  *
- * `scale` is what those units cost: the marks are whole percent while the value
- * is a fraction, so the arithmetic below counts in percent and divides once at
- * the end. Rounding `0.3` out of `Math.round(0.3 / 0.1) * 0.1` gives
- * `0.30000000000000004`, and a Level carrying that reads as a Configuration
- * that has moved from the Preset holding `0.3` — an unsaved change nobody made,
- * offered by a control that only looks like it landed on a mark.
+ * One `MIX_STEP` wide, which makes the two positions either side of centre the
+ * only ones a drag cannot reach. Both stay reachable by arrow key, because only
+ * the pointer snaps: a key stepping off centre would be pulled straight back
+ * onto it and the slider would be stuck there for good.
+ *
+ * What this replaced was a table of marks at every quarter, sticky within five
+ * percent of each. Sixteen of the forty-one positions the slider steps to were
+ * unreachable by drag under it — ±0.20, ±0.30, ±0.45, ±0.55, ±0.70, ±0.80 and
+ * ±0.95 as well as ±0.05 — for the sake of marks a stereo placement is only ever
+ * described by loosely. Centre is the one a listener asks for exactly.
+ *
+ * Double-clicking the slider still returns it to centre outright. That serves the
+ * pointer that is nowhere near the middle; this serves the one that is.
  */
-export const LEVEL_SNAP = Object.freeze({ interval: 10, tolerance: 2, scale: 100 });
+export const BALANCE_CENTRE_TOLERANCE = 0.05;
 
 /**
- * The Balance marks: hard left, half left, centre, half right, hard right. A
- * quarter is the coarsest interval that still holds the position a stereo
- * placement is usually described by, and centre is the one that has to be
- * exactly reachable — `panLabel` already calls anything inside four percent
- * "Centre", which was a reading a drag could not make true. Inside the five
- * percent here it now is: a dragged Balance that reads Centre is centred.
+ * Centres a Balance a pointer left near the middle, and leaves every other value
+ * exactly where the drag put it.
  *
- * Double-clicking the slider still returns it to centre outright. That serves
- * the pointer that is nowhere near the middle; this serves the one that is.
+ * Returns a number for anything numeric and the caller's own value untouched for
+ * everything else — the slider's string, an empty field, a `null` read back from
+ * storage. Repairing those here would decide what an unusable value means in the
+ * one place that cannot report it; the Configuration refuses them and says why,
+ * which is where every form value already goes.
+ *
+ * The comparison is made on the value the slider carries rather than on that
+ * value scaled into percent, which is what the mark table this replaced had to
+ * do. That scaling was where the float dust came from — `0.58 * 100` is
+ * `57.99999999999999`, a hundred-billionth outside a tolerance it was meant to
+ * be exactly on, and the snap passed over it — and a comparison against a
+ * literal the slider's own string parses to has no dust in it to guard against.
  */
-export const BALANCE_SNAP = Object.freeze({ interval: 25, tolerance: 5, scale: 100 });
-
-/**
- * Returns a number for anything numeric and the caller's own value untouched
- * for everything else — the slider's string, an empty field, a `null` read back
- * from storage. Repairing those here would decide what an unusable value means
- * in the one place that cannot report it; the Configuration refuses them and
- * says why, which is where every form value already goes.
- */
-export function snapToMark(value, { interval, tolerance, scale }) {
+export function snapBalance(value) {
   const parsed = numericValue(value);
   if (!Number.isFinite(parsed)) return value;
-  const counted = parsed * scale;
-  const mark = Math.round(counted / interval) * interval;
-  // The count is a product, so a value sitting exactly on the tolerance can
-  // arrive a hair outside it: `0.58 * 100` is `57.99999999999999`, which stands
-  // two and a hundred-billionth from the mark at sixty rather than the two that
-  // mark is meant to catch, and the slider passes over it without stopping. The
-  // margin below is orders beneath the hundredth these controls can hold and the
-  // one bpm the tempo can, so it separates dust from a value genuinely outside
-  // the tolerance rather than widening the tolerance.
-  if (Math.abs(counted - mark) > tolerance + 1e-9) return parsed;
-  // A Balance approached from the left rounds to `-0`, which is the centre by
-  // every comparison the application makes and a different value to `Object.is`
-  // and to anything that prints it. It reaches storage, the Preset snapshot and
-  // the readout, so it is worth the one line here rather than a footnote in each
-  // of them.
-  const snapped = mark / scale;
-  return snapped === 0 ? 0 : snapped;
-}
-
-export function snapTempo(value) {
-  return snapToMark(value, TEMPO_SNAP);
+  // Centre is written as the literal rather than derived, so a Balance
+  // approached from the left cannot settle on `-0`: that is the centre by every
+  // comparison the application makes and a different value to `Object.is` and to
+  // anything that prints it, and it would reach storage, the Preset snapshot and
+  // the readout from here.
+  return Math.abs(parsed) <= BALANCE_CENTRE_TOLERANCE ? 0 : parsed;
 }
 
 export function panLabel(value) {

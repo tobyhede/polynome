@@ -176,7 +176,7 @@ This is intentionally less ambitious than a full beat-aware or note-value/tuplet
 
 - Every rhythm layer uses a meter-relative grid with `N*K` pattern positions.
 - The subdivision dropdown supports `K = 1..5` pulses per signature unit.
-- The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter.
+- The initial preset catalogue is meter-first: one `4/4` rhythm, or `4/4 + 3/4` polymeter. That catalogue stopped being a catalogue in [ADR-0010](../adr/0010-seed-example-presets-into-storage.md), and the examples seeded in its place are `4/4 8ths` and `4/4 Triplets` — two 4/4 layers told apart by Subdivision rather than by meter, so what ships is no longer meter-first.
 - Ratio presets remain out of scope until the product has an explicit shared-cycle pulse model.
 - Emphasis remains entirely in the step value; no grouping state or control is introduced. That value was an amplitude-only level when this was written and is a Step voice since ADR-0008.
 - Existing persisted state is discarded rather than migrated because its subdivision meaning is ambiguous.

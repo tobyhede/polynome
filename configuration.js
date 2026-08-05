@@ -98,7 +98,14 @@ function createRhythm(overrides = {}) {
     subdivision,
     displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
     steps: resizeSteps(overrides.steps, signature.count, subdivision),
-    volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
+    // A value the Level slider can actually hold. Its step is `MIX_STEP` in
+    // `model.js`, and a default off that grid is rounded onto it by the control
+    // itself without an event, leaving the thumb, this Configuration and the
+    // audio graph on three different numbers. Written as the literal it is
+    // rather than counted out in steps, because a count is a product and
+    // `14 * 0.05` is `0.7000000000000001`, which is the same bug again.
+    // `test/model.test.js` holds every default here to its control's grid.
+    volume: normaliseNumber(overrides.volume, 0.7, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,
     muted: Boolean(overrides.muted),

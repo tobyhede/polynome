@@ -49,7 +49,7 @@ It is a claim about what storage holds, so it stops being true when storage move
 
 Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup destroys focus, which is what made `focusSelector`, `renderPresetSelection` and three `requestAnimationFrame` focus deferrals necessary; the e2e suite asserts those regions are not rebuilt and that focus survives a Preset being deleted from another tab.
 
-`model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place.
+`model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`) and the increments its stepped controls move in (`TEMPO_STEP`, `MIX_STEP`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place. A step belongs there for the same reason a bound does, and for one more: it decides which values a control can hold at all, so every default is held against it — see [ADR-0014](docs/adr/0014-snap-only-the-balance-and-hold-defaults-to-the-step.md).
 
 Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
 
@@ -115,7 +115,7 @@ Workflows are linted by actionlint, in CI only, since the binary does not come f
 
 Also manually verify the audio-specific behavior Playwright cannot assess:
 
-1. Presets `4/4` and `4/4 + 3/4` sound as configured. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
+1. Presets `4/4 8ths` and `4/4 Triplets` sound as configured. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
 2. Headphone separation at hard left and hard right through physical output.
 3. Primary, secondary, and tertiary Step voices are perceptually distinguishable at equal gain, and `off` is silent. Check this on a `low` layer, not the default `high`: `low` is the worst case, because its voices land lowest and the ear is least sensitive there.
 4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.
