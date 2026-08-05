@@ -11,11 +11,15 @@ import { expect, test } from "@playwright/test";
  * a serious violation against markup that is correct once it settles.
  *
  * The reduced-motion block in `styles.css` sets only `scroll-behavior`,
- * `animation-duration`, `animation-iteration-count` and `transition-duration`.
- * It changes no colour, no size, and nothing's visibility, so the settled
- * rendering axe measures here is the same one everyone else sees — it simply
- * arrives immediately. Waiting on a timeout instead would trade this for a
- * number that is too short on a loaded CI runner and too slow everywhere else.
+ * `animation-duration`, `animation-iteration-count` and `transition-duration`,
+ * plus the one rule that keeps that true: an animation filling forwards settles
+ * on its final frame the moment its duration is clamped, so the beat pulse is
+ * dropped there rather than run instantly to a frame holding no glow. The block
+ * changes no colour, no size, and nothing's visibility, so the settled rendering
+ * axe measures here is the same one everyone else sees — it simply arrives
+ * immediately. Waiting on a timeout instead would trade this for a number that
+ * is too short on a loaded CI runner and too slow everywhere else. The test at
+ * the foot of this file is what holds the exception honest.
  */
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -105,6 +109,66 @@ test("open rhythm settings have no accessibility violations", async ({ page }) =
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(page.locator(".rhythm-settings").first()).toBeVisible();
   await expectNoViolations(page);
+});
+
+test("Subdivision Mode has no accessibility violations", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("button", { name: "4/4 subdivision" }).click();
+  await page.getByRole("option", { name: /3 per quarter unit/ }).click();
+  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
+  await expect(
+    page.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
+  ).toHaveCount(12);
+  await expectNoViolations(page);
+});
+
+/**
+ * The playhead restarts the beat pulse at every onset, so a sample taken at an
+ * arbitrary instant reads wherever that pulse happens to be rather than where it
+ * leaves the control. Waiting for every animation and transition on the element
+ * to finish is what makes this the value the control settles on, and the element
+ * is asked for again afterwards because the playhead may have moved on by then.
+ */
+function settledCurrentGlow(page) {
+  return page.evaluate(async () => {
+    const current = () => document.querySelector(".step.is-current");
+    const running = current()?.getAnimations() ?? [];
+    // A restarted animation rejects the promise of the one it replaced, and a
+    // replacement is the ordinary case here rather than a failure.
+    await Promise.all(running.map((animation) => animation.finished.catch(() => {})));
+    const element = current();
+    return element ? getComputedStyle(element).boxShadow : "absent";
+  });
+}
+
+/**
+ * Every scan above rests on the reduced-motion block changing only timing, and
+ * `animation-fill-mode: forwards` is where a duration override stops being one:
+ * clamped to nothing, an animation settles on its final frame immediately, and
+ * the beat pulse's final frame is no glow at all. A listener who asks for less
+ * motion is asking for less motion, not for the playhead to stop being visible.
+ *
+ * The current step in Subdivision Mode carries the same rule without the pulse
+ * over it, so it is the glow this one is measured against rather than a colour
+ * written out here that the stylesheet could move away from.
+ */
+test("the current beat keeps the current step's glow when motion is reduced", async ({ page }) => {
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await expect(page.locator('.steps[data-display-mode="beat"] .step.is-current')).toHaveCount(1);
+  const beatGlow = await settledCurrentGlow(page);
+  // Both readings come from one declaration, so a glow that stopped resolving
+  // would agree with itself about there being none. This is what says there is
+  // one at all.
+  expect(beatGlow).not.toBe("none");
+
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
+  await expect(
+    page.locator('.steps[data-display-mode="subdivision"] .step.is-current'),
+  ).toHaveCount(1);
+
+  expect(beatGlow).toBe(await settledCurrentGlow(page));
 });
 
 test("the playing transport has no accessibility violations", async ({ page }) => {

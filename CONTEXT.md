@@ -55,7 +55,12 @@ _Avoid_: Pattern length, subdivision
 One primary beat written as `1/denominator`; a meter contains `numerator`
 signature units. Its duration is `60 / BPM` regardless of denominator, and it
 is not always the perceived beat.
-_Avoid_: Beat
+_Avoid_: Beat, in this vocabulary. The interface says "Beat 1", and that is
+deliberate rather than a lapse: a listener counts a bar in beats and has no use
+for the written unit's name. They are the same thing under two audiences, and
+what the avoidance rules out is prose, tests and identifiers saying "beat",
+where it would be left meaning either this or the Primary beat. See Beat
+control.
 
 **Subdivision**:
 The number of equal pulses within each signature unit of a rhythm layer's meter. A subdivision of one leaves the primary beat undivided.
@@ -76,6 +81,43 @@ _Avoid_: Absolute step
 **Step voice**:
 The pitch role at a pattern position: `primary`, `secondary`, and `tertiary` use equal gain and descend in four-semitone intervals, while `off` produces no event.
 _Avoid_: Step level, Full, half, quarter, accent strength
+
+**Canonical pattern**:
+The Step voices a meter-relative grid holds when nothing has said otherwise:
+`primary` on the downbeat, `secondary` on every later signature unit, and
+`tertiary` on the pulses Subdivision adds within one. A Meter-numerator or
+Subdivision edit writes it outright; repair fills the positions a stored pattern
+leaves empty from the same pattern.
+_Avoid_: Default steps, reset pattern, base pattern
+
+**Display mode**:
+Which of a rhythm layer's two grids its controls show, either Beat Mode or
+Subdivision Mode. It belongs to the rhythm layer and is part of the
+Configuration, so it survives a reload, saves into a Preset, and tells two
+Configurations apart. Changing modes writes the Canonical pattern outright, so
+no Step voice that the new mode cannot edit survives audibly behind its
+controls.
+_Avoid_: View, zoom level, expanded, collapsed
+
+**Beat Mode**:
+The display mode offering one control per signature unit. The control shows the
+Step voice of the pattern position that unit begins on, and advancing it writes
+the next Step voice there and normalises the unit's remaining pattern positions
+to `tertiary`, so a beat can hold different Step voices at different pattern
+positions. An `off` beat is the exception, silent throughout. Beat Mode is the
+default.
+_Avoid_: Simple view, collapsed steps
+
+**Subdivision Mode**:
+The display mode offering one control per pattern position, and the only place a
+pattern position is editable on its own.
+_Avoid_: Expanded view, detail view, advanced mode
+
+**Beat control**:
+One Beat Mode control, labelled `Beat N` for the Nth signature unit of the
+layer's meter. It is the one place Polynome says "beat" to a listener, and what
+it addresses is a signature unit.
+_Avoid_: Step control
 
 **Rhythm event**:
 A scheduled non-off occurrence identified by rhythm layer, absolute step, pattern position, Step voice, and audio time. Sound and mix are not properties of the rhythm event.

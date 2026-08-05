@@ -164,7 +164,7 @@ h1 {
 
 .chip-button:hover:not(:disabled, [aria-disabled="true"]),
 .preset-button:hover:not(:disabled),
-.sound-button:hover:not(:disabled),
+.segment-button:hover:not(:disabled),
 .icon-button.is-active {
   border-color: var(--accent);
   color: var(--ink);
@@ -1044,11 +1044,30 @@ h1.is-glitching {
   background-color: var(--soft);
 }
 
+/* The pulse below fades away from precisely this glow, so the glow is one value
+   with two readers rather than two values that have to be kept the same. It is
+   declared on the element the pulse runs on, which is what lets a keyframe
+   substitute it. */
 .step.is-current {
-  border-color: var(--ink);
-  box-shadow:
+  --step-glow:
     0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
     0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+
+  border-color: var(--ink);
+  box-shadow: var(--step-glow);
+}
+
+@keyframes beat-step-pulse {
+  from {
+    box-shadow: var(--step-glow);
+  }
+  to {
+    box-shadow: none;
+  }
+}
+
+.steps[data-display-mode="beat"] .step.is-current {
+  animation: beat-step-pulse 140ms ease-out forwards;
 }
 
 /* The rule is on the edge the pane meets the steps at. The pane opens under the
@@ -1073,7 +1092,7 @@ h1.is-glitching {
 }
 
 .control-label,
-.sound-control {
+.segmented-control {
   display: grid;
   gap: 9px;
   min-width: 0;
@@ -1187,7 +1206,7 @@ h1.is-glitching {
   color: var(--accent);
 }
 
-.sound-control > div {
+.segmented-control > div {
   display: flex;
   gap: 5px;
   height: 44px;
@@ -1198,7 +1217,7 @@ h1.is-glitching {
   background: var(--card);
 }
 
-.sound-button {
+.segment-button {
   height: 36px;
   padding: 0 13px;
   border: 0;
@@ -1212,7 +1231,7 @@ h1.is-glitching {
   text-transform: uppercase;
 }
 
-.sound-button.is-selected {
+.segment-button.is-selected {
   background: var(--ink);
   color: #0c0c0d;
 }
@@ -1415,15 +1434,15 @@ h1.is-glitching {
     gap: 18px;
   }
 
-  .sound-control {
+  .segmented-control {
     width: 100%;
   }
 
-  .sound-control > div {
+  .segmented-control > div {
     width: 100%;
   }
 
-  .sound-button {
+  .segment-button {
     flex: 1;
     padding-inline: 6px;
   }
@@ -1449,5 +1468,15 @@ h1.is-glitching {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  /* The rule above is a timing change everywhere but on an animation that
+     fills forwards, where clamping the duration settles the element on the
+     final frame at once — and this animation's final frame is no glow at all,
+     so the current beat would lose the only mark that says it is current.
+     Dropping the pulse leaves the glow `.step.is-current` sets on its own,
+     which is the same indication arriving without the motion. */
+  .steps[data-display-mode="beat"] .step.is-current {
+    animation: none !important;
   }
 }

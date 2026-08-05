@@ -477,6 +477,16 @@ function PresetNotation({ configuration }) {
 
 function renderCycles() {
   render(html`<${Cycles} cycles=${state.sequence.cycles} />`, elements.cycles);
+  // A redraw is what the record of the last draw stops describing. Reconciliation
+  // rewrites the class of any control whose voice changed, which takes the
+  // playhead's highlight off it, and a record kept across that would answer for a
+  // draw the grid no longer holds — leaving the highlight missing until the next
+  // onset moves it elsewhere. Clearing it here is one pass over what was just
+  // rendered, and it keeps the per-frame loop free of the reads it goes out of
+  // its way to avoid.
+  elements.cycles.querySelectorAll("[data-active-step]").forEach((element) => {
+    element.removeAttribute("data-active-step");
+  });
   layoutSteps();
 }
 
@@ -530,11 +540,11 @@ function layoutSteps() {
     const beatWidth = beat.getBoundingClientRect().width;
     const beatGap = parseFloat(style.columnGap) || 0;
     const beats = Number(steps.dataset.beats);
-    const subdivision = Number(steps.dataset.subdivision);
+    const stepsPerBeat = Number(steps.dataset.stepsPerBeat);
     const perRow =
       descendingDivisors(beats).find(
         (candidate) =>
-          candidate * subdivision <= STEPS_PER_ROW_LIMIT &&
+          candidate * stepsPerBeat <= STEPS_PER_ROW_LIMIT &&
           candidate * beatWidth + (candidate - 1) * beatGap <= available,
       ) ?? 1;
 
@@ -729,17 +739,21 @@ function RhythmCard({ rhythm, cycle }) {
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
-      <!-- The subdivision is carried for layoutSteps(), which reads it to choose
-           how many beats share a row. It was carried a second time as a custom
-           property the beat-gap clamp calculated with; that gap is now the same
-           one the steps inside a beat use, so nothing in the stylesheet asks
-           what the subdivision is any more. -->
+      <!-- The controls each beat holds are carried for layoutSteps(), which
+           reads the number to choose how many beats share a row. It is the
+           Subdivision in Subdivision Mode and one in Beat Mode, which is why it
+           is not named for the Subdivision: what the row fits is controls. The
+           Subdivision was carried a second time as a custom property the
+           beat-gap clamp calculated with; that gap is now the same one the steps
+           inside a beat use, so nothing in the stylesheet asks for it any
+           more. -->
       <div
         class="steps"
         role="group"
-        aria-label=${`${label} step voices`}
+        aria-label=${`${label} ${rhythm.displayMode === "beat" ? "beat" : "step"} voices`}
         data-beats=${rhythm.signature.count}
-        data-subdivision=${rhythm.subdivision}
+        data-steps-per-beat=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
+        data-display-mode=${rhythm.displayMode}
       >
         <${Beats} rhythm=${rhythm} />
       </div>
@@ -822,7 +836,28 @@ function RhythmSettings({ rhythm }) {
         </div>
       </div>
 
-      <div class="sound-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-sound-label`}>
+      <div class="segmented-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-steps-label`}>
+        <span id=${`rhythm-${rhythm.id}-steps-label`}>Steps</span>
+        <div>
+          <button
+            type="button"
+            data-action="display-mode"
+            data-display-mode="beat"
+            class="segment-button${rhythm.displayMode === "beat" ? " is-selected" : ""}"
+            aria-pressed=${String(rhythm.displayMode === "beat")}
+          >Beat</button>
+          <button
+            type="button"
+            data-action="display-mode"
+            data-display-mode="subdivision"
+            class="segment-button${rhythm.displayMode === "subdivision" ? " is-selected" : ""}"
+            aria-pressed=${String(rhythm.displayMode === "subdivision")}
+            aria-label="Subdivision"
+          >Sub</button>
+        </div>
+      </div>
+
+      <div class="segmented-control" role="group" aria-labelledby=${`rhythm-${rhythm.id}-sound-label`}>
         <span id=${`rhythm-${rhythm.id}-sound-label`}>Sound</span>
         <div>${SOUNDS.map(
           (sound) => html`
@@ -830,7 +865,7 @@ function RhythmSettings({ rhythm }) {
             type="button"
             data-action="sound"
             data-sound=${sound}
-            class="sound-button${rhythm.sound === sound ? " is-selected" : ""}"
+            class="segment-button${rhythm.sound === sound ? " is-selected" : ""}"
             aria-pressed=${String(rhythm.sound === sound)}
           >${sound}</button>
         `,
@@ -870,29 +905,37 @@ function Beats({ rhythm }) {
   const beats = [];
   for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
     beats.push(
-      rhythm.steps
-        .slice(start, start + rhythm.subdivision)
-        .map((step, offset) => ({ step, index: start + offset })),
+      rhythm.displayMode === "beat"
+        ? [{ step: rhythm.steps[start], index: start, beat: start / rhythm.subdivision }]
+        : rhythm.steps
+            .slice(start, start + rhythm.subdivision)
+            .map((step, offset) => ({ step, index: start + offset, beat: null })),
     );
   }
   return html`${beats.map(
     (group) => html`
     <div class="beat">
-      ${group.map(({ step, index }) => html`<${Step} step=${step} index=${index} />`)}
+      ${group.map(
+        ({ step, index, beat }) => html`<${Step} step=${step} index=${index} beat=${beat} />`,
+      )}
     </div>
   `,
   )}`;
 }
 
-function Step({ step, index }) {
+function Step({ step, index, beat }) {
+  const beatMode = beat !== null;
+  const number = beatMode ? beat + 1 : index + 1;
+  const kind = beatMode ? "Beat" : "Step";
   return html`
     <button
       type="button"
       class="step step-${step}"
-      data-action="step"
+      data-action=${beatMode ? "beat" : "step"}
       data-step-index=${index}
-      aria-label=${`Step ${index + 1}: ${step} voice`}
-      title=${`Step ${index + 1}: ${step}`}
+      data-beat-index=${beatMode ? beat : null}
+      aria-label=${`${kind} ${number}: ${step} voice`}
+      title=${`${kind} ${number}: ${step}`}
     ></button>
   `;
 }
@@ -977,6 +1020,9 @@ function updateActiveSteps() {
     elements.cycles.querySelectorAll(".is-current").forEach((element) => {
       element.classList.remove("is-current");
     });
+    elements.cycles.querySelectorAll("[data-active-step]").forEach((element) => {
+      element.removeAttribute("data-active-step");
+    });
     animationFrame = null;
     return;
   }
@@ -995,9 +1041,40 @@ function updateActiveSteps() {
       if (!card) continue;
       const activeIndex = engine.activeStep(rhythm);
       card.classList.toggle("is-current", active);
-      card.querySelectorAll(".step").forEach((element, index) => {
-        element.classList.toggle("is-current", index === activeIndex);
+      const steps = card.querySelector(".steps");
+      // What was drawn, not merely where the transport is: the display mode
+      // decides how many controls there are and which one an absolute step falls
+      // on, so a change of mode is a redraw the same absolute step still needs.
+      // It names a control in the grid that was on screen when it was written,
+      // and it is only ever the grid still on screen because `renderCycles`
+      // clears it — a redraw can take the highlight off a control without the
+      // transport having moved at all.
+      const drawn = `${rhythm.displayMode}:${activeIndex}`;
+      if (!steps || steps.getAttribute("data-active-step") === drawn) continue;
+      steps.setAttribute("data-active-step", drawn);
+      const controls = steps.querySelectorAll(".step");
+      controls.forEach((element) => {
+        element.classList.remove("is-current");
       });
+      const visibleIndex =
+        rhythm.displayMode === "beat" && activeIndex !== null
+          ? Math.floor(activeIndex / rhythm.subdivision)
+          : activeIndex;
+      const current = controls[visibleIndex];
+      if (!current) continue;
+      current.classList.add("is-current");
+      // A Beat control stays current for every pulse in its beat, so the class
+      // it pulses on does not leave and come back and the browser has no reason
+      // to begin the animation again. Restarting it through the animation itself
+      // asks for a style recalculation and nothing more; reading a box back off
+      // the element to force the same restart is a whole layout, once per onset
+      // per Beat-Mode rhythm, in the loop `layoutSteps` goes out of its way to
+      // keep layout out of.
+      if (rhythm.displayMode !== "beat") continue;
+      for (const animation of current.getAnimations()) {
+        animation.cancel();
+        animation.play();
+      }
     }
   }
   animationFrame = requestAnimationFrame(updateActiveSteps);
@@ -1172,6 +1249,21 @@ function stepTempo(delta) {
   return result.consequence !== "none";
 }
 
+/**
+ * The number field commits on its own `change` event, which the browser sends
+ * only once focus has left it — and a pointer press on a key runs before the
+ * focus shift that would produce it. Stepping from `state.bpm` there would step
+ * from the tempo the field was last committed at, and the render that follows
+ * writes that result back over the digits still on screen, so a typed tempo
+ * would vanish without ever having been read.
+ *
+ * The keyboard reaches a hold with the key already focused, so the field has
+ * committed by then and this finds nothing to do.
+ */
+function commitPendingTempo() {
+  if (document.activeElement === elements.bpm) changeTempo(elements.bpm.value);
+}
+
 function endTempoHold() {
   if (!tempoHolding) return;
   tempoHolding = false;
@@ -1182,6 +1274,7 @@ function endTempoHold() {
 
 function startTempoHold(delta) {
   endTempoHold();
+  commitPendingTempo();
   tempoHolding = true;
   const tick = (wait) => {
     if (!stepTempo(delta)) {
@@ -1544,6 +1637,25 @@ elements.cycles.addEventListener("click", (event) => {
           muted: !rhythm.muted,
         });
       break;
+    case "display-mode":
+      if (rhythm)
+        applyEdit({
+          type: "set-display-mode",
+          cycleId: cycle.id,
+          rhythmId: rhythm.id,
+          displayMode: actionElement.dataset.displayMode,
+        });
+      break;
+    case "beat": {
+      if (!rhythm) return;
+      applyEdit({
+        type: "advance-beat-voice",
+        cycleId: cycle.id,
+        rhythmId: rhythm.id,
+        beat: Number(actionElement.dataset.beatIndex),
+      });
+      break;
+    }
     case "step": {
       if (!rhythm) return;
       const index = Number(actionElement.dataset.stepIndex);

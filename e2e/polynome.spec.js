@@ -367,6 +367,7 @@ test("the widest rhythm grid is reachable through the constrained selects", asyn
   await page.getByRole("combobox", { name: "16/4 meter denominator" }).selectOption("8");
   await page.getByRole("button", { name: "16/8 subdivision" }).click();
   await page.getByRole("option").last().click();
+  await showSubdivisionMode(page);
 
   await expect(
     page.getByRole("group", { name: "16/8 step voices" }).getByRole("button"),
@@ -539,6 +540,7 @@ test("a press the mix is never released from leaves the arrow keys unsnapped", a
 });
 
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
+  await showSubdivisionMode(page);
   const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });
   const second = steps.getByRole("button", { name: /^Step 2:/ });
@@ -552,6 +554,185 @@ test("a step control cycles primary, secondary, tertiary, off and back", async (
     await expect(second).toHaveAttribute("aria-label", "Step 2: secondary voice");
   }
 });
+
+test("each Rhythm layer chooses Beat or Subdivision steps from its settings", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
+  await setSubdivision(page, 3);
+
+  const card = page.locator(".rhythm-card").first();
+  const otherCard = page.locator(".rhythm-card").nth(1);
+  const mode = card.getByRole("group", { name: "Steps" });
+  const beat = mode.getByRole("button", { name: "Beat", exact: true });
+  const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
+  const voices = card.getByRole("group", { name: "4/4 beat voices" });
+  await expect(voices.getByRole("button")).toHaveCount(4);
+  await expect(voices.getByRole("button").first()).toHaveAccessibleName("Beat 1: primary voice");
+  await expect(beat).toHaveAttribute("aria-pressed", "true");
+  await expect(subdivision).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    otherCard.getByRole("group", { name: "4/4 beat voices" }).getByRole("button"),
+  ).toHaveCount(4);
+  expect(
+    await card
+      .locator(".rhythm-actions button")
+      .evaluateAll((buttons) => buttons.map((button) => button.dataset.action)),
+  ).toEqual(["mute", "toggle-settings", "remove-rhythm"]);
+
+  await subdivision.click();
+
+  await expect(
+    card.getByRole("group", { name: "4/4 step voices" }).getByRole("button"),
+  ).toHaveCount(12);
+  await expect(subdivision).toHaveAttribute("aria-pressed", "true");
+  await expect(subdivision).toBeFocused();
+});
+
+test("changing Steps mode resets edited voices in either direction", async ({ page }) => {
+  await setSubdivision(page, 3);
+  const card = page.locator(".rhythm-card").first();
+  const mode = card.getByRole("group", { name: "Steps" });
+  const beat = mode.getByRole("button", { name: "Beat", exact: true });
+  const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
+
+  await subdivision.click();
+  await card.getByRole("button", { name: "Step 1: primary voice" }).click();
+  await expect(card.getByRole("button", { name: "Step 1: secondary voice" })).toBeVisible();
+  await beat.click();
+  await expect(card.getByRole("button", { name: "Beat 1: primary voice" })).toBeVisible();
+
+  await card.getByRole("button", { name: "Beat 1: primary voice" }).click();
+  await expect(card.getByRole("button", { name: "Beat 1: secondary voice" })).toBeVisible();
+  await subdivision.click();
+  await expect(card.getByRole("button", { name: "Step 1: primary voice" })).toBeVisible();
+});
+
+test("a Beat control visibly pulses at every Subdivision onset", async ({ page }) => {
+  await page.getByLabel("Tempo in beats per minute").fill("300");
+  await setSubdivision(page, 3);
+  const firstBeat = page.getByRole("button", { name: "Beat 1: primary voice" });
+  await firstBeat.evaluate((element) => {
+    element.dataset.pulseCount = "0";
+    element.addEventListener("animationstart", () => {
+      element.dataset.pulseCount = String(Number(element.dataset.pulseCount) + 1);
+    });
+  });
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  await expect
+    .poll(async () => Number(await firstBeat.getAttribute("data-pulse-count")))
+    .toBeGreaterThanOrEqual(3);
+});
+
+/**
+ * Display Mode changes only which controls represent the running Rhythm layer;
+ * they do not restart its transport run. The newly visible controls therefore
+ * have to pick up the playhead even when the same absolute step is still active.
+ */
+test("the current control follows a display mode change during playback", async ({ page }) => {
+  await page.getByLabel("Tempo in beats per minute").fill("60");
+  await setSubdivision(page, 3);
+  const card = page.locator(".rhythm-card").first();
+  const secondBeat = card.getByRole("button", { name: /^Beat 2:/ });
+  await secondBeat.evaluate((element) => {
+    element.dataset.pulseCount = "0";
+    element.addEventListener("animationstart", () => {
+      const count = Number(element.dataset.pulseCount) + 1;
+      element.dataset.pulseCount = String(count);
+      if (count !== 2) return;
+      document.querySelector('[data-display-mode="subdivision"]').click();
+      requestAnimationFrame(() => {
+        document.body.dataset.currentAfterDisplayMode =
+          document.querySelector(".step.is-current")?.getAttribute("aria-label") ?? "absent";
+      });
+    });
+  });
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect
+    .poll(() => page.locator("body").getAttribute("data-current-after-display-mode"))
+    .toMatch(/^Step 5:/);
+});
+
+/**
+ * The playhead redraws only at an onset, and what it last drew is what tells it
+ * an onset has arrived. The display mode decides both how many controls there
+ * are and which one an absolute step falls on, so a record of the last draw that
+ * does not carry the mode answers for the grid the other mode had: the highlight
+ * stays where the replaced controls left it, or goes missing with them, until
+ * the next onset repairs it — which at a slow tempo is a long time watching a
+ * metronome that has stopped following itself.
+ */
+test("the playhead redraws where a display mode change moved it", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  await readout.fill("30");
+  await readout.blur();
+  await setSubdivision(page, 2);
+  await showSubdivisionMode(page);
+
+  const card = page.locator(".rhythm-card").first();
+  const controls = card.locator(".step");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  // A subdivision pulse lasts a second at this tempo, and the beat this one
+  // belongs to does not come round again for another seven. Catching the onset
+  // rather than sampling for it leaves the whole of that second to change the
+  // mode and assert in, and makes a highlight that only arrives at the following
+  // onset a failure rather than a slow pass.
+  await page.waitForFunction(
+    () => document.querySelectorAll(".rhythm-card .step")[3]?.classList.contains("is-current"),
+    null,
+    { polling: "raf" },
+  );
+
+  await card
+    .getByRole("group", { name: "Steps" })
+    .getByRole("button", { name: "Beat", exact: true })
+    .click();
+
+  await expect(controls).toHaveCount(4);
+  await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
+});
+
+/**
+ * A voice edit is a redraw too, and the reconciler rewrites the class of the one
+ * control whose voice changed — which is the control under the playhead whenever
+ * a listener edits the beat they are hearing. Neither the mode nor the active
+ * step has moved, so a record of the last draw that survives the redraw answers
+ * for a highlight the grid no longer carries, and the playhead goes missing until
+ * the next onset puts it somewhere else. One control to a beat at thirty beats
+ * per minute makes that two seconds of a metronome that has stopped following
+ * itself, and it happens in either display mode.
+ */
+for (const [mode, control] of [
+  ["Beat Mode", "Beat 1"],
+  ["Subdivision Mode", "Step 1"],
+]) {
+  test(`editing the current control in ${mode} keeps the playhead on it`, async ({ page }) => {
+    await page.getByLabel("Tempo in beats per minute").fill("30");
+    if (mode === "Subdivision Mode") await showSubdivisionMode(page);
+    const card = page.locator(".rhythm-card").first();
+
+    await page.getByRole("button", { name: "Play metronome" }).click();
+
+    // Catching the onset rather than sampling for it leaves the whole of the
+    // first beat to edit and to assert in, and makes a highlight that only comes
+    // back at the following onset a failure rather than a slow pass: that onset
+    // moves to the second control, and the first is not current again for eight
+    // seconds.
+    await page.waitForFunction(
+      () => document.querySelector(".rhythm-card .step")?.classList.contains("is-current"),
+      null,
+      { polling: "raf" },
+    );
+
+    await card.getByRole("button", { name: `${control}: primary voice` }).click();
+
+    await expect(card.locator(".step.is-current")).toHaveAccessibleName(
+      `${control}: secondary voice`,
+    );
+  });
+}
 
 test("disabling a cycle preserves focus and the sole active cycle indicator", async ({ page }) => {
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
@@ -1048,6 +1229,7 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator('.subdivision-option[data-subdivision="4"]').click();
+  await showSubdivisionMode(page);
   await expect(page.locator(".rhythm-card .step")).toHaveCount(16);
   // Sixteen steps alone do not pin the grouping this test measures: eight beats
   // of two would satisfy that count and still wrap evenly.
@@ -1123,7 +1305,17 @@ async function setSignature(page, count) {
 async function setSubdivision(page, subdivision) {
   await openRhythmSettings(page);
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
-  await page.locator(`.subdivision-option[data-subdivision="${subdivision}"]`).click();
+  await page
+    .locator(
+      `.subdivision-menu:not([hidden]) .subdivision-option[data-subdivision="${subdivision}"]`,
+    )
+    .click();
+}
+
+async function showSubdivisionMode(page) {
+  await openRhythmSettings(page);
+  const subdivision = page.locator('[data-display-mode="subdivision"]').first();
+  if ((await subdivision.getAttribute("aria-pressed")) === "false") await subdivision.click();
 }
 
 /**
@@ -1162,6 +1354,7 @@ for (const { beats, subdivision, steps } of [
   }) => {
     await setSignature(page, beats);
     if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await showSubdivisionMode(page);
     await expect(page.locator(".rhythm-card .step")).toHaveCount(steps);
 
     for (const width of [1600, 1024, 540]) {
@@ -1187,6 +1380,7 @@ test("a beat wider than the row scrolls instead of shrinking", async ({ page }) 
   // their gaps are 300px, and the narrowest row is 274px.
   await setSignature(page, 3);
   await setSubdivision(page, 5);
+  await showSubdivisionMode(page);
   await page.setViewportSize({ width: 320, height: 900 });
 
   const steps = page.locator(".rhythm-card .steps");
@@ -1229,6 +1423,7 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
   test(`a beat of ${subdivision} spaces its steps evenly with its neighbours`, async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await showSubdivisionMode(page);
     await expect(page.locator(".rhythm-card .step")).toHaveCount(4 * subdivision);
     await settleLayout(page);
 
@@ -1270,6 +1465,7 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
 test("a dot marks each beat, clear of the row below even when it pulses", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await setSubdivision(page, 4);
+  await showSubdivisionMode(page);
   await settleLayout(page);
 
   // One round trip per beat, with the dot's own 90ms transition allowed to
@@ -1363,6 +1559,7 @@ for (const motion of ["no-preference", "reduce"]) {
     await page.emulateMedia({ reducedMotion: motion });
     // The re-render. Every beat below is a node reconciliation has just written.
     await setSubdivision(page, 4);
+    await showSubdivisionMode(page);
     await settleLayout(page);
 
     const dotsAt = async (step) => {
@@ -1404,30 +1601,47 @@ for (const motion of ["no-preference", "reduce"]) {
  *
  * Driven by writing the class the playhead writes, rather than by running the
  * transport, so what is asserted is a state and not a moment. Reduced motion is
- * emulated and two frames are let past before each reading, for the same
- * reason: the transition is 90ms, and a computed style taken before the first
- * recalc after a class change is the value the transition starts from, which is
- * indistinguishable from the state never having changed. That mistake is what
- * made this look at first like a Chromium bug rather than a measurement error.
- * A timeout would be a number too short on a loaded runner and wasted
- * everywhere else.
+ * emulated, and each reading waits for the state it asked for: exactly one onset
+ * dot differs from the others, or every dot has returned to rest. A fixed frame
+ * count can land before Chromium has invalidated the `:has()` pseudo-element
+ * under load, and a timeout would be a number too short on a loaded runner and
+ * wasted everywhere else.
  */
 test("the beat dot pulses on its own onset, not through the whole beat", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await setSubdivision(page, 4);
+  await showSubdivisionMode(page);
   await settleLayout(page);
 
-  const dotsWhilePlaying = (step) =>
-    page.evaluate(async (index) => {
+  const dotStyles = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+        const dot = getComputedStyle(beat, "::after");
+        return `${dot.backgroundColor} ${dot.transform}`;
+      }),
+    );
+  const dotsWhilePlaying = async (step) => {
+    await page.evaluate((index) => {
       const steps = [...document.querySelectorAll(".rhythm-card .step")];
       for (const element of steps) element.classList.remove("is-current");
       if (index !== null) steps[index].classList.add("is-current");
-      await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
-      return [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
-        const dot = getComputedStyle(beat, "::after");
-        return `${dot.backgroundColor} ${dot.transform}`;
-      });
     }, step);
+    await page.waitForFunction(
+      (index) => {
+        const styles = [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+          const dot = getComputedStyle(beat, "::after");
+          return `${dot.backgroundColor} ${dot.transform}`;
+        });
+        const onset = index !== null && index % 4 === 0 ? index / 4 : null;
+        if (onset === null) return new Set(styles).size === 1;
+        const resting = styles.filter((_, beat) => beat !== onset);
+        return new Set(resting).size === 1 && styles[onset] !== resting[0];
+      },
+      step,
+      { polling: "raf" },
+    );
+    return dotStyles();
+  };
 
   const resting = await dotsWhilePlaying(null);
   // Step 0 is beat one's own onset; step 2 is inside beat one but past it; step
@@ -1695,6 +1909,22 @@ test("a tap on a tempo key is one bpm and the ends of the range disable one", as
   await expect(down).toBeEnabled();
 });
 
+test("non-primary mouse presses do not change or repeat the tempo", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  await readout.fill("112");
+  await readout.blur();
+
+  const key = await up.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  for (const button of ["right", "middle"]) {
+    await page.mouse.down({ button });
+    await page.waitForTimeout(700);
+    await page.mouse.up({ button });
+    await expect(readout).toHaveValue("112");
+  }
+});
+
 /**
  * The key that reaches the end of the range keeps its place in the tab order.
  * A held key disables itself under the user, and `disabled` would take it out
@@ -1729,6 +1959,33 @@ test("a tempo key held to the end of its range keeps its place", async ({ page }
   await readout.fill("40");
   await readout.blur();
   await expect(down).toHaveAttribute("aria-disabled", "false");
+});
+
+/**
+ * A number field commits on the `change` event, which arrives only once focus
+ * has left it — and `pointerdown` on a key runs before the focus shift that
+ * produces it. Every other test here leaves the field first, so this is the one
+ * that reaches the tempo a user typed and has not yet stepped away from.
+ */
+test("a tempo typed into the readout is stepped from, not discarded", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("200");
+  await up.click();
+  await expect(readout).toHaveValue("201");
+
+  await readout.fill("90");
+  await down.click();
+  await expect(readout).toHaveValue("89");
+
+  // The keyboard arrives at the same hold with the key already focused, so the
+  // field has committed on its own by then and there is nothing left pending.
+  await readout.fill("150");
+  await up.focus();
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("151");
 });
 
 /**

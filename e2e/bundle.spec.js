@@ -10,7 +10,7 @@ test("the single-file bundle boots and plays from the filesystem", async ({ page
 
   const play = page.getByRole("button", { name: "Play metronome" });
   await expect(play).toBeVisible();
-  await expect(page.getByRole("group", { name: "4/4 step voices" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "4/4 beat voices" })).toBeVisible();
 
   await play.click();
   await expect(page.getByRole("status")).toHaveText("Playing");
