@@ -74,6 +74,24 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
   );
 });
 
+test("Cycle envelopes repair additively to canonical Flat zero", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        { rhythms: [{}] },
+        { envelope: { shape: "unknown", amount: 40 }, rhythms: [{}] },
+        { envelope: { shape: "flat", amount: 0 }, rhythms: [{}] },
+        { envelope: { shape: "up", amount: 35 }, rhythms: [{}] },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    configuration.sequence.cycles.map(({ envelope }) => envelope),
+    [null, null, null, { shape: "up", amount: 35 }],
+  );
+});
+
 test("Rhythm-layer display mode defaults and repairs to Beat Mode", () => {
   const configuration = createConfiguration({
     sequence: {
@@ -203,6 +221,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
     sequence: {
       cycles: [
         {
+          envelope: { shape: "up", amount: 45 },
           repetitions: 2,
           rhythms: [
             {
@@ -218,6 +237,7 @@ test("saving and loading a named Preset preserves the complete Configuration", (
           ],
         },
         {
+          envelope: { shape: "flat", amount: -20 },
           repetitions: 1,
           rhythms: [
             {
@@ -228,6 +248,14 @@ test("saving and loading a named Preset preserves the complete Configuration", (
               pan: 0.77,
             },
           ],
+        },
+        {
+          envelope: { shape: "down", amount: 35 },
+          rhythms: [{}],
+        },
+        {
+          envelope: { shape: "peak", amount: 60 },
+          rhythms: [{}],
         },
       ],
     },
@@ -547,6 +575,53 @@ test("adding a Cycle appends one active 4/4 Rhythm layer", () => {
   assert.equal(result.consequence, "restart-transport-run");
 });
 
+test("selecting Up from Flat zero starts a useful Cycle envelope", () => {
+  const configuration = createConfiguration();
+  const cycle = configuration.sequence.cycles[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-cycle-envelope-shape",
+    cycleId: cycle.id,
+    shape: "up",
+  });
+
+  assert.deepEqual(result.configuration.sequence.cycles[0].envelope, {
+    shape: "up",
+    amount: 20,
+  });
+  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.reason, null);
+});
+
+test("setting a Flat Cycle change to zero clears its envelope", () => {
+  const configuration = createConfiguration({
+    sequence: { cycles: [{ envelope: { shape: "flat", amount: -30 }, rhythms: [{}] }] },
+  });
+  const cycle = configuration.sequence.cycles[0];
+
+  const result = changeConfiguration(configuration, {
+    type: "set-cycle-envelope-amount",
+    cycleId: cycle.id,
+    amount: 0,
+  });
+
+  assert.equal(result.configuration.sequence.cycles[0].envelope, null);
+  assert.equal(result.consequence, "restart-transport-run");
+});
+
+test("a Cycle envelope edit reports a missing target even when selecting Flat", () => {
+  const configuration = createConfiguration();
+
+  const result = changeConfiguration(configuration, {
+    type: "set-cycle-envelope-shape",
+    cycleId: "cycle-missing-1",
+    shape: "flat",
+  });
+
+  assert.equal(result.consequence, "none");
+  assert.equal(result.reason, "cycle-not-found");
+});
+
 test("removing the final Cycle is an unchanged edit with a stable reason", () => {
   const configuration = createConfiguration();
   const cycleId = configuration.sequence.cycles[0].id;
@@ -560,16 +635,24 @@ test("removing the final Cycle is an unchanged edit with a stable reason", () =>
   assert.equal(result.reason, "sequence-requires-cycle");
 });
 
-test("Cycle repetitions preserve one active Cycle and the single-Cycle rule", () => {
+test("Cycle repetitions preserve one active Cycle and allow a lone Cycle to repeat", () => {
   const one = createConfiguration();
   const onlyId = one.sequence.cycles[0].id;
+  const repeated = changeConfiguration(one, {
+    type: "set-cycle-repetitions",
+    cycleId: onlyId,
+    repetitions: 8,
+  });
+  assert.equal(repeated.configuration.sequence.cycles[0].repetitions, 8);
+  assert.equal(repeated.consequence, "restart-transport-run");
+
   const rejected = changeConfiguration(one, {
     type: "set-cycle-repetitions",
     cycleId: onlyId,
     repetitions: 0,
   });
   assert.deepEqual(rejected.configuration, one);
-  assert.equal(rejected.reason, "single-cycle-requires-one-repetition");
+  assert.equal(rejected.reason, "sequence-requires-active-cycle");
 
   const two = changeConfiguration(one, { type: "add-cycle" }).configuration;
   const [first, second] = two.sequence.cycles;
@@ -605,7 +688,7 @@ test("Cycle repetitions preserve one active Cycle and the single-Cycle rule", ()
     type: "remove-cycle",
     cycleId: second.id,
   });
-  assert.equal(backToOne.configuration.sequence.cycles[0].repetitions, 1);
+  assert.equal(backToOne.configuration.sequence.cycles[0].repetitions, 3);
 });
 
 test("Rhythm-layer structural edits preserve a non-empty Cycle", () => {
@@ -1013,12 +1096,67 @@ test("Configuration description exposes domain choices and unavailable final rem
   });
   assert.deepEqual(description.availability.cycles[cycle.id].repetitions[0], {
     available: false,
-    reason: "single-cycle-requires-one-repetition",
+    reason: "sequence-requires-active-cycle",
+  });
+  assert.deepEqual(description.availability.cycles[cycle.id].repetitions[8], {
+    available: true,
+    reason: null,
   });
   assert.deepEqual(description.availability.cycles[cycle.id].rhythms[rhythm.id].remove, {
     available: false,
     reason: "cycle-requires-rhythm",
   });
+});
+
+test("Configuration description exposes inherited previews and relative envelope notation", () => {
+  const configuration = createConfiguration({
+    bpm: 100,
+    sequence: {
+      cycles: [
+        {
+          envelope: { shape: "up", amount: 20 },
+          repetitions: 2,
+          rhythms: [{ signature: { count: 1, unit: 4 } }],
+        },
+        {
+          envelope: { shape: "peak", amount: 30 },
+          repetitions: 1,
+          rhythms: [{ signature: { count: 1, unit: 4 } }],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    describeConfiguration(configuration).cycles.map(
+      ({ incomingBpm, targetBpm, outgoingBpm, preview, notation, accessibleNotation }) => ({
+        incomingBpm,
+        targetBpm,
+        outgoingBpm,
+        preview,
+        notation,
+        accessibleNotation,
+      }),
+    ),
+    [
+      {
+        incomingBpm: 100,
+        targetBpm: 120,
+        outgoingBpm: 120,
+        preview: "100 → 120 BPM · Up +20",
+        notation: "↑20",
+        accessibleNotation: "Up 20 BPM change",
+      },
+      {
+        incomingBpm: 120,
+        targetBpm: 150,
+        outgoingBpm: 120,
+        preview: "120 → 150 → 120 BPM · Peak +30",
+        notation: "◇30",
+        accessibleNotation: "Peak 30 BPM change",
+      },
+    ],
+  );
 });
 
 test("structural edit availability agrees with final Cycle and Rhythm enforcement", () => {
@@ -1274,7 +1412,7 @@ test("every edit outcome returns a repaired Configuration", () => {
   };
   const repaired = createConfiguration(stored);
   assert.equal(repaired.bpm, 300);
-  assert.equal(repaired.sequence.cycles[0].repetitions, 1);
+  assert.equal(repaired.sequence.cycles[0].repetitions, 7);
   assert.equal(repaired.sequence.cycles[0].rhythms[0].signature.count, 16);
 
   const outcomes = [
@@ -1335,6 +1473,8 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
+    { type: "set-cycle-envelope-shape", cycleId: cycle.id },
+    { type: "set-cycle-envelope-amount", cycleId: cycle.id },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: [] },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id },
@@ -1366,6 +1506,8 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: "not-a-number" },
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
+    { type: "set-cycle-envelope-shape", cycleId: cycle.id, shape: "curve" },
+    { type: "set-cycle-envelope-amount", cycleId: cycle.id, amount: 121 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },

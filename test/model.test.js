@@ -12,11 +12,17 @@ import {
   TEMPO_LIMIT,
   TEMPO_STEP,
   TEMPO_TICK_INTERVAL,
+  beatAtSeconds,
+  createSequenceTempoCurves,
+  createTempoCurve,
+  cycleSpanBeats,
   cycleSpanSeconds,
   panLabel,
+  secondsAtBeat,
   snapBalance,
   stepDurationSeconds,
   subdivisionLabel,
+  tempoAtBeat,
 } from "../model.js";
 import {
   createConfiguration,
@@ -31,6 +37,112 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
   );
 };
 
+test("an Up envelope is linear in musical progress and has an exact time mapping", () => {
+  const curve = createTempoCurve(60, { shape: "up", amount: 60 }, 4);
+
+  assert.equal(tempoAtBeat(curve, 0), 60);
+  assert.equal(tempoAtBeat(curve, 2), 90);
+  assert.equal(tempoAtBeat(curve, 4), 120);
+  closeTo(secondsAtBeat(curve, 2), 1.6218604324326575);
+  closeTo(secondsAtBeat(curve, 4), 2.772588722239781);
+  closeTo(beatAtSeconds(curve, 1.6218604324326575), 2);
+});
+
+test("a Down envelope is linear in musical progress and has an exact inverse", () => {
+  const curve = createTempoCurve(120, { shape: "down", amount: 60 }, 4);
+
+  assert.equal(tempoAtBeat(curve, 2), 90);
+  assert.equal(tempoAtBeat(curve, 4), 60);
+  closeTo(secondsAtBeat(curve, 2), 1.1507282898071236);
+  closeTo(secondsAtBeat(curve, 4), 2.772588722239781);
+  closeTo(beatAtSeconds(curve, 1.1507282898071236), 2);
+});
+
+test("a Peak envelope reaches its target at the midpoint and returns", () => {
+  const curve = createTempoCurve(60, { shape: "peak", amount: 60 }, 4);
+
+  assert.equal(tempoAtBeat(curve, 0), 60);
+  assert.equal(tempoAtBeat(curve, 2), 120);
+  assert.equal(tempoAtBeat(curve, 4), 60);
+  closeTo(secondsAtBeat(curve, 2), 1.3862943611198906);
+  closeTo(secondsAtBeat(curve, 4), 2.772588722239781);
+  closeTo(beatAtSeconds(curve, 1.3862943611198906), 2);
+});
+
+test("a Flat envelope applies its signed change at the Cycle boundary and holds", () => {
+  const curve = createTempoCurve(100, { shape: "flat", amount: -30 }, 4);
+
+  assert.equal(tempoAtBeat(curve, 0), 70);
+  assert.equal(tempoAtBeat(curve, 4), 70);
+  closeTo(secondsAtBeat(curve, 4), 24 / 7);
+  closeTo(beatAtSeconds(curve, 12 / 7), 2);
+});
+
+test("active Cycles inherit audible endpoints while inactive Cycles are skipped", () => {
+  const cycles = createSequenceTempoCurves(100, [
+    { id: "inactive", envelope: { shape: "flat", amount: 50 }, repetitions: 0, rhythms: [{}] },
+    {
+      id: "up",
+      envelope: { shape: "up", amount: 50 },
+      repetitions: 1,
+      rhythms: [{ signature: { count: 1 } }],
+    },
+    {
+      id: "peak",
+      envelope: { shape: "peak", amount: 40 },
+      repetitions: 2,
+      rhythms: [{ signature: { count: 1 } }],
+    },
+    {
+      id: "flat",
+      envelope: { shape: "flat", amount: -120 },
+      repetitions: 1,
+      rhythms: [{ signature: { count: 1 } }],
+    },
+  ]);
+
+  assert.deepEqual(
+    cycles.map(({ id, active, incomingBpm, targetBpm, outgoingBpm, beatLength }) => ({
+      id,
+      active,
+      incomingBpm,
+      targetBpm,
+      outgoingBpm,
+      beatLength,
+    })),
+    [
+      {
+        id: "inactive",
+        active: false,
+        incomingBpm: 100,
+        targetBpm: 100,
+        outgoingBpm: 100,
+        beatLength: 0,
+      },
+      { id: "up", active: true, incomingBpm: 100, targetBpm: 150, outgoingBpm: 150, beatLength: 1 },
+      {
+        id: "peak",
+        active: true,
+        incomingBpm: 150,
+        targetBpm: 190,
+        outgoingBpm: 150,
+        beatLength: 2,
+      },
+      { id: "flat", active: true, incomingBpm: 150, targetBpm: 30, outgoingBpm: 30, beatLength: 1 },
+    ],
+  );
+});
+
+test("a clamped target is spread across the whole continuous envelope", () => {
+  const up = createTempoCurve(290, { shape: "up", amount: 120 }, 4);
+  const down = createTempoCurve(35, { shape: "down", amount: 120 }, 4);
+
+  assert.equal(tempoAtBeat(up, 2), 295);
+  assert.equal(tempoAtBeat(up, 4), 300);
+  assert.equal(tempoAtBeat(down, 2), 32.5);
+  assert.equal(tempoAtBeat(down, 4), 30);
+});
+
 test("a Cycle span completes every contained Meter and ignores Subdivision", () => {
   const cycle = {
     rhythms: [
@@ -40,6 +152,7 @@ test("a Cycle span completes every contained Meter and ignores Subdivision", () 
   };
 
   closeTo(cycleSpanSeconds(120, cycle), 6);
+  assert.equal(cycleSpanBeats(cycle), 12);
 });
 
 test("Meter count clamps to one shared maximum in Configuration and timing", () => {

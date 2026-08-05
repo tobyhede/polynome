@@ -361,6 +361,11 @@ export class MetronomeEngine extends EventTarget {
     return this.#transport.position(this.#context.currentTime);
   }
 
+  activeBpm() {
+    if (!this.#playing || !this.#context || !this.#anchored) return null;
+    return this.#transport.currentBpm(this.#context.currentTime);
+  }
+
   /**
    * WebKit parks the promise returned by `resume()` and never settles it when
    * the context is not allowed to start, so awaiting it would deadlock the
@@ -593,7 +598,8 @@ export class MetronomeEngine extends EventTarget {
     const now = this.#context.currentTime;
     const maxLateness = Math.min(
       MAX_CLICK_LATENESS_SECONDS,
-      stepDurationSeconds(this.#state.bpm, layer) * MAX_CLICK_LATENESS_STEPS,
+      stepDurationSeconds(this.#transport.currentBpm(when) ?? this.#state.bpm, layer) *
+        MAX_CLICK_LATENESS_STEPS,
     );
     if (when < now - maxLateness) return;
 

@@ -1,4 +1,5 @@
 import {
+  createSequenceTempoCurves,
   lookup,
   METER_COUNT_LIMIT,
   METER_UNITS,
@@ -7,6 +8,8 @@ import {
   SOUND,
   STEP,
   SUBDIVISION_LIMIT,
+  TEMPO_ENVELOPE_CHANGE_LIMIT,
+  TEMPO_ENVELOPE_SHAPE,
   TEMPO_LIMIT,
 } from "./model.js";
 
@@ -112,6 +115,27 @@ function createRhythm(overrides = {}) {
   };
 }
 
+function normaliseEnvelope(candidate) {
+  if (!candidate || typeof candidate !== "object") return null;
+  const shapes = Object.values(TEMPO_ENVELOPE_SHAPE);
+  if (!shapes.includes(candidate.shape)) return null;
+  const amount = Number(candidate.amount);
+  if (candidate.shape === TEMPO_ENVELOPE_SHAPE.FLAT) {
+    return Number.isInteger(amount) &&
+      Math.abs(amount) <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum &&
+      amount
+      ? { shape: candidate.shape, amount }
+      : null;
+  }
+  const magnitude =
+    Number.isInteger(amount) &&
+    amount >= TEMPO_ENVELOPE_CHANGE_LIMIT.minimum &&
+    amount <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum
+      ? amount
+      : 20;
+  return { shape: candidate.shape, amount: magnitude };
+}
+
 function createCycle(overrides = {}) {
   const rhythms = Array.isArray(overrides.rhythms)
     ? overrides.rhythms.map((rhythm) =>
@@ -120,6 +144,7 @@ function createCycle(overrides = {}) {
     : [];
   return {
     id: safeIdentifier(overrides.id, "cycle"),
+    envelope: normaliseEnvelope(overrides.envelope),
     repetitions: Math.round(
       normaliseNumber(overrides.repetitions, 1, REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum),
     ),
@@ -174,12 +199,9 @@ export function createConfiguration(input) {
     return [cycle];
   });
   const populated = uniqueIdentifiers(cycles.length ? cycles : [createCycle()]);
-  const validCycles =
-    populated.length === 1
-      ? [{ ...populated[0], repetitions: 1 }]
-      : populated.some((cycle) => cycle.repetitions > 0)
-        ? populated
-        : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
+  const validCycles = populated.some((cycle) => cycle.repetitions > 0)
+    ? populated
+    : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 120, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
@@ -272,9 +294,16 @@ function sameRhythm(rhythm, candidate) {
 }
 
 function sameCycle(cycle, candidate) {
+  const sameEnvelope =
+    cycle.envelope === null
+      ? candidate.envelope === null
+      : candidate.envelope !== null &&
+        cycle.envelope.shape === candidate.envelope.shape &&
+        cycle.envelope.amount === candidate.envelope.amount;
   return (
     sameFields(cycle, candidate) &&
     cycle.repetitions === candidate.repetitions &&
+    sameEnvelope &&
     Array.isArray(candidate.rhythms) &&
     cycle.rhythms.length === candidate.rhythms.length &&
     cycle.rhythms.every((rhythm, index) => sameRhythm(rhythm, candidate.rhythms[index]))
@@ -495,9 +524,6 @@ function removeCyclePolicy(configuration, cycle) {
 }
 
 function cycleRepetitionsPolicy(configuration, cycle, repetitions) {
-  if (configuration.sequence.cycles.length === 1 && repetitions !== 1) {
-    return availability(false, "single-cycle-requires-one-repetition");
-  }
   const activeCycleCount = configuration.sequence.cycles.filter(
     (candidate) => candidate.repetitions > 0,
   ).length;
@@ -513,8 +539,48 @@ function removeRhythmPolicy(cycle) {
 
 export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
+  const cycles = createSequenceTempoCurves(valid.bpm, valid.sequence.cycles).map(
+    ({ id, active, incomingBpm, targetBpm, outgoingBpm }) => {
+      const cycle = valid.sequence.cycles.find((candidate) => candidate.id === id);
+      const envelope = cycle.envelope;
+      const shape = envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT;
+      const amount = envelope?.amount || 0;
+      const name = `${shape[0].toUpperCase()}${shape.slice(1)}`;
+      const signedAmount = amount > 0 ? `+${amount}` : String(amount);
+      const displayedAmount = shape === TEMPO_ENVELOPE_SHAPE.DOWN ? `−${amount}` : signedAmount;
+      let journey = `${targetBpm} BPM`;
+      let notation = amount ? signedAmount : "";
+      if (shape === TEMPO_ENVELOPE_SHAPE.UP) {
+        journey = `${incomingBpm} → ${targetBpm} BPM`;
+        notation = `↑${amount}`;
+      } else if (shape === TEMPO_ENVELOPE_SHAPE.DOWN) {
+        journey = `${incomingBpm} → ${targetBpm} BPM`;
+        notation = `↓${amount}`;
+      } else if (shape === TEMPO_ENVELOPE_SHAPE.PEAK) {
+        journey = `${incomingBpm} → ${targetBpm} → ${outgoingBpm} BPM`;
+        notation = `◇${amount}`;
+      }
+      return {
+        id,
+        active,
+        incomingBpm,
+        targetBpm,
+        outgoingBpm,
+        preview: active
+          ? `${journey} · ${name}${amount ? ` ${displayedAmount}` : ""}`
+          : `Inactive · inherits ${incomingBpm} BPM · ${name}${amount ? ` ${displayedAmount} retained` : ""}`,
+        notation,
+        accessibleNotation: amount
+          ? shape === TEMPO_ENVELOPE_SHAPE.FLAT
+            ? `Flat ${amount > 0 ? "plus" : "minus"} ${Math.abs(amount)} BPM change`
+            : `${name} ${Math.abs(amount)} BPM change`
+          : "",
+      };
+    },
+  );
 
   return {
+    cycles,
     choices: {
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
@@ -827,6 +893,71 @@ const COMMANDS = Object.freeze({
           sequence: {
             cycles: current.sequence.cycles.map((candidate) =>
               candidate.id === edit.cycleId ? { ...candidate, repetitions } : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
+    },
+  },
+  "set-cycle-envelope-shape": {
+    validPayload: (edit) => targetsCycle(edit) && hasString(edit, "shape"),
+    validValue: (edit) => Object.values(TEMPO_ENVELOPE_SHAPE).includes(edit.shape),
+    leavesUnchanged: (current, edit) => {
+      const cycle = findCycle(current, edit.cycleId);
+      return Boolean(cycle) && (cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT) === edit.shape;
+    },
+    apply(current, edit) {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      const previous = cycle.envelope;
+      let amount = previous ? Math.abs(previous.amount) : 20;
+      if (edit.shape === TEMPO_ENVELOPE_SHAPE.FLAT) {
+        if (previous?.shape === TEMPO_ENVELOPE_SHAPE.DOWN) amount = -amount;
+        if (!previous) amount = 0;
+      }
+      const envelope = normaliseEnvelope({ shape: edit.shape, amount });
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId ? { ...candidate, envelope } : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
+    },
+  },
+  "set-cycle-envelope-amount": {
+    validPayload: (edit) => targetsCycle(edit) && hasFormNumber(edit, "amount"),
+    apply(current, edit) {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      const shape = cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT;
+      const amount = formNumber(edit.amount);
+      const valid =
+        Number.isInteger(amount) &&
+        (shape === TEMPO_ENVELOPE_SHAPE.FLAT
+          ? Math.abs(amount) <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum
+          : amount >= TEMPO_ENVELOPE_CHANGE_LIMIT.minimum &&
+            amount <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum);
+      if (!valid) return unchanged(current, "invalid-value");
+      const envelope = normaliseEnvelope({ shape, amount });
+      const previous = cycle.envelope;
+      if (
+        (previous === null && envelope === null) ||
+        (previous?.shape === envelope?.shape && previous?.amount === envelope?.amount)
+      ) {
+        return unchanged(current);
+      }
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId ? { ...candidate, envelope } : candidate,
             ),
           },
         },

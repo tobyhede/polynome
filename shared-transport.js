@@ -1,4 +1,10 @@
-import { STEP, cycleSpanSeconds, stepDurationSeconds } from "./model.js";
+import {
+  STEP,
+  beatAtSeconds,
+  createSequenceTempoCurves,
+  secondsAtBeat,
+  tempoAtBeat,
+} from "./model.js";
 
 /**
  * The planning side of the two lateness policies this metronome runs.
@@ -38,22 +44,27 @@ export class SharedTransport {
       return;
     }
     let offset = 0;
-    const timingCycles = sourceCycles.map((cycle) => {
+    const tempoCycles = createSequenceTempoCurves(bpm, sourceCycles);
+    const timingCycles = sourceCycles.map((cycle, cycleIndex) => {
       const rhythms = cycle.rhythms.map((rhythm) => ({
         id: rhythm.id,
         signature: { ...rhythm.signature },
         subdivision: rhythm.subdivision,
         steps: [...rhythm.steps],
       }));
-      const span = cycleSpanSeconds(bpm, { rhythms });
+      const { beatLength, curve } = tempoCycles[cycleIndex];
+      const spanBeats = beatLength / cycle.repetitions;
+      const duration = secondsAtBeat(curve, beatLength);
       const timingCycle = {
         id: cycle.id,
         repetitions: cycle.repetitions,
         rhythms,
-        span,
+        spanBeats,
+        curve,
+        duration,
         offset,
       };
-      offset += span * cycle.repetitions;
+      offset += duration;
       return timingCycle;
     });
 
@@ -85,7 +96,7 @@ export class SharedTransport {
     const events = [];
     const fromTime = this.#schedulingPosition;
     const candidateFromTime = Math.max(fromTime, currentTime - LATENESS_TOLERANCE_SECONDS);
-    const { bpm, cycles, sequenceDuration } = this.#timing;
+    const { cycles, sequenceDuration } = this.#timing;
     const firstSequence = Math.max(
       0,
       Math.floor((candidateFromTime - this.#origin) / sequenceDuration),
@@ -99,41 +110,41 @@ export class SharedTransport {
       const sequenceOrigin = this.#origin + sequenceIndex * sequenceDuration;
 
       for (const cycle of cycles) {
-        for (let repetitionIndex = 0; repetitionIndex < cycle.repetitions; repetitionIndex += 1) {
-          const repetitionOrigin = sequenceOrigin + cycle.offset + repetitionIndex * cycle.span;
-          if (repetitionOrigin >= horizon) continue;
-          if (repetitionOrigin + cycle.span < candidateFromTime) continue;
+        const cycleOrigin = sequenceOrigin + cycle.offset;
+        if (cycleOrigin >= horizon) continue;
+        if (cycleOrigin + cycle.duration < candidateFromTime) continue;
 
-          for (const rhythm of cycle.rhythms) {
-            const duration = stepDurationSeconds(bpm, rhythm);
-            const stepsPerSpan = Math.round(cycle.span / duration);
-            const firstStep = Math.max(
-              0,
-              Math.floor((candidateFromTime - repetitionOrigin) / duration),
-            );
+        for (const rhythm of cycle.rhythms) {
+          const stepsPerSpan = cycle.spanBeats * rhythm.subdivision;
+          const totalSteps = stepsPerSpan * cycle.repetitions;
+          const elapsedCandidate = Math.max(0, candidateFromTime - cycleOrigin);
+          const candidateBeat = beatAtSeconds(cycle.curve, elapsedCandidate);
+          const firstStep = Math.max(0, Math.floor(candidateBeat * rhythm.subdivision));
 
-            for (let localStep = firstStep; localStep < stepsPerSpan; localStep += 1) {
-              const audioTime = repetitionOrigin + localStep * duration;
-              if (audioTime >= horizon) break;
-              const patternPosition = localStep % rhythm.steps.length;
-              const voice = rhythm.steps[patternPosition];
-              if (
-                voice === STEP.OFF ||
-                audioTime < fromTime ||
-                audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
-              ) {
-                continue;
-              }
-
-              events.push({
-                layerId: rhythm.id,
-                absoluteStep:
-                  (sequenceIndex * cycle.repetitions + repetitionIndex) * stepsPerSpan + localStep,
-                patternPosition,
-                voice,
-                audioTime,
-              });
+          for (let cycleStep = firstStep; cycleStep < totalSteps; cycleStep += 1) {
+            const musicalBeat = cycleStep / rhythm.subdivision;
+            const audioTime = cycleOrigin + secondsAtBeat(cycle.curve, musicalBeat);
+            if (audioTime >= horizon) break;
+            const repetition = Math.floor(cycleStep / stepsPerSpan);
+            const localStep = cycleStep % stepsPerSpan;
+            const patternPosition = localStep % rhythm.steps.length;
+            const voice = rhythm.steps[patternPosition];
+            if (
+              voice === STEP.OFF ||
+              audioTime < fromTime ||
+              audioTime < currentTime - LATENESS_TOLERANCE_SECONDS
+            ) {
+              continue;
             }
+
+            events.push({
+              layerId: rhythm.id,
+              absoluteStep:
+                (sequenceIndex * cycle.repetitions + repetition) * stepsPerSpan + localStep,
+              patternPosition,
+              voice,
+              audioTime,
+            });
           }
         }
       }
@@ -157,12 +168,13 @@ export class SharedTransport {
     const elapsed = (currentTime - this.#origin) % this.#timing.sequenceDuration;
     for (let cycleIndex = 0; cycleIndex < this.#timing.cycles.length; cycleIndex += 1) {
       const cycle = this.#timing.cycles[cycleIndex];
-      const cycleDuration = cycle.span * cycle.repetitions;
+      const cycleDuration = cycle.duration;
       if (elapsed < cycle.offset + cycleDuration) {
+        const cycleBeat = beatAtSeconds(cycle.curve, elapsed - cycle.offset);
         return {
           cycleId: cycle.id,
           cycleIndex,
-          repetitionIndex: Math.floor((elapsed - cycle.offset) / cycle.span),
+          repetitionIndex: Math.min(cycle.repetitions - 1, Math.floor(cycleBeat / cycle.spanBeats)),
         };
       }
     }
@@ -179,22 +191,35 @@ export class SharedTransport {
     if (currentTime < this.#origin) return 0;
 
     const sequenceIndex = Math.floor((currentTime - this.#origin) / this.#timing.sequenceDuration);
-    const repetitionOrigin =
-      this.#origin +
-      sequenceIndex * this.#timing.sequenceDuration +
-      cycle.offset +
-      position.repetitionIndex * cycle.span;
-    const elapsed = currentTime - repetitionOrigin;
-    const duration = stepDurationSeconds(this.#timing.bpm, rhythm);
-    let absoluteStep = Math.floor(elapsed / duration);
+    const cycleOrigin = this.#origin + sequenceIndex * this.#timing.sequenceDuration + cycle.offset;
+    const cycleBeat = beatAtSeconds(cycle.curve, currentTime - cycleOrigin);
+    let absoluteStep = Math.floor(cycleBeat * rhythm.subdivision);
 
-    while (repetitionOrigin + (absoluteStep + 1) * duration <= currentTime) {
+    while (
+      cycleOrigin + secondsAtBeat(cycle.curve, (absoluteStep + 1) / rhythm.subdivision) <=
+      currentTime
+    ) {
       absoluteStep += 1;
     }
-    while (absoluteStep > 0 && repetitionOrigin + absoluteStep * duration > currentTime) {
+    while (
+      absoluteStep > 0 &&
+      cycleOrigin + secondsAtBeat(cycle.curve, absoluteStep / rhythm.subdivision) > currentTime
+    ) {
       absoluteStep -= 1;
     }
 
     return absoluteStep % rhythm.steps.length;
+  }
+
+  currentBpm(currentTime) {
+    if (!this.#timing) return null;
+    if (currentTime < this.#origin) return this.#timing.cycles[0].curve.startBpm;
+    const elapsed = (currentTime - this.#origin) % this.#timing.sequenceDuration;
+    const cycle = this.#timing.cycles.find(
+      (candidate) => elapsed < candidate.offset + candidate.duration,
+    );
+    if (!cycle) return this.#timing.bpm;
+    const beat = beatAtSeconds(cycle.curve, elapsed - cycle.offset);
+    return tempoAtBeat(cycle.curve, beat);
   }
 }

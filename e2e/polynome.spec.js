@@ -106,6 +106,126 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+test("the lone Cycle exposes repetitions and an accessible envelope drawer", async ({ page }) => {
+  const cycle = page.locator(".cycle-card").first();
+  await expect(cycle).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Cycle repetitions" }).getByRole("button"),
+  ).toHaveCount(8);
+
+  const edit = page.getByRole("button", { name: "Edit Cycle tempo envelope" });
+  await expect(edit).toHaveAttribute("aria-expanded", "false");
+  await edit.click();
+
+  await expect(edit).toHaveAttribute("aria-expanded", "true");
+  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Flat" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(drawer.getByLabel("Change")).toHaveValue("0");
+  await expect(drawer).toContainText("96 BPM · Flat");
+});
+
+test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
+  const repetitions = page.getByRole("group", { name: "Cycle repetitions" });
+  const eight = repetitions.getByRole("button", { name: "Set Cycle to 8 repetitions" });
+
+  await eight.click();
+
+  await expect(repetitions.locator('[data-repetitions="8"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator(".cycle-heading .heading-count")).toHaveText("8");
+});
+
+test("a newly added Cycle starts at Flat zero with its drawer closed", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+
+  const edit = page.getByRole("button", { name: "Edit Cycle 2 tempo envelope" });
+  await expect(edit).toHaveAttribute("aria-expanded", "false");
+  await edit.click();
+  const drawer = page.getByRole("region", { name: "Cycle 2 tempo envelope" });
+  await expect(drawer.getByRole("button", { name: "Flat" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(drawer.getByLabel("Change")).toHaveValue("0");
+});
+
+test("Cycle envelope shapes preserve useful magnitude and direction", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
+  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+  const change = drawer.getByLabel("Change");
+
+  const up = drawer.getByRole("button", { name: "Up" });
+  await up.click();
+  await expect(up).toBeFocused();
+  await expect(change).toHaveValue("20");
+  await expect(drawer).toContainText("96 → 116 BPM · Up +20");
+
+  await change.fill("40");
+  await drawer.getByRole("button", { name: "Down" }).click();
+  await expect(change).toHaveValue("40");
+  await expect(drawer).toContainText("96 → 56 BPM · Down −40");
+
+  await drawer.getByRole("button", { name: "Flat" }).click();
+  await expect(change).toHaveValue("-40");
+  const peak = drawer.getByRole("button", { name: "Peak" });
+  await peak.click();
+  await expect(peak).toBeFocused();
+  await expect(change).toHaveValue("40");
+  await expect(drawer).toContainText("96 → 136 → 96 BPM · Peak +40");
+  await peak.click();
+  await expect(peak).toBeFocused();
+  await expect(change).toHaveValue("40");
+  await expect(peak).toHaveAttribute("aria-pressed", "true");
+});
+
+test("Preset notation describes a Cycle envelope as a relative change", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
+  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+  await drawer.getByRole("button", { name: "Up" }).click();
+  await drawer.getByLabel("Change").fill("40");
+  await savePreset(page, "Journey");
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  const card = presetCard(page, "Journey");
+  await expect(card.locator(".preset-notation")).toContainText("↑40");
+  await expect(card.locator(".preset-button")).toHaveAccessibleName(/Up 40 BPM change/);
+});
+
+test("playback shows live rounded BPM without changing the saved Configuration", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await presetCard(page, "4/4").locator(".preset-button").click();
+  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
+  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+  await drawer.getByRole("button", { name: "Up" }).click();
+  await drawer.getByLabel("Change").fill("120");
+
+  await page.getByRole("button", { name: "+ Save" }).click();
+  await page
+    .getByRole("region", { name: /^Save preset/ })
+    .getByRole("button", { name: "Replace" })
+    .click();
+  await saveNotOffered(page);
+
+  const bpm = page.getByLabel("Tempo in beats per minute");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(bpm).toBeDisabled();
+  await expect.poll(async () => Number(await bpm.inputValue())).toBeGreaterThan(96);
+  await saveNotOffered(page);
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(bpm).toBeEnabled();
+  await expect(bpm).toHaveValue("96");
+  await saveNotOffered(page);
+});
+
 test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   const bpm = page.getByLabel("Tempo in beats per minute");
   const heading = page.getByRole("heading", { name: "Polynome" });
@@ -1823,6 +1943,8 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
   await expect(page.getByRole("spinbutton", { name: "BPM" })).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Cycle", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
+  await expect(page.getByRole("region", { name: "Cycle tempo envelope" })).toBeVisible();
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "4/4 meter denominator" })).toBeVisible();
 
@@ -2159,97 +2281,23 @@ test("a non-primary button press does not start a tempo hold", async ({ page }) 
   await expect(readout).toHaveValue("112");
 });
 
-/**
- * Every step of a hold defers its transport consequence, and the acceleration is
- * what makes that necessary: `restart-transport-run` per repeat would begin a
- * new run every 45ms at the floor, and a run that never outlives its own
- * look-ahead is one nobody hears. The engine is module scope and says nothing
- * about itself, so what is read here is what a restart does to the one thing on
- * screen that asks the transport where it is. A restart re-anchors the run
- * `START_DELAY_SECONDS` ahead of the audio clock, and every position before that
- * origin is the top of the pattern, so a run restarted faster than a step lasts
- * is a playhead that never leaves the first step or two. A run left alone walks
- * the pattern. Measured against this build, that is the difference between
- * sampling 0 and 1 and nothing else, and sampling all four steps of 4/4 in turn.
- *
- * The playhead does not go out under the failing version, because `start` calls
- * the scheduler tick that re-anchors inside its own synchronous run. So the
- * assertion below that it never goes out is guarding playback stopping, not the
- * restart; the walk is what carries the restart.
- *
- * Sampled from `classList` rather than from computed style, so unlike the tests
- * that measure the beat dot there is nothing here a transition could be caught
- * part way through, and no reason to emulate reduced motion.
- */
-test("holding a tempo key while playing leaves the run alone until the release", async ({
-  page,
-}) => {
+test("starting-BPM controls are unavailable throughout playback", async ({ page }) => {
   const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
-  const status = page.locator("#status");
-  const current = page.locator(".rhythm-card .step.is-current");
+  const up = page.getByRole("button", { name: "Increase tempo" });
 
-  // A quarter-second step, so the hold below walks 4/4's four positions twice
-  // over, and far enough inside the range that the repeat never reaches a bound
-  // and ends itself early.
   await readout.fill("240");
   await readout.blur();
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(status).toHaveText("Playing");
-  await expect(current).toHaveCount(1);
+  await expect(readout).toBeDisabled();
+  await expect(slider).toBeDisabled();
+  await expect(down).toBeDisabled();
+  await expect(up).toBeDisabled();
 
-  // A frame sampler rather than a poll from here: the playhead is written once
-  // per animation frame, so a reading per frame is every value it ever had, and
-  // a gap between two polls is a restart this could miss.
-  const sampleFrames = () =>
-    page.evaluate(() => {
-      window.playhead = [];
-      const sample = () => {
-        const steps = [...document.querySelectorAll(".rhythm-card .step")];
-        window.playhead.push(steps.findIndex((step) => step.classList.contains("is-current")));
-        window.playheadFrame = requestAnimationFrame(sample);
-      };
-      sample();
-    });
-  const sampled = () =>
-    page.evaluate(() => {
-      cancelAnimationFrame(window.playheadFrame);
-      return window.playhead;
-    });
-
-  await sampleFrames();
-  const key = await down.boundingBox();
-  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
-  await page.mouse.down();
-  // The acceleration reaches its floor around 1.4s, so this covers the decaying
-  // intervals and then some twenty repeats at 45ms — the interval the deferral
-  // exists for, rather than only the leisurely ones before it.
-  await page.waitForTimeout(2200);
-  const held = await sampled();
-  await page.mouse.up();
-
-  expect(held, "playback stopped during the hold").not.toContain(-1);
-  expect(
-    new Set(held).size,
-    "the playhead did not walk the pattern, so the run was being cut off",
-  ).toBeGreaterThan(2);
-
-  // The release is where the run is finally handed the tempo, and it has to
-  // survive being handed it: still playing, still walking, and carrying the
-  // value the hold arrived at rather than the one it started from.
-  await expect(status).toHaveText("Playing");
-  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
-  expect(Number(await readout.inputValue())).toBeLessThan(240);
-
-  await sampleFrames();
-  // Longer than four steps at the tempo the hold arrived at, so a walk is what
-  // this sees rather than a step that happened to be long.
-  await page.waitForTimeout(1200);
-  const released = await sampled();
-  expect(
-    new Set(released.filter((index) => index >= 0)).size,
-    "the playhead stopped walking after the release",
-  ).toBeGreaterThan(2);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(readout).toBeEnabled();
+  await expect(readout).toHaveValue("240");
 });
 
 /**

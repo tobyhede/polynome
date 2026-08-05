@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { changeConfiguration, createConfiguration } from "../configuration.js";
 import { MetronomeEngine } from "../metronome.js";
 
 /**
@@ -49,6 +50,20 @@ test("a structural consequence restarts a running transport", async () => {
   await engine.applyConsequence("restart-transport-run", configuration);
 
   assert.deepEqual(engine.calls, [["restart", configuration]]);
+});
+
+test("a Cycle envelope edit restarts one running transport", async () => {
+  const configuration = createConfiguration();
+  const result = changeConfiguration(configuration, {
+    type: "set-cycle-envelope-shape",
+    cycleId: configuration.sequence.cycles[0].id,
+    shape: "up",
+  });
+  const engine = new RoutingEngine(true);
+
+  await engine.applyConsequence(result.consequence, result.configuration);
+
+  assert.deepEqual(engine.calls, [["restart", result.configuration]]);
 });
 
 /**

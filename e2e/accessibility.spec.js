@@ -112,6 +112,23 @@ test("open rhythm settings have no accessibility violations", async ({ page }) =
   await expectNoViolations(page);
 });
 
+test("active and inactive Cycle envelope drawers have no accessibility violations", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
+  await expect(page.getByRole("region", { name: "Cycle tempo envelope" })).toBeVisible();
+  await expectNoViolations(page);
+
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+  await page.getByRole("button", { name: "Edit Cycle 2 tempo envelope" }).click();
+  await page
+    .getByRole("group", { name: "Cycle 2 repetitions" })
+    .getByRole("button", { name: "Disable Cycle 2" })
+    .click();
+  await expect(page.getByRole("region", { name: "Cycle 2 tempo envelope" })).toBeVisible();
+  await expectNoViolations(page);
+});
+
 test("Subdivision Mode has no accessibility violations", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.getByRole("button", { name: "4/4 subdivision" }).click();

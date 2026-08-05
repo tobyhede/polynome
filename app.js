@@ -17,6 +17,7 @@ import {
   snapBalance,
   subdivisionLabel,
   MIX_STEP,
+  TEMPO_ENVELOPE_SHAPE,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
 } from "./model.js";
@@ -105,6 +106,7 @@ function focusWithin(root, selector) {
 
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
+const openCycleEnvelopes = new Set();
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
@@ -291,8 +293,14 @@ function renderPanels() {
 }
 
 function renderTransport() {
-  elements.bpm.value = String(state.bpm);
-  elements.bpmSlider.value = String(state.bpm);
+  const playing = engine.playing;
+  const displayedBpm = playing ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
+  elements.bpm.value = String(displayedBpm);
+  elements.bpmSlider.value = String(displayedBpm);
+  elements.bpm.disabled = playing;
+  elements.bpmSlider.disabled = playing;
+  elements.bpmDown.disabled = playing;
+  elements.bpmUp.disabled = playing;
   // A key at the end of the range says so rather than being left live and
   // silent — but marked unavailable rather than `disabled`, for the reason the
   // save chip is: `disabled` leaves the tab order. This key disables itself
@@ -304,12 +312,15 @@ function renderTransport() {
   // Marking states and does not enforce. Nothing extra declines the press,
   // because the hold already does: `stepTempo` reports a tempo that did not
   // move, which is what the edit returns at either bound.
-  elements.bpmDown.setAttribute("aria-disabled", String(state.bpm <= TEMPO_LIMIT.minimum));
-  elements.bpmUp.setAttribute("aria-disabled", String(state.bpm >= TEMPO_LIMIT.maximum));
-  const progress = (state.bpm - 30) / 270;
+  elements.bpmDown.setAttribute(
+    "aria-disabled",
+    String(playing || state.bpm <= TEMPO_LIMIT.minimum),
+  );
+  elements.bpmUp.setAttribute("aria-disabled", String(playing || state.bpm >= TEMPO_LIMIT.maximum));
+  const progress = (displayedBpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
-  const glitchIntensity = Math.min(1, Math.max(0, (state.bpm - 250) / 50));
+  const glitchIntensity = Math.min(1, Math.max(0, (displayedBpm - 250) / 50));
   // Every length the readout uses is offered twice: the design value, and the
   // same value as a share of the transport card. The card is the size container,
   // and 1cqw is 5px at the 500px column this was drawn against, so taking the
@@ -363,7 +374,7 @@ function renderTransport() {
     });
   }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
-    tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= state.bpm);
+    tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= displayedBpm);
   });
   updatePlayButton();
 }
@@ -448,15 +459,17 @@ function dismissPendingDelete() {
 }
 
 function PresetNotation({ configuration }) {
+  const tempoDescriptions = describeConfiguration(configuration).cycles;
   const accessible = configuration.sequence.cycles
-    .map((cycle) => {
+    .map((cycle, index) => {
       const rhythms = cycle.rhythms
         .map(
           (rhythm) =>
             `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`,
         )
         .join(" plus ");
-      return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
+      const envelope = tempoDescriptions[index].accessibleNotation;
+      return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}${envelope ? `, ${envelope}` : ""}`;
     })
     .join(", then ");
   return html`
@@ -475,6 +488,11 @@ function PresetNotation({ configuration }) {
             </span>
           `,
           )}
+          ${
+            tempoDescriptions[index].notation
+              ? html`<span class="preset-envelope"> ${tempoDescriptions[index].notation}</span>`
+              : null
+          }
         </span>
       `,
       )}
@@ -633,22 +651,73 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
+  const envelopeOpen = openCycleEnvelopes.has(cycle.id);
+  const envelopeDrawerId = `cycle-${cycle.id}-envelope`;
+  const tempoDescription = description.cycles.find(({ id }) => id === cycle.id);
   return html`
     <section
       class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}"
       data-cycle-id=${cycle.id}
       aria-labelledby=${`cycle-${cycle.id}-heading`}
     >
-      <article class="cycle-card" hidden=${cycleCount === 1}>
+      <article class="cycle-card">
         <div class="card-heading cycle-heading">
-          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span></h2>
-          <button
-            type="button"
-            class="icon-button remove-button"
-            data-action="remove-cycle"
-            aria-label=${`Remove ${cycleTitle}`}
-            disabled=${!cycleAvailability.remove.available}
-          >×</button>
+          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span>${cycle.repetitions === 0 ? html`<span class="sr-only"> inactive</span>` : null}</h2>
+          <div class="cycle-actions">
+            <button
+              type="button"
+              class="icon-button edit-button${envelopeOpen ? " is-active" : ""}"
+              data-action="toggle-envelope"
+              aria-expanded=${String(envelopeOpen)}
+              aria-controls=${envelopeDrawerId}
+              aria-label=${`Edit ${cycleTitle} tempo envelope`}
+            ><${PencilIcon} /></button>
+            <button
+              type="button"
+              class="icon-button remove-button"
+              data-action="remove-cycle"
+              aria-label=${`Remove ${cycleTitle}`}
+              disabled=${!cycleAvailability.remove.available}
+            >×</button>
+          </div>
+        </div>
+        <div
+          id=${envelopeDrawerId}
+          class="cycle-envelope"
+          role="region"
+          aria-labelledby=${`${envelopeDrawerId}-label`}
+          hidden=${!envelopeOpen}
+        >
+          <span id=${`${envelopeDrawerId}-label`} class="sr-only">${cycleTitle} tempo envelope</span>
+          <div
+            class="envelope-shapes"
+            role="group"
+            aria-labelledby=${`${envelopeDrawerId}-shape-label`}
+          >
+            <span id=${`${envelopeDrawerId}-shape-label`}>Shape</span>
+            <div>${Object.values(TEMPO_ENVELOPE_SHAPE).map((shape) => {
+              const selected = (cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT) === shape;
+              return html`<button
+                type="button"
+                class="segment-button${selected ? " is-selected" : ""}"
+                data-action="envelope-shape"
+                data-envelope-shape=${shape}
+                aria-pressed=${String(selected)}
+              >${shape[0].toUpperCase()}${shape.slice(1)}</button>`;
+            })}</div>
+          </div>
+          <label class="control-label envelope-change">
+            <span>Change</span>
+            <input
+              type="number"
+              step="1"
+              min=${cycle.envelope?.shape === TEMPO_ENVELOPE_SHAPE.FLAT || !cycle.envelope ? "-120" : "1"}
+              max="120"
+              value=${String(cycle.envelope?.amount || 0)}
+              data-field="envelope-amount"
+            />
+          </label>
+          <p class="envelope-preview">${tempoDescription?.preview}</p>
         </div>
         <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
           ${REPETITIONS.slice(1).map((value, index) => {
@@ -1046,6 +1115,12 @@ function updateActiveSteps() {
     return;
   }
 
+  const liveBpm = Math.round(engine.activeBpm() ?? state.bpm);
+  if (elements.bpm.value !== String(liveBpm)) {
+    elements.bpm.value = String(liveBpm);
+    elements.bpmSlider.value = String(liveBpm);
+  }
+
   const position = engine.activePosition();
   for (const cycle of state.sequence.cycles) {
     const cycleElement = elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"]`);
@@ -1118,6 +1193,7 @@ async function togglePlayback() {
 }
 
 function changeTempo(nextBpm) {
+  if (engine.playing) return;
   applyEdit({ type: "set-tempo", bpm: nextBpm });
 }
 
@@ -1140,6 +1216,12 @@ function toggleRhythmSettings(rhythmId) {
   // so the one the user activated still holds the focus it already had.
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
+  renderCycles();
+}
+
+function toggleCycleEnvelope(cycleId) {
+  if (openCycleEnvelopes.has(cycleId)) openCycleEnvelopes.delete(cycleId);
+  else openCycleEnvelopes.add(cycleId);
   renderCycles();
 }
 
@@ -1573,6 +1655,16 @@ elements.cycles.addEventListener("click", (event) => {
       applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
       break;
     }
+    case "toggle-envelope":
+      toggleCycleEnvelope(cycle.id);
+      break;
+    case "envelope-shape":
+      applyEdit({
+        type: "set-cycle-envelope-shape",
+        cycleId: cycle.id,
+        shape: actionElement.dataset.envelopeShape,
+      });
+      break;
     case "remove-cycle": {
       const result = applyEdit({ type: "remove-cycle", cycleId: cycle.id });
       if (result.reason !== null) return;
@@ -1861,7 +1953,16 @@ elements.cycles.addEventListener("change", (event) => {
   const field = target.dataset.field;
   if (!field || ["volume", "pan"].includes(field)) return;
   const context = findContext(target);
-  if (!context?.rhythm) return;
+  if (!context) return;
+  if (field === "envelope-amount") {
+    applyEdit({
+      type: "set-cycle-envelope-amount",
+      cycleId: context.cycle.id,
+      amount: target.value,
+    });
+    return;
+  }
+  if (!context.rhythm) return;
   const { cycle, rhythm } = context;
   let result = null;
   if (field === "signature-count") {
@@ -1891,7 +1992,7 @@ engine.addEventListener("playstate", () => {
   // Every transport run starts here, so this is the one place that knows the
   // tempo the audible run is playing at.
   runBpm = engine.playing ? state.bpm : null;
-  updatePlayButton();
+  renderTransport();
   if (engine.playing) startAnimation();
 });
 engine.addEventListener("audioerror", (event) =>

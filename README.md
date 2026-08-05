@@ -81,6 +81,11 @@ cycle repeats its complete shared span before the sequence advances. Rhythms
 inside a cycle begin together and continue until all their meter downbeats
 realign.
 
+Each Cycle may also carry a Flat, Up, Down, or Peak BPM envelope relative to
+the tempo it inherits from the preceding active Cycle. The Configuration BPM is
+the starting BPM for every complete Sequence traversal; inactive Cycles are
+skipped, and Cycle repetitions lengthen one continuous envelope.
+
 Each layer has:
 
 - a meter with a numerator from 1–16 and denominator of 1, 2, 4, or 8
@@ -108,13 +113,17 @@ the audible rate, and Subdivision adds equal pulses within each beat.
 
 ## Timing design
 
-JavaScript timers do not play sounds directly. A short look-ahead loop fills the browser audio queue, while every click is scheduled against `AudioContext.currentTime` at an exact time derived from the shared transport origin, sequence position, cycle repetition, and absolute rhythm step. Intervals are never accumulated from the previous event.
+JavaScript timers do not play sounds directly. A short look-ahead loop fills the browser audio queue, while every click is scheduled against `AudioContext.currentTime` at an exact time derived from the shared transport origin and its absolute musical position. Intervals are never accumulated from the previous event.
 
 ```text
-transport origin + sequence offset + cycle offset + repetition offset + step index × step duration
+transport origin + closed-form seconds at the event's absolute primary-beat position
 ```
 
-This prevents cumulative drift between rhythm layers and cycle transitions.
+For a linear BPM segment, the conversion integrates `60 / BPM` over musical
+progress; Peak uses two such segments and Flat uses a constant segment after its
+boundary step. The inverse mapping drives the playhead and live BPM readout.
+Every Rhythm layer uses that same mapping, which prevents cumulative drift
+between layers and Cycle transitions while tempo changes continuously.
 
 ## Files
 
@@ -145,4 +154,4 @@ e2e/                  Playwright browser interaction tests
   no undo.
 - Changes to sequence timing or structure restart the shared transport when playing; Step-voice and mix edits do not.
 - Clicks are synthesized rather than sampled.
-- No swing, MIDI, tempo automation, or shareable URLs yet.
+- No swing, MIDI, curved tempo easing, or shareable URLs yet.

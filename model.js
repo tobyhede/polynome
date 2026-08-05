@@ -74,8 +74,111 @@ export const TEMPO_STEP = 5;
 /** Level and Balance share one grid: a twentieth, five percent of either. */
 export const MIX_STEP = 0.05;
 
+export const TEMPO_ENVELOPE_SHAPE = Object.freeze({
+  FLAT: "flat",
+  UP: "up",
+  DOWN: "down",
+  PEAK: "peak",
+});
+
+export const TEMPO_ENVELOPE_CHANGE_LIMIT = Object.freeze({ minimum: 1, maximum: 120 });
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+export function createTempoCurve(incomingBpm, envelope, beatLength) {
+  const inheritedBpm = clamp(incomingBpm, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum);
+  const length = Math.max(0, beatLength);
+  const shape = envelope?.shape;
+  const direction =
+    shape === "up" || shape === "peak" || shape === "flat" ? 1 : shape === "down" ? -1 : 0;
+  const targetBpm = clamp(
+    inheritedBpm + direction * (envelope?.amount || 0),
+    TEMPO_LIMIT.minimum,
+    TEMPO_LIMIT.maximum,
+  );
+  const startBpm = shape === "flat" ? targetBpm : inheritedBpm;
+
+  return Object.freeze({ shape, inheritedBpm, startBpm, targetBpm, beatLength: length });
+}
+
+export function tempoAtBeat(curve, beat) {
+  if (curve.beatLength === 0) return curve.targetBpm;
+  let progress = clamp(beat, 0, curve.beatLength) / curve.beatLength;
+  if (curve.shape === "peak") progress = progress <= 0.5 ? progress * 2 : (1 - progress) * 2;
+  return curve.startBpm + (curve.targetBpm - curve.startBpm) * progress;
+}
+
+export function secondsAtBeat(curve, beat) {
+  const boundedBeat = clamp(beat, 0, curve.beatLength);
+  if (curve.shape === "peak") {
+    const midpoint = curve.beatLength / 2;
+    const rise = createTempoCurve(
+      curve.startBpm,
+      { shape: "up", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    if (boundedBeat <= midpoint) return secondsAtBeat(rise, boundedBeat);
+    const fall = createTempoCurve(
+      curve.targetBpm,
+      { shape: "down", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    return secondsAtBeat(rise, midpoint) + secondsAtBeat(fall, boundedBeat - midpoint);
+  }
+  const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;
+  if (!Number.isFinite(slope) || slope === 0) return (60 * boundedBeat) / curve.startBpm;
+  return (60 / slope) * Math.log1p((slope * boundedBeat) / curve.startBpm);
+}
+
+export function beatAtSeconds(curve, seconds) {
+  const duration = secondsAtBeat(curve, curve.beatLength);
+  const boundedSeconds = clamp(seconds, 0, duration);
+  if (curve.shape === "peak") {
+    const midpoint = curve.beatLength / 2;
+    const rise = createTempoCurve(
+      curve.startBpm,
+      { shape: "up", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    const riseDuration = secondsAtBeat(rise, midpoint);
+    if (boundedSeconds <= riseDuration) return beatAtSeconds(rise, boundedSeconds);
+    const fall = createTempoCurve(
+      curve.targetBpm,
+      { shape: "down", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    return midpoint + beatAtSeconds(fall, boundedSeconds - riseDuration);
+  }
+  const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;
+  if (!Number.isFinite(slope) || slope === 0) return (boundedSeconds * curve.startBpm) / 60;
+  return (curve.startBpm * Math.expm1((boundedSeconds * slope) / 60)) / slope;
+}
+
+export function createSequenceTempoCurves(startingBpm, cycles) {
+  let incomingBpm = clamp(startingBpm, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum);
+  return cycles.map((cycle) => {
+    const active = cycle.repetitions > 0;
+    const beatLength = active ? cycleSpanBeats(cycle) * cycle.repetitions : 0;
+    const curve = createTempoCurve(incomingBpm, active ? cycle.envelope : null, beatLength);
+    const outgoingBpm = active
+      ? curve.shape === TEMPO_ENVELOPE_SHAPE.PEAK
+        ? curve.inheritedBpm
+        : curve.targetBpm
+      : incomingBpm;
+    const description = {
+      id: cycle.id,
+      active,
+      incomingBpm,
+      targetBpm: active ? curve.targetBpm : incomingBpm,
+      outgoingBpm,
+      beatLength,
+      curve,
+    };
+    incomingBpm = outgoingBpm;
+    return description;
+  });
 }
 
 /**
@@ -124,12 +227,12 @@ function leastCommonMultiple(left, right) {
   return Math.abs(left * right) / greatestCommonDivisor(left, right);
 }
 
-export function cycleSpanSeconds(bpm, cycle) {
+export function cycleSpanBeats(cycle) {
   const rhythms =
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  const spanInBeats = rhythms
+  return rhythms
     .map((rhythm) =>
       Math.round(
         normaliseNumber(
@@ -141,8 +244,11 @@ export function cycleSpanSeconds(bpm, cycle) {
       ),
     )
     .reduce(leastCommonMultiple);
+}
+
+export function cycleSpanSeconds(bpm, cycle) {
   const beatSeconds = 60 / normaliseNumber(bpm, 120, 1, 1000);
-  return spanInBeats * beatSeconds;
+  return cycleSpanBeats(cycle) * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
