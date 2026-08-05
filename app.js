@@ -413,8 +413,10 @@ function tempoFraction(bpm) {
  * tempo sizes them instead.
  *
  * The marks answer the band rather than the size: under a ramp they light the
- * stretch being travelled, and under a Flat, which travels nothing, they go on
- * marking where the tempo has reached.
+ * stretch being travelled, with a bar drawn through them at the tempos
+ * themselves for the resolution a tenth-of-the-range mark cannot carry, and
+ * under a Flat, which travels nothing, they go on marking where the tempo has
+ * reached.
  */
 function renderDisplayedTempo(displayedBpm) {
   const shapedBy = heldTempo ?? displayedBpm;
@@ -473,6 +475,18 @@ function renderDisplayedTempo(displayedBpm) {
       target.style.removeProperty("--g");
       target.style.removeProperty("--glitch-duration");
     });
+  }
+  // The band is placed from the two tempos themselves rather than from the marks
+  // nearest them, which is the whole of why it is a bar: the ticks are a tenth
+  // of the range apart, and a ramp shorter than that either lands on one of them
+  // or on none.
+  const ticks = elements.bpmTicks.style;
+  if (tempoBand) {
+    ticks.setProperty("--band-start", `${tempoFraction(tempoBand.minimum) * 100}%`);
+    ticks.setProperty("--band-end", `${tempoFraction(tempoBand.maximum) * 100}%`);
+  } else {
+    ticks.removeProperty("--band-start");
+    ticks.removeProperty("--band-end");
   }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
     const bpm = Number(tick.dataset.bpm);
