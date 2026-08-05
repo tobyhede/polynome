@@ -90,9 +90,10 @@ Each layer has:
   or silence; audible voices have equal gain, and each adjacent voice is four
   semitones lower than the one above it
 - a display mode: Beat Mode offers one control per beat, which sets the voice of
-  every pulse in that beat, and Subdivision Mode offers one control per pattern
-  position. Beat Mode is the default, and the choice is per layer and saved with
-  the rest of the layer
+  the pulse that beat starts on and returns the rest of the beat to tertiary, or
+  silences the whole beat when it advances to off; Subdivision Mode offers one
+  control per pattern position. Beat Mode is the default, and the choice is per
+  layer and saved with the rest of the layer
 - its own sound, volume, mute state, and stereo position
 
 Examples:

@@ -101,8 +101,10 @@ _Avoid_: View, zoom level, expanded, collapsed
 
 **Beat Mode**:
 The display mode offering one control per signature unit. The control shows the
-Step voice of the pattern position that unit begins on and sets the voice of
-every position in it, so an `off` beat is silent throughout. Beat Mode is the
+Step voice of the pattern position that unit begins on, and advancing it writes
+the next Step voice there and normalises the unit's remaining pattern positions
+to `tertiary`, so a beat can hold different Step voices at different pattern
+positions. An `off` beat is the exception, silent throughout. Beat Mode is the
 default.
 _Avoid_: Simple view, collapsed steps
 
