@@ -345,19 +345,16 @@ function renderTransport() {
    * whether an envelope is written down somewhere — a Cycle switched off keeps
    * the envelope it was given and contributes none of it.
    *
-   * Whether it *travels* decides the band, and only a ramp travels. A Flat jumps
-   * from one tempo to the next and sounds neither of the ones between, so a bar
-   * drawn across that gap would claim a stretch the run never plays.
+   * Whether it *travels* decides the band, and that is a question about the
+   * tempos a run passes through rather than about the envelopes written down in
+   * it. A Flat jumps from one tempo to the next and sounds neither of the ones
+   * between; a ramp with nothing left to give — Up 20 already at 300 — carries
+   * its amount and moves nothing. Both are runs at a tempo that never travels,
+   * and the description answers for both by reporting the stretch rather than
+   * the intent, so there is nothing to work out again here.
    */
   const tempoMoves = playing && description.tempoRange.minimum !== description.tempoRange.maximum;
-  const tempoTravels =
-    playing &&
-    state.sequence.cycles.some(
-      (cycle, index) =>
-        description.cycles[index].active &&
-        cycle.envelope.amount &&
-        cycle.envelope.shape !== ENVELOPE.FLAT,
-    );
+  const travelled = playing ? description.travelledRange : null;
 
   elements.bpmLabel.textContent = tempoMoves ? String(state.bpm) : "BPM";
   elements.bpmLabel.classList.toggle("is-starting-tempo", tempoMoves);
@@ -367,8 +364,8 @@ function renderTransport() {
   // the glyphs from a tempo nobody hears is a smaller wrong than sizing them
   // from one that keeps changing, but it is still one.
   heldTempo = tempoMoves ? description.cycles.find(({ active }) => active).startBpm : null;
-  elements.bpmTicks.classList.toggle("is-banded", tempoTravels);
-  tempoBand = tempoTravels ? description.tempoRange : null;
+  elements.bpmTicks.classList.toggle("is-banded", travelled !== null);
+  tempoBand = travelled;
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;
@@ -2214,9 +2211,10 @@ elements.cycles.addEventListener("change", (event) => {
   // The field is text rather than a number input, because a number input will
   // not hold a U+2212 at all — and the sign is the one thing a Flat has to be
   // able to say. What the field accepts and what it is left showing are
-  // therefore both this listener's: the committed amount is written back, so a
-  // refused entry and one clamped into range each end up reading as what the
-  // envelope actually holds rather than as what was typed at it.
+  // therefore both this listener's: the committed amount is written back, so an
+  // entry the domain refuses — a fraction, or a number past the shape's range —
+  // is left reading as what the envelope actually holds rather than as what was
+  // typed at it.
   if (field === "envelope-amount") {
     const { cycle } = context;
     applyEdit({

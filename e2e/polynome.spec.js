@@ -362,11 +362,12 @@ test("a Flat is one number where a ramp is the pair it crosses", async ({ page }
 
 /**
  * The field writes a minus sign and has to read one back, but a hyphen is what
- * most keyboards offer first, so both are accepted. An amount past the shape's
- * range is clamped and a fraction is refused, and in either case the field is
- * left reading what the envelope actually holds.
+ * most keyboards offer first, so both are accepted. An amount the domain refuses
+ * — one past the shape's range, or a fraction — leaves the field reading what
+ * the envelope actually holds rather than what was typed at it, which is the
+ * whole of what a refusal looks like from here.
  */
-test("the envelope amount accepts either minus, clamps, and refuses a fraction", async ({
+test("the envelope amount accepts either minus and refuses what its shape cannot hold", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
@@ -382,14 +383,19 @@ test("the envelope amount accepts either minus, clamps, and refuses a fraction",
   await amount.blur();
   await expect(amount).toHaveValue("−45");
 
-  // 120 is the far end of every shape's range in ENVELOPE_LIMIT, which is what
-  // an amount past it is clamped to.
+  // 120 is the far end of every shape's range in ENVELOPE_LIMIT. Past it the
+  // edit is refused, so the field returns to the amount the envelope kept rather
+  // than to the limit it was once quietly moved to.
   await amount.fill("400");
+  await amount.blur();
+  await expect(amount).toHaveValue("−45");
+
+  // The end of the range is inside it.
+  await amount.fill("120");
   await amount.blur();
   await expect(amount).toHaveValue("120");
 
-  // A fraction is refused outright rather than clamped, so the field is left
-  // reading the amount the envelope kept.
+  // A fraction is refused for its own reason and lands in the same place.
   await amount.fill("12.5");
   await amount.blur();
   await expect(amount).toHaveValue("120");
@@ -633,6 +639,75 @@ test("a Flat envelope moves the tempo without marking a range", async ({ page })
   expect(
     await page.locator("#bpm-readout").evaluate((el) => el.style.getPropertyValue("--bpm-size")),
   ).toBe(held);
+});
+
+/**
+ * The band is the stretch a run travels through, and two things that look like
+ * travel are not.
+ *
+ * A Flat before a ramp moves the tempo without passing through anything, so the
+ * band belongs to the ramp alone: the run reaches 120 and 200, and the only
+ * stretch it crosses is the 180 to 200 the ramp draws. Reading the whole visited
+ * range instead drew the Flat's step as though it had been played through.
+ *
+ * And a ramp with nowhere left to go is not a ramp: Up 20 already at 300 keeps
+ * its amount, reaches its limit at both ends, and holds one tempo throughout.
+ * Reading the amount rather than the endpoints banded that run too, and the
+ * band's own minimum width made it a visible mark for a tempo that never moved.
+ */
+test("the band is the stretch travelled, not the tempos a Flat or a limit leaves standing", async ({
+  page,
+}) => {
+  const ticks = page.locator("#bpm-ticks");
+  const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
+  const band = () =>
+    page.evaluate(async () => {
+      const { TEMPO_LIMIT } = await import("/model.js");
+      const row = document.querySelector("#bpm-ticks");
+      const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
+      const bpm = (property) => {
+        const percentage = row.style.getPropertyValue(property);
+        if (!percentage) return null;
+        return Math.round(TEMPO_LIMIT.minimum + (Number.parseFloat(percentage) / 100) * span);
+      };
+      return [bpm("--band-start"), bpm("--band-end")];
+    });
+
+  // A Flat +60 from 120, then a ramp of 20 over the 180 it hands on.
+  await slider.fill("120");
+  const add = page.getByRole("button", { name: "+ Cycle", exact: true });
+  await add.click();
+  for (const index of [0, 1]) {
+    await page.getByRole("button", { name: `Edit Cycle ${index + 1} envelope` }).click();
+  }
+  await cycleDrawer(page, 0).getByRole("button", { name: "Flat" }).click();
+  await envelopeAmount(page, "Cycle 1").fill("60");
+  await envelopeAmount(page, "Cycle 1").blur();
+  await cycleDrawer(page, 1).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page, "Cycle 2").fill("20");
+  await envelopeAmount(page, "Cycle 2").blur();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(ticks).toHaveClass(/\bis-banded\b/);
+  expect(await band()).toEqual([180, 200]);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+
+  // The same ramp with nothing left to give: at the top of the range its two
+  // ends are the same tempo, so there is no band at all.
+  await page.getByRole("button", { name: "Remove Cycle 1" }).click();
+  await slider.fill("300");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(ticks).not.toHaveClass(/\bis-banded\b/);
+  expect(await band()).toEqual([null, null]);
+
+  // And with room to move again it is a band once more, so it is the limit that
+  // silences it rather than the shape.
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await slider.fill("280");
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(ticks).toHaveClass(/\bis-banded\b/);
+  expect(await band()).toEqual([280, 300]);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
 });
 
 /**

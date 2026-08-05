@@ -122,18 +122,24 @@ function createRhythm(overrides = {}) {
  * a Configuration written before envelopes existed has no `envelope` at all,
  * and normalises to the state that plays exactly as it always did.
  *
- * An unknown shape is Flat rather than refused, because the amount beside it is
- * still a number a listener chose; the amount is rounded and then clamped into
- * whichever range that shape offers, which is the only place Flat's reach below
- * zero is decided.
+ * An unknown shape is Flat zero rather than refused, and zero rather than the
+ * amount stored beside it. The amount alone reads like a number a listener
+ * chose, but it was chosen for a shape that is not there, and a Flat spends its
+ * whole change on its Cycle's first beat: keeping it turns data nobody can read
+ * into a step nobody asked for, which is the one repair that is audible.
+ *
+ * Where the shape is one this vocabulary knows, the amount is rounded and then
+ * clamped into whichever range that shape offers, which is the only place Flat's
+ * reach below zero is decided.
  */
 function normaliseEnvelope(candidate) {
-  const shape = ENVELOPE_LIMIT[candidate?.shape] ? candidate.shape : ENVELOPE.FLAT;
+  const known = Boolean(ENVELOPE_LIMIT[candidate?.shape]);
+  const shape = known ? candidate.shape : ENVELOPE.FLAT;
   const { minimum, maximum } = ENVELOPE_LIMIT[shape];
   const fallback = shape === ENVELOPE.FLAT ? 0 : ENVELOPE_DEFAULT_AMOUNT;
   return {
     shape,
-    amount: Math.round(normaliseNumber(candidate?.amount, fallback, minimum, maximum)),
+    amount: known ? Math.round(normaliseNumber(candidate.amount, fallback, minimum, maximum)) : 0,
   };
 }
 
@@ -626,9 +632,41 @@ export function describeConfiguration(configuration) {
     .flatMap(({ incomingBpm, targetBpm, outgoingBpm }) => [incomingBpm, targetBpm, outgoingBpm])
     .concat(valid.bpm);
 
+  /*
+   * The narrower span the transport draws its band over: not every tempo a
+   * traversal visits, but the stretch it travels continuously through, which is
+   * the only one a bar can claim without saying the run played tempos it never
+   * sounded.
+   *
+   * Two things are left out, and they are the two ADR-0013 names as the only
+   * intentional discontinuities. A Flat jumps from one tempo to the next and
+   * sounds neither of the ones between, so the gap it clears is visited at its
+   * ends and travelled nowhere. And a ramp is asked for its endpoints rather
+   * than for the amount written down: a ramp held against a limit has both of
+   * them on that limit and travels nothing at all, however large the amount it
+   * still carries.
+   *
+   * `null` rather than a range of zero width, so that having nothing to draw is
+   * one answer here instead of a comparison every reader has to remember to
+   * make.
+   *
+   * Adjacent ramps meet at their audible endpoint, so a run of them stays one
+   * contiguous stretch. A Flat *between* two ramps does not: the two stretches
+   * either side of it are still reported as one span, which claims the step it
+   * cleared. Saying that exactly needs more than one bar to say it with.
+   */
+  const travelled = cycles.flatMap(({ active, startBpm, targetBpm, outgoingBpm }, index) =>
+    active && valid.sequence.cycles[index].envelope.shape !== ENVELOPE.FLAT
+      ? [startBpm, targetBpm, outgoingBpm]
+      : [],
+  );
+  const minimum = Math.min(...travelled);
+  const maximum = Math.max(...travelled);
+
   return {
     cycles,
     tempoRange: { minimum: Math.min(...visited), maximum: Math.max(...visited) },
+    travelledRange: travelled.length && minimum !== maximum ? { minimum, maximum } : null,
     choices: {
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
@@ -961,11 +999,20 @@ const COMMANDS = Object.freeze({
   "set-cycle-envelope": {
     validPayload: (edit) =>
       targetsCycle(edit) && hasString(edit, "shape") && hasFormNumber(edit, "amount"),
-    // A whole number is required and a range is not: an amount past the shape's
-    // limit is a value the normaliser clamps, the way a Meter count out of range
-    // is, while a fraction is a tempo change nobody can play and is refused.
-    validValue: (edit) =>
-      Boolean(ENVELOPE_LIMIT[edit.shape]) && Number.isInteger(formNumber(edit.amount)),
+    // A whole number inside the range the chosen shape offers, which is what a
+    // Meter count and a repetition count are held to as well: a well-formed edit
+    // carrying a value the domain rejects reports back rather than committing
+    // some other value the author did not ask for. The bound is read from the
+    // shape being set, so the same amount can be valid for a Flat and refused
+    // for a ramp — Flat's is the only range that reaches zero and below.
+    //
+    // The normaliser still clamps, and the two do not disagree: it repairs
+    // stored data, which arrives with nobody to report back to, while an edit
+    // has an author and an interface to say no in.
+    validValue: (edit) => {
+      const limit = ENVELOPE_LIMIT[edit.shape];
+      return Boolean(limit) && numberInRange(edit, "amount", limit.minimum, limit.maximum, true);
+    },
     leavesUnchanged: (current, edit) => {
       const envelope = findCycle(current, edit.cycleId)?.envelope;
       const next = normaliseEnvelope({ shape: edit.shape, amount: formNumber(edit.amount) });

@@ -80,6 +80,13 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
  * all, and each one has to arrive at Flat zero — the state that plays exactly as
  * that Configuration always did. That is what makes this addition storage
  * compatible without retiring a key.
+ *
+ * Flat *zero*, and not the amount that happened to be stored beside a shape
+ * nobody wrote. Keeping the number turns unreadable data into an audible edit:
+ * a Flat spends its whole change on its Cycle's first beat, so an unrecognised
+ * shape carrying 40 arrives as a 40bpm step the listener never asked for. The
+ * amount is only a number a listener chose while the shape beside it is one they
+ * could have chosen too.
  */
 test("Cycle envelopes repair additively to canonical Flat zero", () => {
   const configuration = createConfiguration({
@@ -102,11 +109,30 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
     configuration.sequence.cycles.map(({ envelope }) => envelope),
     [
       { shape: "flat", amount: 0 },
-      { shape: "flat", amount: 40 },
-      { shape: "flat", amount: 40 },
-      { shape: "flat", amount: 40 },
+      { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 0 },
       { shape: "flat", amount: 0 },
       { shape: "up", amount: 35 },
+    ],
+  );
+
+  // A shape nobody wrote is the same repair whether or not an amount came with
+  // it, and an amount with no shape at all is the same repair again.
+  assert.deepEqual(
+    createConfiguration({
+      sequence: {
+        cycles: [
+          { envelope: { shape: "unknown" }, rhythms: [{}] },
+          { envelope: { amount: 60 }, rhythms: [{}] },
+          { envelope: "flat", rhythms: [{}] },
+        ],
+      },
+    }).sequence.cycles.map(({ envelope }) => envelope),
+    [
+      { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 0 },
     ],
   );
 });
@@ -668,45 +694,61 @@ test("setting a Flat Cycle change to zero returns it to the no-envelope state", 
 });
 
 /**
- * An amount past the shape's limit is clamped the way a Meter count out of range
- * is; a fraction is a tempo change nobody can play and is refused outright.
+ * An amount past the shape's limit is refused, the way a Meter count out of
+ * range is and every other bounded number this file accepts: a well-formed edit
+ * carrying a value the domain rejects returns `none` and a reason rather than
+ * quietly committing some other value. A fraction is refused for its own reason
+ * — a tempo change nobody can play — and lands in the same place.
+ *
+ * Normalising still clamps, because it repairs stored data that arrived without
+ * anyone editing it. An edit has an author to report back to; storage does not.
  */
-test("a Cycle envelope amount edit clamps out of range and refuses a fraction", () => {
+test("a Cycle envelope amount edit refuses a value outside the shape's range", () => {
   const configuration = createConfiguration({
     sequence: { cycles: [{ envelope: { shape: "up", amount: 20 }, rhythms: [{}] }] },
   });
   const cycleId = configuration.sequence.cycles[0].id;
+  const attempt = (amount) =>
+    changeConfiguration(configuration, {
+      type: "set-cycle-envelope",
+      cycleId,
+      shape: "up",
+      amount,
+    });
 
-  const clamped = changeConfiguration(configuration, {
-    type: "set-cycle-envelope",
-    cycleId,
-    shape: "up",
-    amount: "500",
-  });
-  assert.deepEqual(clamped.configuration.sequence.cycles[0].envelope, {
-    shape: "up",
-    amount: 120,
-  });
+  for (const amount of ["500", "0", "-20", "20.5"]) {
+    const result = attempt(amount);
+    assert.equal(result.consequence, "none", `${amount} should be refused`);
+    assert.equal(result.reason, "invalid-value", `${amount} should be refused`);
+    assert.deepEqual(result.configuration.sequence.cycles[0].envelope, {
+      shape: "up",
+      amount: 20,
+    });
+  }
 
-  const fraction = changeConfiguration(configuration, {
-    type: "set-cycle-envelope",
-    cycleId,
-    shape: "up",
-    amount: "20.5",
-  });
-  assert.equal(fraction.consequence, "none");
-  assert.equal(fraction.reason, "invalid-value");
-  assert.deepEqual(fraction.configuration.sequence.cycles[0].envelope, {
-    shape: "up",
-    amount: 20,
-  });
+  // The ends of the range are inside it, and Flat's range is the one that
+  // reaches below zero — a bound read from the shape being set rather than from
+  // whichever shape happens to be stored.
+  assert.equal(attempt("1").consequence, "restart-transport-run");
+  assert.equal(attempt("120").consequence, "restart-transport-run");
+  assert.equal(
+    changeConfiguration(configuration, {
+      type: "set-cycle-envelope",
+      cycleId,
+      shape: "flat",
+      amount: "-60",
+    }).consequence,
+    "restart-transport-run",
+  );
 });
 
 /**
- * An amount the normaliser clamps back onto the value already stored is not a
- * change, so it must not restart a run that is playing correctly.
+ * An edit naming the envelope already stored is not a change, so it must not
+ * restart a run that is playing correctly. It is told apart from a refusal by
+ * the reason beside it: both report `none`, and only one of them has something
+ * for the interface to say.
  */
-test("a Cycle envelope amount clamped onto the stored value is an unchanged edit", () => {
+test("a Cycle envelope edit naming the stored envelope is an unchanged edit", () => {
   const configuration = createConfiguration({
     sequence: { cycles: [{ envelope: { shape: "up", amount: 120 }, rhythms: [{}] }] },
   });
@@ -715,7 +757,7 @@ test("a Cycle envelope amount clamped onto the stored value is an unchanged edit
     type: "set-cycle-envelope",
     cycleId: configuration.sequence.cycles[0].id,
     shape: "up",
-    amount: "400",
+    amount: "120",
   });
 
   assert.equal(result.consequence, "none");
@@ -1367,6 +1409,76 @@ test("the described tempo range spans every tempo a traversal visits", () => {
     },
   });
   assert.deepEqual(describeConfiguration(inactive).tempoRange, { minimum: 96, maximum: 120 });
+});
+
+/**
+ * The band the transport draws is not that range. `tempoRange` is every tempo a
+ * traversal visits; the band is the stretch it travels *through*, which is a
+ * narrower thing and the only one a bar can honestly claim.
+ *
+ * Two cases separate them. A Flat jumps from one tempo to the next and sounds
+ * neither of the ones between, so the gap it clears is visited at its ends and
+ * travelled nowhere. And a ramp held against a limit has both endpoints on that
+ * limit: the amount is still written down, and the run is still a run at one
+ * constant tempo. Reading the amount rather than the endpoints drew a band for
+ * it — a short one, because the bar has a minimum width, but a band all the same
+ * where there was nothing to band.
+ */
+test("the described travelled range is the stretch a ramp passes through", () => {
+  const travelled = (configuration) => describeConfiguration(configuration).travelledRange;
+  const withCycles = (bpm, cycles) =>
+    createConfiguration({
+      bpm,
+      sequence: { cycles: cycles.map((envelope) => ({ envelope, repetitions: 1, rhythms: [{}] })) },
+    });
+
+  // A ramp on its own travels the two tempos it joins.
+  assert.deepEqual(travelled(withCycles(100, [{ shape: "up", amount: 40 }])), {
+    minimum: 100,
+    maximum: 140,
+  });
+
+  // A Flat travels nothing, whatever it steps by.
+  assert.equal(travelled(withCycles(100, [{ shape: "flat", amount: 60 }])), null);
+  assert.equal(travelled(withCycles(100, [{ shape: "flat", amount: 0 }])), null);
+
+  // The reported case: the Flat's step is visited but never travelled, so the
+  // band is the ramp that follows it rather than the whole climb from 120.
+  const afterAStep = withCycles(120, [
+    { shape: "flat", amount: 60 },
+    { shape: "up", amount: 20 },
+  ]);
+  assert.deepEqual(describeConfiguration(afterAStep).tempoRange, { minimum: 120, maximum: 200 });
+  assert.deepEqual(travelled(afterAStep), { minimum: 180, maximum: 200 });
+
+  // A ramp with nowhere left to go: the amount is stored, both endpoints are on
+  // the limit, and the run holds one tempo throughout.
+  assert.equal(travelled(withCycles(300, [{ shape: "up", amount: 20 }])), null);
+  assert.equal(travelled(withCycles(30, [{ shape: "down", amount: 20 }])), null);
+  // The same ramp with room to move is a band again, so it is the clamping that
+  // silences it and not the shape.
+  assert.deepEqual(travelled(withCycles(280, [{ shape: "up", amount: 20 }])), {
+    minimum: 280,
+    maximum: 300,
+  });
+
+  // A switched-off Cycle keeps its envelope, passes its tempo on, and travels
+  // nothing. It needs a Cycle beside it to be switched off at all: a lone Cycle
+  // repairs to one repetition rather than none.
+  assert.equal(
+    describeConfiguration(
+      createConfiguration({
+        bpm: 96,
+        sequence: {
+          cycles: [
+            { envelope: { shape: "flat", amount: 0 }, repetitions: 1, rhythms: [{}] },
+            { envelope: { shape: "up", amount: 90 }, repetitions: 0, rhythms: [{}] },
+          ],
+        },
+      }),
+    ).travelledRange,
+    null,
+  );
 });
 
 test("an inactive Cycle passes its tempo through and keeps its envelope", () => {
