@@ -494,7 +494,10 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   await expect(slider).toBeDisabled();
   await expect(page.getByRole("button", { name: "Increase tempo" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Decrease tempo" })).toBeDisabled();
-  await expect(label).toHaveText("BPM 96");
+  // This run has an envelope, so the slot gives its word up to the tempo the
+  // run started from — the accent, and nothing else about the slot, changing.
+  await expect(label).toHaveText("96");
+  await expect(label).toHaveCSS("color", "rgb(126, 163, 240)");
   // The live number is the playback indicator and stays at full strength.
   await expect(live).toHaveCSS("opacity", "1");
   await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(96);
@@ -506,6 +509,36 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   await expect(label).toHaveText("BPM");
   await expect(number).toHaveValue("96");
   await saveNotOffered(page);
+});
+
+/**
+ * A Sequence with every Cycle at Flat zero plays one tempo from beginning to
+ * end, so the large number is already showing the tempo the run started from.
+ * The label has nothing to add there and says what it always said.
+ */
+test("a run with no envelope keeps its BPM label through playback", async ({ page }) => {
+  const label = page.locator("#bpm-readout label");
+  await expect(label).toHaveText("BPM");
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByLabel("Current tempo in beats per minute")).toHaveAttribute(
+    "readonly",
+    "",
+  );
+  await expect(label).toHaveText("BPM");
+
+  // Given an envelope mid-run the slot changes hands, and giving it back
+  // returns the word — the reading follows the Sequence, not the transport.
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await expect(label).toHaveText("96");
+
+  await cycleDrawer(page).getByRole("button", { name: "Flat" }).click();
+  await envelopeAmount(page).fill("0");
+  await envelopeAmount(page).blur();
+  await expect(label).toHaveText("BPM");
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
 });
 
 /**

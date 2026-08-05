@@ -322,8 +322,14 @@ function renderTransport() {
     "aria-label",
     `${playing ? "Current" : "Starting"} tempo in beats per minute`,
   );
-  elements.bpmLabel.textContent = playing ? `BPM ${state.bpm}` : "BPM";
-  elements.bpmLabel.classList.toggle("is-badge", playing);
+  // The label gives its slot up to the starting tempo only when the large
+  // number has stopped showing it. That is narrower than "while playing": with
+  // every Cycle at Flat zero the tempo never leaves where it started, so the
+  // live number and the starting one are the same number, and printing it twice
+  // would say nothing while looking like it said something.
+  const envelopedRun = playing && state.sequence.cycles.some((cycle) => cycle.envelope.amount);
+  elements.bpmLabel.textContent = envelopedRun ? String(state.bpm) : "BPM";
+  elements.bpmLabel.classList.toggle("is-starting-tempo", envelopedRun);
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;

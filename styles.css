@@ -574,15 +574,13 @@ h1 {
   white-space: nowrap;
 }
 
-/* While playing, the label slot carries the number the large readout no longer
-   shows: the starting tempo, outlined in the accent so it reads as a fixed
-   value beside a live one rather than as a second reading of the same thing. */
-.bpm-readout label.is-badge {
-  padding: 2px 7px;
-  border: 1px solid var(--accent);
-  border-radius: 2px;
+/* When an envelope is moving the tempo, the label slot carries the number the
+   large readout has stopped showing: the tempo the run started from. The accent
+   is the whole of the difference — the slot keeps its size, its tracking and its
+   place, so what changes between a word and a number is the reading, not the
+   furniture around it. */
+.bpm-readout label.is-starting-tempo {
   color: var(--accent);
-  letter-spacing: 0.16em;
 }
 
 .bpm-readout input {
