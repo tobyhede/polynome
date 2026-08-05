@@ -22,6 +22,7 @@ The core promise is:
 ## Architecture
 
 - `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
+- `grid.js`: a rhythm layer's meter-relative grid — the canonical pattern, repair, and the Grid controls a Display mode lays out over it. It imports `model.js` and nothing else, so `configuration.js` and `app.js` both read it, and it must remain browser- and DOM-independent.
 - `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
 - `metronome.js`: Web Audio nodes, transport, look-ahead scheduler, and the routing from an edit's transport consequence to the narrowest engine method that satisfies it.
 - `persistence.js`: deferred writes and storage-key retirement, both free of any host environment so they can be driven by tests. Retirement discards an old key; it never carries its value into the new one, which is the migration the rule below rules out.
@@ -105,7 +106,7 @@ TypeScript runs with `noImplicitAny` and `strictNullChecks` off. That is the rat
 
 `test/syntax.test.js` parses every JavaScript file git tracks. It replaced a hand-written list of `node --check` calls that named seven files and silently omitted `server.mjs`, `playwright.config.js`, and three build scripts. Nothing needs adding when a new source file appears — committing it is what enrols it.
 
-Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
+Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Grid controls, the canonical pattern, and pattern repair are tested in `test/grid.test.js`, which drives the module directly rather than through `createConfiguration` — it sits beneath the module that repairs and has to be testable without it. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
 
 Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
 

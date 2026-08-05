@@ -20,6 +20,7 @@ import {
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
 } from "./model.js";
+import { controlCounts, controlIndexAt, controls } from "./grid.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
@@ -548,11 +549,11 @@ function layoutSteps() {
     const beatWidth = beat.getBoundingClientRect().width;
     const beatGap = parseFloat(style.columnGap) || 0;
     const beats = Number(steps.dataset.beats);
-    const stepsPerBeat = Number(steps.dataset.stepsPerBeat);
+    const controlsPerBeat = Number(steps.dataset.controlsPerBeat);
     const perRow =
       descendingDivisors(beats).find(
         (candidate) =>
-          candidate * stepsPerBeat <= STEPS_PER_ROW_LIMIT &&
+          candidate * controlsPerBeat <= STEPS_PER_ROW_LIMIT &&
           candidate * beatWidth + (candidate - 1) * beatGap <= available,
       ) ?? 1;
 
@@ -698,6 +699,7 @@ function RhythmCard({ rhythm, cycle }) {
   const label = rhythmLabel(rhythm);
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
+  const counts = controlCounts(rhythm);
   const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
   return html`
     <article class="rhythm-card${rhythm.muted ? " is-muted" : ""}" data-layer-id=${rhythm.id}>
@@ -748,19 +750,19 @@ function RhythmCard({ rhythm, cycle }) {
       </div>
 
       <!-- The controls each beat holds are carried for layoutSteps(), which
-           reads the number to choose how many beats share a row. It is the
-           Subdivision in Subdivision Mode and one in Beat Mode, which is why it
-           is not named for the Subdivision: what the row fits is controls. The
-           Subdivision was carried a second time as a custom property the
-           beat-gap clamp calculated with; that gap is now the same one the steps
-           inside a beat use, so nothing in the stylesheet asks for it any
-           more. -->
+           reads the number to choose how many beats share a row. Both counts
+           come from grid.js rather than being derived here: what the row fits
+           is controls, and how many of them a beat holds is the Display mode's
+           decision, made once. The Subdivision was carried a second time as a
+           custom property the beat-gap clamp calculated with; that gap is now
+           the same one the steps inside a beat use, so nothing in the
+           stylesheet asks for it any more. -->
       <div
         class="steps"
         role="group"
-        aria-label=${`${label} ${rhythm.displayMode === "beat" ? "beat" : "step"} voices`}
-        data-beats=${rhythm.signature.count}
-        data-steps-per-beat=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
+        aria-label=${`${label} ${controlNoun(rhythm).toLowerCase()} voices`}
+        data-beats=${counts.beats}
+        data-controls-per-beat=${counts.controlsPerBeat}
         data-display-mode=${rhythm.displayMode}
       >
         <${Beats} rhythm=${rhythm} />
@@ -909,9 +911,10 @@ function RhythmSettings({ rhythm }) {
   `;
 }
 
-// Steps are grouped a beat at a time so a narrow screen can only ever break
-// between beats. `steps.length` is always `signature.count * subdivision`, so
-// every group is full and no row is left ragged.
+// Controls are grouped a beat at a time so a narrow screen can only ever break
+// between beats. Which beat a control falls in is the control's own, from
+// `grid.js`, so nothing here strides the pattern to work it out; every group is
+// full and no row is left ragged, because a run never crosses a signature unit.
 //
 // Where a beat starts is marked by a dot the stylesheet draws on `.beat`
 // itself, so nothing here emits it. The steps are evenly spaced and say
@@ -921,40 +924,39 @@ function RhythmSettings({ rhythm }) {
 // accessibility tree without an `aria-hidden` element to carry it, which is
 // what a purely decorative mark inside a named group should be.
 function Beats({ rhythm }) {
+  const noun = controlNoun(rhythm);
   const beats = [];
-  for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
-    beats.push(
-      rhythm.displayMode === "beat"
-        ? [{ step: rhythm.steps[start], index: start, beat: start / rhythm.subdivision }]
-        : rhythm.steps
-            .slice(start, start + rhythm.subdivision)
-            .map((step, offset) => ({ step, index: start + offset, beat: null })),
-    );
+  for (const [control, { voice, beat }] of controls(rhythm).entries()) {
+    if (!beats[beat]) beats[beat] = [];
+    beats[beat].push(html`<${Step} voice=${voice} control=${control} noun=${noun} />`);
   }
-  return html`${beats.map(
-    (group) => html`
-    <div class="beat">
-      ${group.map(
-        ({ step, index, beat }) => html`<${Step} step=${step} index=${index} beat=${beat} />`,
-      )}
-    </div>
-  `,
-  )}`;
+  return html`${beats.map((group) => html`<div class="beat">${group}</div>`)}`;
 }
 
-function Step({ step, index, beat }) {
-  const beatMode = beat !== null;
-  const number = beatMode ? beat + 1 : index + 1;
-  const kind = beatMode ? "Beat" : "Step";
+/**
+ * What a Grid control is called for a listener. Beat Mode says "Beat" because a
+ * listener counts a bar in beats and has no use for the written unit's name —
+ * `CONTEXT.md`'s Beat control entry is where that is recorded, and this is the
+ * one place Polynome says it. Subdivision Mode addresses a pattern position and
+ * says "Step", which is the interface's word for it rather than the glossary's.
+ *
+ * Presentation, so it lives here: `grid.js` is read by `configuration.js` and
+ * has no business holding a string neither of them will ever show.
+ */
+function controlNoun(rhythm) {
+  return rhythm.displayMode === "beat" ? "Beat" : "Step";
+}
+
+function Step({ voice, control, noun }) {
+  const name = `${noun} ${control + 1}`;
   return html`
     <button
       type="button"
-      class="step step-${step}"
-      data-action=${beatMode ? "beat" : "step"}
-      data-step-index=${index}
-      data-beat-index=${beatMode ? beat : null}
-      aria-label=${`${kind} ${number}: ${step} voice`}
-      title=${`${kind} ${number}: ${step}`}
+      class="step step-${voice}"
+      data-action="control"
+      data-control=${control}
+      aria-label=${`${name}: ${voice} voice`}
+      title=${`${name}: ${voice}`}
     ></button>
   `;
 }
@@ -1071,15 +1073,11 @@ function updateActiveSteps() {
       const drawn = `${rhythm.displayMode}:${activeIndex}`;
       if (!steps || steps.getAttribute("data-active-step") === drawn) continue;
       steps.setAttribute("data-active-step", drawn);
-      const controls = steps.querySelectorAll(".step");
-      controls.forEach((element) => {
+      const stepElements = steps.querySelectorAll(".step");
+      stepElements.forEach((element) => {
         element.classList.remove("is-current");
       });
-      const visibleIndex =
-        rhythm.displayMode === "beat" && activeIndex !== null
-          ? Math.floor(activeIndex / rhythm.subdivision)
-          : activeIndex;
-      const current = controls[visibleIndex];
+      const current = stepElements[controlIndexAt(rhythm, activeIndex)];
       if (!current) continue;
       current.classList.add("is-current");
       // A Beat control stays current for every pulse in its beat, so the class
@@ -1647,24 +1645,15 @@ elements.cycles.addEventListener("click", (event) => {
           displayMode: actionElement.dataset.displayMode,
         });
       break;
-    case "beat": {
+    // One action for both Display modes: the listener pressed a control, and
+    // which pattern positions that control runs across is the layer's to say.
+    case "control": {
       if (!rhythm) return;
       applyEdit({
-        type: "advance-beat-voice",
+        type: "advance-control-voice",
         cycleId: cycle.id,
         rhythmId: rhythm.id,
-        beat: Number(actionElement.dataset.beatIndex),
-      });
-      break;
-    }
-    case "step": {
-      if (!rhythm) return;
-      const index = Number(actionElement.dataset.stepIndex);
-      applyEdit({
-        type: "advance-step-voice",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        position: index,
+        control: Number(actionElement.dataset.control),
       });
       break;
     }
