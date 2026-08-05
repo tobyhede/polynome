@@ -984,6 +984,122 @@ test("storage from the wider meter domain is retired instead of repaired", async
     .toEqual({ configuration: null, presets: null });
 });
 
+/**
+ * The Accent is asserted through what it paints rather than through the custom
+ * property that carries it. The toggle's glyph and the swatch draw from
+ * opposite ends of the mechanism — the glyph from `--accent`, the swatch from
+ * the `--accent-rose` the choice resolves to — so the two agreeing is the whole
+ * chain reporting, and neither side is the test restating the implementation
+ * back to itself.
+ */
+const paintedColour = (locator) =>
+  locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+
+function accentPanel(page) {
+  return page.getByRole("button", { name: "Colour", exact: true });
+}
+
+test("an Accent is chosen from the panel and survives a reload", async ({ page }) => {
+  const glyph = page.locator("#accent-toggle .accent-glyph");
+  const blue = page.getByRole("button", { name: "Blue", exact: true });
+  const rose = page.getByRole("button", { name: "Rose", exact: true });
+
+  await accentPanel(page).click();
+  await expect(blue).toHaveAttribute("aria-pressed", "true");
+  await expect(rose).toHaveAttribute("aria-pressed", "false");
+
+  await rose.click();
+  await expect(rose).toHaveAttribute("aria-pressed", "true");
+  await expect(blue).toHaveAttribute("aria-pressed", "false");
+
+  const chosen = await paintedColour(rose);
+  expect(await paintedColour(glyph)).toBe(chosen);
+  expect(chosen).not.toBe(await paintedColour(blue));
+
+  await page.reload();
+
+  expect(await paintedColour(glyph)).toBe(chosen);
+  await accentPanel(page).click();
+  await expect(rose).toHaveAttribute("aria-pressed", "true");
+  await expect(blue).toHaveAttribute("aria-pressed", "false");
+});
+
+/**
+ * The Accent is a preference of this browser and the Configuration is the
+ * setup a Preset holds, so choosing a colour must leave the second untouched.
+ * Fold the Accent in and every Preset card starts claiming a colour, two
+ * identical setups start reading as different ones, and + Save goes live
+ * because the interface thinks the music moved.
+ *
+ * Both halves are asserted because they fail apart: the chip is what a user
+ * would notice, and the stored Configuration is what a Preset would carry.
+ */
+test("choosing an Accent leaves the Configuration untouched", async ({ page }) => {
+  const stored = () => page.evaluate(() => localStorage.getItem("polynome-configuration-v2"));
+
+  // A first visit has something to save — the default Configuration is no
+  // Preset — so the chip only reports the Accent once it is already inert.
+  // Recalling a Preset is what makes it so, and the reload settles the deferred
+  // write that follows, leaving one stored Configuration to compare against.
+  await applyStoredPreset(page, "4/4 8ths");
+  await page.reload();
+  await saveNotOffered(page);
+  const before = await stored();
+
+  await accentPanel(page).click();
+  await page.getByRole("button", { name: "Lime", exact: true }).click();
+
+  await saveNotOffered(page);
+  expect(await stored()).toBe(before);
+});
+
+/**
+ * Storage is written by a previous version, another tab, or a person with a
+ * console open, so a name no swatch offers has to be repaired rather than
+ * refused — the interface opens on a colour either way, and the alternative is
+ * `--accent` set to a token that does not exist, which resolves to nothing and
+ * takes the highlight out of the interface entirely.
+ */
+test("an Accent naming no swatch is repaired to the default", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("polynome-accent-v1", "chartreuse"));
+  await page.reload();
+
+  await accentPanel(page).click();
+  const blue = page.getByRole("button", { name: "Blue", exact: true });
+  await expect(blue).toHaveAttribute("aria-pressed", "true");
+  expect(await paintedColour(page.locator("#accent-toggle .accent-glyph"))).toBe(
+    await paintedColour(blue),
+  );
+});
+
+/**
+ * Presets and Save are two halves of one subject and sit together. Colour is a
+ * fourth, so it follows the rule Help follows and takes the room from all three
+ * — including a save part way through being named, which the close control and
+ * Escape already abandon.
+ *
+ * Each pair is driven in both directions, because the two are separate handlers
+ * and only one of them is this panel's own.
+ */
+for (const other of ["Presets", "+ Save", "Help"]) {
+  test(`Colour and ${other} do not share the room`, async ({ page }) => {
+    const toggle = (name) => page.getByRole("button", { name, exact: true });
+    const expanded = (name, open) =>
+      expect(toggle(name)).toHaveAttribute("aria-expanded", String(open));
+
+    await toggle(other).click();
+    await expanded(other, true);
+
+    await toggle("Colour").click();
+    await expanded("Colour", true);
+    await expanded(other, false);
+
+    await toggle(other).click();
+    await expanded(other, true);
+    await expanded("Colour", false);
+  });
+}
+
 for (const [name, accessibleName] of [
   ["identity", "4/4 Edit 4/4 rhythm"],
   ["edit button", "Edit 4/4"],

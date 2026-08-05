@@ -46,6 +46,14 @@
                described-by, and `app.js` writes both from one string. -->
           <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel" aria-disabled="true" aria-describedby="preset-save-reason" title="No changes to save">+ Save</button>
           <span id="preset-save-reason" class="sr-only">No changes to save</span>
+          <!-- The glyph is the current Accent, so the control that opens the
+               panel is also the only place the chosen colour is stated outside
+               it. That is what earns this an icon rather than a word: a swatch
+               says which colour without naming one, and `?` keeps the corner it
+               already has. -->
+          <button id="accent-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="accent-panel" aria-label="Colour">
+            <span class="accent-glyph" aria-hidden="true"></span>
+          </button>
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
         </nav>
       </header>
@@ -94,6 +102,34 @@
           <button id="presets-close" class="icon-button remove-button" type="button" aria-label="Close presets">×</button>
         </div>
         <div id="preset-list" class="preset-grid"></div>
+      </section>
+
+      <!-- This row is the list of Accents on offer: `app.js` reads the names
+           off it rather than keeping a second copy, and
+           `test/accessibility.test.js` holds the stylesheet to the same set.
+           Each swatch is a colour and nothing else, so the name lives in the
+           accessible name and the title rather than on screen — and the
+           selected one carries a ring, because a fill cannot say which of six
+           fills is chosen. -->
+      <section id="accent-panel" class="top-panel" aria-labelledby="accent-heading" hidden>
+        <div class="card-heading panel-heading">
+          <h2 id="accent-heading">Colour</h2>
+        </div>
+        <!-- A fieldset rather than a `role="group"` div: it is the element the
+             grouping already means, and the legend is the name the group is
+             announced with. The legend is hidden because the heading above it
+             is already on screen saying the same word, and a fieldset with no
+             name at all leaves six controls whose only names are colours,
+             grouped by nothing a screen reader mentions. -->
+        <fieldset id="accent-swatches" class="accent-swatches">
+          <legend class="sr-only">Colour</legend>
+          <button type="button" class="accent-swatch is-selected" data-accent="blue" aria-pressed="true" aria-label="Blue" title="Blue"></button>
+          <button type="button" class="accent-swatch" data-accent="cyan" aria-pressed="false" aria-label="Cyan" title="Cyan"></button>
+          <button type="button" class="accent-swatch" data-accent="lime" aria-pressed="false" aria-label="Lime" title="Lime"></button>
+          <button type="button" class="accent-swatch" data-accent="amber" aria-pressed="false" aria-label="Amber" title="Amber"></button>
+          <button type="button" class="accent-swatch" data-accent="rose" aria-pressed="false" aria-label="Rose" title="Rose"></button>
+          <button type="button" class="accent-swatch" data-accent="violet" aria-pressed="false" aria-label="Violet" title="Violet"></button>
+        </fieldset>
       </section>
 
       <section class="transport" aria-label="Transport and tempo">

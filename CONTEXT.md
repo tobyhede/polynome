@@ -159,6 +159,15 @@ _Avoid_: Tick, callback
 The complete editable metronome state: tempo, master level, and the full Sequence including every rhythm layer's pattern, sound, level, stereo position, and mute state. It is the value the interface edits, the value stored between visits, and the value a Preset holds a snapshot of. Values arriving from storage are repaired into a Configuration rather than rejected.
 _Avoid_: Settings, state, options
 
+**Accent**:
+The single highlight colour the interface draws with, chosen from a fixed set of
+swatches and remembered per browser. It is not part of the Configuration: no
+Preset carries it, and changing it never marks a setup unsaved. The set is fixed
+because the Accent is read as text on the surfaces and as a background beneath a
+glyph coloured for the paper, so every swatch has to clear WCAG AA in both
+directions — see [ADR-0017](docs/adr/0017-choose-the-accent-from-a-fixed-set.md).
+_Avoid_: Theme, colour scheme, skin, palette
+
 **Preset**:
 A named reusable snapshot of a Configuration. Applying a preset recalls that Configuration exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
 _Avoid_: Pattern, project, session

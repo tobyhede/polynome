@@ -74,6 +74,14 @@ const STATES = [
     },
   },
   {
+    name: "colour",
+    note: "accent panel open",
+    async prepare(page) {
+      await page.getByRole("button", { name: "Colour", exact: true }).click();
+      await page.locator("#accent-panel").waitFor();
+    },
+  },
+  {
     name: "rhythm-settings",
     note: "one rhythm expanded",
     async prepare(page) {

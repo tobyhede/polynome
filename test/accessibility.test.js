@@ -61,14 +61,45 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/** Custom properties declared with a plain hex value. */
+/**
+ * Custom properties resolved to a hex value, following a property declared as
+ * `var()` on another through to the literal it ends at.
+ *
+ * The alias has to be followed rather than skipped, because every check below
+ * ignores a token it cannot resolve — so a colour that stopped being a literal
+ * would not fail here, it would quietly stop being examined, and the test would
+ * report on a stylesheet it had lost sight of. `--accent` is exactly that case:
+ * it names a swatch rather than repeating one's hex.
+ *
+ * A chain is walked to its end for the same reason, and the seen set is what
+ * keeps a pair of properties naming each other from walking forever.
+ */
 function colorTokens(css) {
-  return new Map(
+  const tokens = new Map(
     Array.from(css.matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-f]{6})\s*;/gi), (match) => [
       match[1],
       match[2].toLowerCase(),
     ]),
   );
+  const aliases = new Map(
+    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*var\((--[\w-]+)\)\s*;/g), (match) => [
+      match[1],
+      match[2],
+    ]),
+  );
+
+  for (const name of aliases.keys()) {
+    const seen = new Set();
+    let target = name;
+    while (aliases.has(target) && !seen.has(target)) {
+      seen.add(target);
+      target = aliases.get(target);
+    }
+    const value = tokens.get(target);
+    if (value) tokens.set(name, value);
+  }
+
+  return tokens;
 }
 
 /**
@@ -199,6 +230,75 @@ test("every aria-describedby names an element the shell emits", async () => {
   assert.ok(references.length, "Expected the shell to describe a control");
   const missing = references.filter((id) => !new RegExp(`\\sid="${id}"`).test(html));
   assert.deepEqual(missing, []);
+});
+
+/**
+ * The Accent is the one colour a listener chooses, and `--accent` is read in
+ * both directions: as text on the surfaces, and as a background beneath a glyph
+ * coloured for the paper. Contrast is symmetric, so the two uses reduce to one
+ * demand — every swatch clears AA against the lightest surface — and the set is
+ * fixed precisely so that demand can be asserted here. A free colour picker
+ * would move the decision somewhere nothing can check it, and this test would
+ * go on passing while the running interface was illegible.
+ *
+ * The default is declared as an alias rather than a second copy of Blue's hex.
+ * Two literals holding one colour is the version of this that drifts, and the
+ * one that drifts silently: nothing downstream would report a default that had
+ * stopped naming a swatch anyone can choose.
+ */
+test("every Accent swatch meets WCAG AA against every surface", async () => {
+  const css = await readFile("styles.css", "utf8");
+  const tokens = colorTokens(css);
+  const surfaces = SURFACE_TOKENS.map((name) => {
+    const value = tokens.get(name);
+    assert.ok(value, `Expected a hex value for the surface token ${name}`);
+    return { name, value };
+  });
+  const swatches = Array.from(tokens).filter(([name]) => name.startsWith("--accent-"));
+
+  assert.ok(swatches.length > 1, "Expected the stylesheet to offer a choice of Accent swatches");
+  assert.ok(
+    swatches.some(([, value]) => value === tokens.get("--accent")),
+    "Expected --accent to resolve to one of the swatches",
+  );
+
+  const failures = [];
+  for (const [name, value] of swatches) {
+    for (const surface of surfaces) {
+      const ratio = contrastRatio(value, surface.value);
+      if (ratio < AA_NORMAL_TEXT) {
+        failures.push(`${name} is ${ratio.toFixed(2)}:1 on ${surface.name}`);
+      }
+    }
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+/**
+ * The panel is the list of Accents on offer — `app.js` reads the names off it
+ * rather than holding a second copy — and the stylesheet is where each of those
+ * names becomes a colour. Neither half is much use holding a name the other
+ * does not.
+ *
+ * Both directions fail quietly, which is why both are asserted. A swatch with
+ * no token renders unpainted, and worse, it escapes the contrast check above
+ * entirely: that test examines tokens, so a colour that never became one is a
+ * colour it never looked at. A token with no swatch is a colour nobody can
+ * choose, passing its contrast check forever on a set it has dropped out of.
+ */
+test("the Accent swatches and the Accent tokens name the same colours", async () => {
+  const [html, css] = await Promise.all([
+    readFile("index.html", "utf8"),
+    readFile("styles.css", "utf8"),
+  ]);
+  const offered = Array.from(html.matchAll(/data-accent="([\w-]+)"/g), (match) => match[1]);
+  const declared = Array.from(colorTokens(css).keys())
+    .filter((name) => name.startsWith("--accent-"))
+    .map((name) => name.slice("--accent-".length));
+
+  assert.ok(offered.length, "Expected the shell to offer Accent swatches");
+  assert.deepEqual(offered.toSorted(), declared.toSorted());
 });
 
 /**

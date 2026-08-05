@@ -23,7 +23,34 @@
   --line: #2a2a30;
   --line-strong: #4c4c56;
   --soft: #1a1a1f;
-  --accent: #7ea3f0;
+  /* The Accent swatches. Every one of them sits at OKLCH lightness 0.72 and
+     chroma 0.12, rotated in hue and nothing else, because that is where the
+     palette this interface was drawn with already sits: the original accent is
+     exactly OKLCH(0.72 0.12 264) and `--danger` is OKLCH(0.688 0.133 35.8).
+     Holding the pair and turning the hue is what makes a chosen colour belong
+     to the design rather than sit on top of it, and it is why Blue comes back
+     out of the formula unchanged rather than being grandfathered past it.
+
+     The constant lightness is also what carries the contrast: `--accent` is
+     read as text on the surfaces and as a background under a glyph coloured
+     for the paper, so a swatch that reads in one direction reads in the other.
+     `test/accessibility.test.js` holds every one of them to AA, which is the
+     whole reason the set is fixed — see ADR-0017.
+
+     Amber and Rose bracket `--danger` at 34 and 44 degrees. Nothing becomes
+     unreadable, but on either of those the armed delete stops being the only
+     warm thing on screen, and it leans on its glyph and its position instead.
+     That is the accepted cost of not reserving a quadrant nobody asked us to. */
+  --accent-blue: #7ea3f0;
+  --accent-cyan: #16bbbc;
+  --accent-lime: #8cb460;
+  --accent-amber: #d49648;
+  --accent-rose: #de84ac;
+  --accent-violet: #b093e5;
+  /* An alias rather than a seventh literal: two copies of Blue is the version
+     of this that drifts. `app.js` overwrites this property on the root element
+     when a stored Accent says otherwise. */
+  --accent: var(--accent-blue);
   --danger: #e07a5f;
   --display-font: "Major Mono Display", monospace;
   --body-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
@@ -263,6 +290,76 @@ h1 {
 
 .help-grid strong {
   color: var(--ink);
+}
+
+/* The toggle's glyph is the Accent in force, which is what lets this control
+   carry no word: it shows the setting rather than naming it. */
+.accent-glyph {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* A fieldset draws a border and reserves room for its legend by default, and
+   this one's legend is hidden — so both are cleared, and `min-width` with it,
+   which a fieldset otherwise holds at its content's width and would keep the
+   row from wrapping at the narrowest viewport. */
+.accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+  padding: 6px 26px 22px;
+  border: 0;
+}
+
+.accent-swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Two shadows rather than a border: the first is a ring of the surface behind
+   the swatch, so the second reads as a ring held off the circle rather than a
+   thicker edge on it, and neither changes the size the row is laid out at. An
+   outline would have done it in one, but focus already uses that and both have
+   to be able to show at once.
+
+   The ring is the selection. A row of six fills cannot say which fill is
+   chosen by fill alone, and a listener who cannot separate two of the hues
+   would be left with a control that never appears to respond. */
+.accent-swatch.is-selected {
+  box-shadow:
+    0 0 0 3px var(--card),
+    0 0 0 5px var(--ink);
+}
+
+.accent-swatch[data-accent="blue"] {
+  background: var(--accent-blue);
+}
+
+.accent-swatch[data-accent="cyan"] {
+  background: var(--accent-cyan);
+}
+
+.accent-swatch[data-accent="lime"] {
+  background: var(--accent-lime);
+}
+
+.accent-swatch[data-accent="amber"] {
+  background: var(--accent-amber);
+}
+
+.accent-swatch[data-accent="rose"] {
+  background: var(--accent-rose);
+}
+
+.accent-swatch[data-accent="violet"] {
+  background: var(--accent-violet);
 }
 
 .preset-grid {
