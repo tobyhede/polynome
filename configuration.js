@@ -563,19 +563,20 @@ const ENVELOPE_PHRASE = lookup({
 });
 
 /**
- * A Flat states one tempo, because one tempo is all it plays: its whole change
+ * A Flat is one number, because one tempo is all it plays: its whole change
  * lands on the Cycle's first beat and the Cycle holds the result from there.
  * Writing it as a journey said something untrue — that the Cycle travels — and
  * no arrow fixes that, so a Flat has none. What it changed from is the previous
  * Cycle's reading, which is on screen directly above it.
  *
- * The ramps do travel, and say so with the tempos they pass through. Flat zero
- * is the same statement as any other Flat: the tempo it holds, unchanged.
+ * The ramps do travel, and say so with the tempos they pass through. The arrows
+ * are the whole of the difference: a number is a tempo held, and a number with
+ * somewhere to point is a tempo on its way.
  */
 function envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm) {
   const from = Math.round(incomingBpm);
   const to = Math.round(targetBpm);
-  if (shape === ENVELOPE.FLAT) return `steady ${to}`;
+  if (shape === ENVELOPE.FLAT) return String(to);
   if (shape === ENVELOPE.PEAK) return `${from} → ${to} → ${Math.round(outgoingBpm)}`;
   return `${from} → ${to}`;
 }
@@ -599,7 +600,7 @@ export function describeConfiguration(configuration) {
         // its repetitions come back.
         tempo: active
           ? envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm)
-          : `steady ${Math.round(incomingBpm)}`,
+          : String(Math.round(incomingBpm)),
         notation: amount ? ENVELOPE_NOTATION[shape](amount) : "",
         accessibleNotation: amount ? `${ENVELOPE_PHRASE[shape](amount)}${active ? span : ""}` : "",
       };

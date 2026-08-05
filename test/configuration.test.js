@@ -1274,7 +1274,7 @@ test("Configuration description exposes tempo readings and relative envelope not
         incomingBpm: 120,
         targetBpm: 100,
         outgoingBpm: 100,
-        tempo: "steady 100",
+        tempo: "100",
         notation: "Flat −20",
         accessibleNotation: "stepping down 20 bpm over 1 repetition",
       },
@@ -1290,7 +1290,7 @@ test("Configuration description exposes tempo readings and relative envelope not
         incomingBpm: 100,
         targetBpm: 100,
         outgoingBpm: 100,
-        tempo: "steady 100",
+        tempo: "100",
         notation: "",
         accessibleNotation: "",
       },
@@ -1341,8 +1341,8 @@ test("an inactive Cycle passes its tempo through and keeps its envelope", () => 
     })),
     [
       { active: true, outgoingBpm: 120, tempo: "100 → 120" },
-      { active: false, outgoingBpm: 120, tempo: "steady 120" },
-      { active: true, outgoingBpm: 130, tempo: "steady 130" },
+      { active: false, outgoingBpm: 120, tempo: "120" },
+      { active: true, outgoingBpm: 130, tempo: "130" },
     ],
   );
   assert.deepEqual(configuration.sequence.cycles[1].envelope, { shape: "down", amount: 40 });

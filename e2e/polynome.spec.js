@@ -148,7 +148,7 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
     "true",
   );
   await expect(envelopeAmount(page)).toHaveValue("0");
-  await expect(drawer.locator("output")).toHaveText("steady 96");
+  await expect(drawer.locator("output")).toHaveText("96");
 });
 
 test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
@@ -204,7 +204,7 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
   // direction turns back into a sign — written with a real minus.
   await drawer.getByRole("button", { name: "Flat" }).click();
   await expect(amount).toHaveValue("−40");
-  await expect(tempo).toHaveText("steady 56");
+  await expect(tempo).toHaveText("56");
 
   const peak = drawer.getByRole("button", { name: "Peak" });
   await peak.click();
@@ -219,11 +219,11 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
 });
 
 /**
- * A ramp travels and states the tempos it passes through; a Flat does not
- * travel at all, and states the one tempo it holds. At the same amount the two
- * are different kinds of statement rather than the same one differently marked.
+ * A ramp travels and names the tempos it passes through; a Flat does not travel
+ * at all, and is the one number it holds. The arrows are the whole of the
+ * difference at the same amount.
  */
-test("a Flat states one tempo where a ramp states the pair it crosses", async ({ page }) => {
+test("a Flat is one number where a ramp is the pair it crosses", async ({ page }) => {
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   const drawer = cycleDrawer(page);
   const amount = envelopeAmount(page);
@@ -234,12 +234,12 @@ test("a Flat states one tempo where a ramp states the pair it crosses", async ({
   await expect(drawer.locator("output")).toHaveText("96 → 116");
 
   await drawer.getByRole("button", { name: "Flat" }).click();
-  await expect(drawer.locator("output")).toHaveText("steady 116");
+  await expect(drawer.locator("output")).toHaveText("116");
 
-  // Flat zero is the same statement, holding the tempo it was handed.
+  // Flat zero is the same reading, holding the tempo it was handed.
   await amount.fill("0");
   await amount.blur();
-  await expect(drawer.locator("output")).toHaveText("steady 96");
+  await expect(drawer.locator("output")).toHaveText("96");
 });
 
 /**
@@ -258,7 +258,7 @@ test("the envelope amount accepts either minus, clamps, and refuses a fraction",
   await amount.fill("-30");
   await amount.blur();
   await expect(amount).toHaveValue("−30");
-  await expect(tempo).toHaveText("steady 66");
+  await expect(tempo).toHaveText("66");
 
   await amount.fill("−45");
   await amount.blur();
@@ -299,20 +299,20 @@ test("Cycle envelopes fold forward and skip an inactive Cycle", async ({ page })
   await envelopeAmount(page, "Cycle 3").blur();
 
   await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 116");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 96");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("96");
   await expect(cycleDrawer(page, 2).locator("output")).toHaveText("96 → 116 → 96");
 
   // One edit to the first Cycle, and both readings after it move with it.
   await first.fill("40");
   await first.blur();
   await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 136");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 116");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("116");
   await expect(cycleDrawer(page, 2).locator("output")).toHaveText("116 → 136 → 116");
 
   // Switched off, the middle Cycle stops affecting the tempo and keeps its
   // envelope, so the third now reads against the first's endpoint.
   await page.getByRole("button", { name: "Disable Cycle 2" }).click();
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 136");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("136");
   await expect(envelopeAmount(page, "Cycle 2")).toHaveValue("−20");
   await expect(cycleDrawer(page, 2).locator("output")).toHaveText("136 → 156 → 136");
 });
