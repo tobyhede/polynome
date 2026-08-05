@@ -2,11 +2,11 @@
 
 Every rhythm layer carries a `displayMode` of `beat` or `subdivision`, and it
 lives in the Configuration beside that layer's meter, subdivision and pattern
-rather than in the interface state `app.js` holds in module scope. It is
-therefore repaired from storage like any other field, written back to storage,
-carried into a Preset, and compared by `sameRhythm`. Beat Mode is the default and
-the value repair falls back to, so the default Configuration opens in it and a
-Configuration saved before this field existed opens in it too.
+rather than in the interface state [`app.js`](../../app.js) holds in module
+scope. It is therefore repaired from storage like any other field, written back
+to storage, carried into a Preset, and compared by `sameRhythm`. Beat Mode is
+the default and the value repair falls back to, so the default Configuration
+opens in it and a Configuration saved before this field existed opens in it too.
 
 The alternative was `openRhythms` and its neighbours: a `Set` of rhythm
 identifiers in module scope, which is where the interface already keeps which
@@ -48,11 +48,12 @@ choice, and the first consequence below is where its cost is paid.
   voices it plays are replaced.
 - Repair replaces an unrecognised value with `beat` as it does everywhere else.
   Nothing migrates a Configuration stored before the field existed, per the rule
-  in `AGENTS.md`: an absent field is an unrecognised value and gets the default.
-- The interface says "Beat 1" while `CONTEXT.md` tells the vocabulary to avoid
-  "beat" for a signature unit. That entry is amended rather than the label
-  changed: a listener counts a bar in beats, and "Signature unit 1" on a control
-  would be the glossary talking to itself.
+  in [`AGENTS.md`](../../AGENTS.md): an absent field is an unrecognised value
+  and gets the default.
+- The interface says "Beat 1" while [`CONTEXT.md`](../../CONTEXT.md) tells the
+  vocabulary to avoid "beat" for a signature unit. That entry is amended rather
+  than the label changed: a listener counts a bar in beats, and "Signature unit
+  1" on a control would be the glossary talking to itself.
 
 ## Related
 
