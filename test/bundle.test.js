@@ -147,7 +147,7 @@ test("single-file distribution starts with defaults when storage access is denie
   assert.doesNotThrow(() => new vm.Script(script).runInContext(context));
   // Written out rather than read back from `configuration.js`: an expected value
   // the code under test computes agrees with itself no matter what it renders.
-  assert.equal(renderedBpms.at(-1), "96", "Expected the default 96 BPM to reach the interface");
+  assert.equal(renderedBpms.at(-1), "120", "Expected the default 120 BPM to reach the interface");
 });
 
 test("single-file distribution discovers transitive modules and preserves their scopes", async (t) => {

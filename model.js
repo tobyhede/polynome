@@ -118,12 +118,12 @@ export function cycleSpanSeconds(bpm, cycle) {
       ),
     )
     .reduce(leastCommonMultiple);
-  const beatSeconds = 60 / normaliseNumber(bpm, 96, 1, 1000);
+  const beatSeconds = 60 / normaliseNumber(bpm, 120, 1, 1000);
   return spanInBeats * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {
-  const safeBpm = normaliseNumber(bpm, 96, 1, 1000);
+  const safeBpm = normaliseNumber(bpm, 120, 1, 1000);
   const subdivision = Math.round(
     normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
   );

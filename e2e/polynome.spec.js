@@ -52,8 +52,9 @@ function saveNotOffered(page) {
 async function savePreset(page, name) {
   const open = page.getByRole("button", { name: "+ Save" });
   if ((await open.getAttribute("aria-disabled")) === "true") {
-    const bpm = page.getByLabel("Tempo in beats per minute");
+    const bpm = page.getByRole("spinbutton", { name: "BPM" });
     await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+    await bpm.blur();
   }
   await saveOffered(page);
   await open.click();
@@ -68,6 +69,19 @@ async function savePreset(page, name) {
 async function deletePreset(page, name) {
   await page.getByRole("button", { name: `Delete ${name} preset` }).click();
   await page.getByRole("button", { name: `Confirm deleting ${name} preset` }).click();
+}
+
+async function typeTempo(page, bpm) {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  await readout.fill(String(bpm));
+  await readout.blur();
+}
+
+async function applyStoredPreset(page, name) {
+  const toggle = page.getByRole("button", { name: "Presets", exact: true });
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await presetButton(page, name).click();
+  await toggle.click();
 }
 
 test("playback toggles from the button and Space key", async ({ page }) => {
@@ -96,7 +110,7 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   const bpm = page.getByLabel("Tempo in beats per minute");
   const heading = page.getByRole("heading", { name: "Polynome" });
 
-  await bpm.fill("251");
+  await bpm.fill("255");
   await expect(heading).toHaveClass(/is-glitching/);
   await expect(page.getByLabel("BPM")).toHaveClass(/is-glitching/);
   await expect(heading).toHaveCSS("animation-name", "bpm-glitch");
@@ -140,35 +154,32 @@ test("dragging the tempo slider stops on the ten-BPM marks", async ({ page }) =>
 });
 
 /**
- * Only the pointer snaps. A keyboard step of one away from a mark would be
- * pulled straight back onto it, and the slider would be stuck on that mark for
- * good, so the arrow keys reach the tempos between the marks and the number
- * input keeps them.
+ * Only the pointer snaps. The slider moves in five-BPM intervals, so its arrow
+ * keys can still reach the point halfway between adjacent ten-BPM marks. The
+ * one-BPM buttons and number input provide finer adjustment.
  *
  * The starting tempo is set here rather than taken from the default, so moving
  * that default reads as a changed default rather than as a snap that stopped
  * working.
  */
-test("the tempo arrow keys reach and hold the tempos between the marks", async ({ page }) => {
+test("the tempo slider increments by five BPM", async ({ page }) => {
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   const readout = page.getByRole("spinbutton", { name: "BPM" });
 
-  await readout.fill("98");
+  await readout.fill("100");
   await readout.blur();
-  await expect(slider).toHaveValue("98");
+  await expect(slider).toHaveValue("100");
 
   await slider.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("99");
+  await expect(readout).toHaveValue("105");
   await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("100");
-  // Stepping off a mark is the case the snap would undo.
-  await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("101");
+  await expect(readout).toHaveValue("110");
 
   await readout.fill("108");
   await readout.blur();
-  await expect(slider).toHaveValue("108");
+  await expect(readout).toHaveValue("108");
+  await expect(slider).toHaveValue("110");
 });
 
 /**
@@ -193,7 +204,7 @@ test("a press the slider is never released from leaves the arrow keys unsnapped"
   await readout.blur();
   await slider.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("101");
+  await expect(readout).toHaveValue("105");
 });
 
 /**
@@ -233,7 +244,7 @@ test("storage from the wider meter domain is retired instead of repaired", async
 
   await page.reload();
 
-  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("96");
+  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("120");
   await expect
     .poll(() =>
       page.evaluate(() => ({
@@ -492,12 +503,10 @@ test("dragging the Balance through the middle lands on centre exactly", async ({
 });
 
 /**
- * Only the pointer snaps. A keyboard step of one away from a mark would be
- * pulled straight back onto it and the slider would be stuck there for good, so
- * the arrow keys reach the values between the marks and hold them. Both sliders
- * are stepped off a mark, which is the case the snap would undo.
+ * Only the pointer snaps. The mix sliders use five-percentage-point keyboard
+ * steps, independently of the larger marks a pointer drag sticks to.
  */
-test("the mix arrow keys reach and hold the values between the marks", async ({ page }) => {
+test("the mix sliders increment by five percentage points", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const level = page.getByRole("slider", { name: "4/4 level" });
   const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
@@ -505,14 +514,14 @@ test("the mix arrow keys reach and hold the values between the marks", async ({ 
   await level.fill("0.5");
   await level.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(level).toHaveValue("0.51");
-  await expect(page.locator('[data-output="volume"]')).toHaveText("51%");
+  await expect(level).toHaveValue("0.55");
+  await expect(page.locator('[data-output="volume"]')).toHaveText("55%");
 
   await balance.fill("0.5");
   await balance.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.49");
-  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 49%");
+  await expect(balance).toHaveValue("0.45");
+  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 45%");
 });
 
 /**
@@ -536,7 +545,16 @@ test("a press the mix is never released from leaves the arrow keys unsnapped", a
   await balance.fill("0.5");
   await balance.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.49");
+  await expect(balance).toHaveValue("0.45");
+});
+
+test("the Balance slider marks the centred 50% track position", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const track = await page.locator(".balance-slider").boundingBox();
+  const marker = await page.locator(".balance-midpoint").boundingBox();
+
+  expect(marker.x + marker.width / 2).toBeCloseTo(track.x + track.width / 2, 0);
+  expect(marker.height).toBeGreaterThan(0);
 });
 
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
@@ -771,7 +789,7 @@ test("sound customization clears preset selection and persists", async ({ page }
   // A preset button carries its name and a notation preview, so its accessible
   // name is the whole summary; the card its delete button names is what stays
   // addressable once every Preset's identifier is generated.
-  const preset = presetCard(page, "4/4").locator(".preset-button");
+  const preset = presetCard(page, "4/4 8ths").locator(".preset-button");
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
 
@@ -785,7 +803,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 
   await page.reload();
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await expect(presetCard(page, "4/4").locator(".preset-button")).toHaveAttribute(
+  await expect(presetCard(page, "4/4 8ths").locator(".preset-button")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -805,15 +823,15 @@ test("sound customization clears preset selection and persists", async ({ page }
 test("a first load seeds the example Presets into storage", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
 
-  await expect(presetCard(page, "4/4")).toBeVisible();
-  await expect(presetCard(page, "4/4 + 3/4")).toBeVisible();
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() =>
-        JSON.parse(localStorage.getItem("polynome-presets-v2") ?? "null")?.map(({ name }) => name),
+        JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "null")?.map(({ name }) => name),
       ),
     )
-    .toEqual(["4/4", "4/4 + 3/4"]);
+    .toEqual(["4/4 8ths", "4/4 Triplets"]);
 });
 
 /**
@@ -823,32 +841,31 @@ test("a first load seeds the example Presets into storage", async ({ page }) => 
  */
 test("a deleted example Preset stays deleted across a reload", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4 + 3/4");
-  await expect(page.getByRole("status")).toHaveText("4/4 + 3/4 preset deleted");
+  await deletePreset(page, "4/4 Triplets");
+  await expect(page.getByRole("status")).toHaveText("4/4 Triplets preset deleted");
 
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
-  await expect(presetCard(page, "4/4 + 3/4")).toHaveCount(0);
-  await expect(presetCard(page, "4/4")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toHaveCount(0);
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
 
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
   await expect(page.locator(".preset-card")).toHaveCount(0);
 });
 
 test("an example Preset's name is the listener's to take back", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
 
-  await tempo.fill("144");
-  await savePreset(page, "4/4");
+  await typeTempo(page, 144);
+  await savePreset(page, "4/4 8ths");
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
-  await tempo.fill("96");
+  await typeTempo(page, 96);
 
-  await presetCard(page, "4/4").locator(".preset-button").click();
+  await presetCard(page, "4/4 8ths").locator(".preset-button").click();
   await expect(page.getByLabel("BPM")).toHaveValue("144");
 });
 
@@ -866,7 +883,7 @@ test("the preset heading counts the stored Presets before the panel is opened", 
   const count = page.locator("#preset-count");
   const noun = page.locator("#preset-count-noun");
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4 + 3/4");
+  await deletePreset(page, "4/4 Triplets");
 
   await page.reload();
   await expect(heading).toBeHidden();
@@ -874,7 +891,7 @@ test("the preset heading counts the stored Presets before the panel is opened", 
   await expect(noun).toHaveText("preset");
 
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
   await page.reload();
   await expect(heading).toBeHidden();
   await expect(count).toHaveText("0");
@@ -895,7 +912,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Shared");
 
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
   await savePreset(page, "Later");
 
   await expect(presetButton(page, "Later")).toBeVisible();
@@ -914,9 +931,9 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("polynome-presets-v2"));
+    const stored = JSON.parse(localStorage.getItem("polynome-presets-v3"));
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
-    localStorage.setItem("polynome-presets-v2", JSON.stringify(stored));
+    localStorage.setItem("polynome-presets-v3", JSON.stringify(stored));
   });
   await deletePreset(page, "Doomed");
 
@@ -1023,7 +1040,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Ghost");
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
 
   await deletePreset(page, "Ghost");
 
@@ -1044,7 +1061,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   // Saving requires an edit, and the edit available to `savePreset` is the
   // tempo, so the arithmetic below starts from a value this test states rather
   // than from whatever it was left at.
-  await page.getByRole("spinbutton", { name: "BPM" }).fill("96");
+  await typeTempo(page, 100);
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toBeHidden();
 
@@ -1058,7 +1075,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   await slider.focus();
   for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("106");
+  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("150");
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
@@ -1095,14 +1112,14 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     await page.goto("/");
     await page.getByRole("button", { name: "Presets", exact: true }).click();
 
-    await page.getByLabel("Tempo in beats per minute").fill("101");
+    await typeTempo(page, 121);
     await openSave.click();
     await name.fill("First");
     await save.click();
     await expect(status).toHaveText("Preset could not be saved in this browser");
     await expect(presetButton(page, "First")).toBeVisible();
 
-    await page.getByLabel("Tempo in beats per minute").fill("102");
+    await typeTempo(page, 122);
     await openSave.click();
     await name.fill("Second");
     await save.click();
@@ -1127,7 +1144,7 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
 test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
-  const example = presetCard(page, "4/4").locator(".preset-button");
+  const example = presetCard(page, "4/4 8ths").locator(".preset-button");
   await example.click();
   await expect(example).toHaveAttribute("aria-pressed", "true");
 
@@ -1816,7 +1833,7 @@ test("the tempo readout grows in place rather than travelling", async ({ page })
     await page.setViewportSize({ width, height: 900 });
     let sliderTop = null;
 
-    for (const bpm of [30, 96, 300]) {
+    for (const bpm of [30, 95, 300]) {
       await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
       await settleLayout(page);
 
@@ -2195,27 +2212,27 @@ test("saving is offered only while the setup differs from the preset it came fro
   const tempo = page.getByLabel("Tempo in beats per minute");
   const bpm = page.getByRole("spinbutton", { name: "BPM" });
 
-  // The default Configuration is the 4/4 preset exactly, adopted at startup.
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
 
-  await tempo.fill("120");
+  await tempo.fill("125");
   await saveOffered(page);
 
   // Back to what the preset holds: the edit undid itself, so there is again
   // nothing to save. Nothing records that an edit happened, only what it left.
-  await tempo.fill("96");
+  await tempo.fill("120");
   await saveNotOffered(page);
 
-  await tempo.fill("132");
+  await tempo.fill("130");
   await savePreset(page, "Brisk");
   await saveNotOffered(page);
 
-  await tempo.fill("133");
+  await tempo.fill("135");
   await saveOffered(page);
 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await presetButton(page, "Brisk").click();
-  await expect(bpm).toHaveValue("132");
+  await expect(bpm).toHaveValue("130");
   await saveNotOffered(page);
 });
 
@@ -2229,10 +2246,9 @@ test("saving is offered only while the setup differs from the preset it came fro
  * because they are separate code paths and only one of them is a click.
  */
 test("deleting the preset the setup came from offers the save again", async ({ page, context }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const presets = page.getByRole("button", { name: "Presets", exact: true });
 
-  await tempo.fill("137");
+  await typeTempo(page, 137);
   await savePreset(page, "Doomed");
   await saveNotOffered(page);
 
@@ -2261,12 +2277,11 @@ test("deleting the preset the setup came from offers the save again", async ({ p
  * would replace — the count is what proves nothing was duplicated.
  */
 test("deleting another preset leaves the name the save field opens on", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const heading = page.getByRole("heading", { name: /^Presets/ });
 
-  await tempo.fill("138");
+  await typeTempo(page, 138);
   await savePreset(page, "Spare");
-  await tempo.fill("139");
+  await typeTempo(page, 139);
   await savePreset(page, "Kept");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toContainText("4");
@@ -2275,7 +2290,7 @@ test("deleting another preset leaves the name the save field opens on", async ({
   await expect(heading).toContainText("3");
   await saveNotOffered(page);
 
-  await tempo.fill("140");
+  await typeTempo(page, 140);
   await page.getByRole("button", { name: "+ Save" }).click();
   const panel = page.getByRole("region", { name: /^Save preset/ });
   await expect(panel.getByRole("textbox", { name: "Preset name" })).toHaveValue("Kept");
@@ -2290,18 +2305,17 @@ test("deleting another preset leaves the name the save field opens on", async ({
  * submit says which of the two it is about to do before it is pressed.
  */
 test("the save field opens on the preset the setup came from", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const bpm = page.getByRole("spinbutton", { name: "BPM" });
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
   const heading = page.getByRole("heading", { name: /^Presets/ });
 
-  await tempo.fill("144");
+  await typeTempo(page, 144);
   await savePreset(page, "Fast");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toContainText("3");
 
-  await tempo.fill("145");
+  await typeTempo(page, 145);
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(name).toHaveValue("Fast");
   await expect(name).toBeFocused();
@@ -2328,7 +2342,7 @@ test("closing the save panel abandons what was typed", async ({ page }) => {
 
   await tempo.fill("150");
   await savePreset(page, "Kept");
-  await tempo.fill("151");
+  await typeTempo(page, 151);
 
   await openSave.click();
   await panel.getByRole("textbox", { name: "Preset name" }).fill("Discarded");
@@ -2354,13 +2368,13 @@ test("closing the save panel abandons what was typed", async ({ page }) => {
  * one available.
  */
 test("editing an example preset opens the save field on its name", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
 
-  await tempo.fill("128");
+  await applyStoredPreset(page, "4/4 8ths");
+  await typeTempo(page, 128);
   await page.getByRole("button", { name: "+ Save" }).click();
-  await expect(name).toHaveValue("4/4");
+  await expect(name).toHaveValue("4/4 8ths");
   await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
 
   await name.fill("Mine");
@@ -2369,7 +2383,7 @@ test("editing an example preset opens the save field on its name", async ({ page
   await expect(page.getByRole("status")).toHaveText("Mine preset saved");
 
   // Saved under its own name, the Preset now offers itself back for replacing.
-  await tempo.fill("129");
+  await typeTempo(page, 129);
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(name).toHaveValue("Mine");
 });
@@ -2385,12 +2399,11 @@ test("the save chip reads as live for as long as there is something to save", as
   const openSave = page.getByRole("button", { name: "+ Save" });
   const tempo = page.getByLabel("Tempo in beats per minute");
 
-  // The default Configuration is the 4/4 preset exactly: nothing to save, and
-  // nothing to advertise.
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
   await expect(openSave).not.toHaveClass(/\bis-live\b/);
 
-  await tempo.fill("120");
+  await tempo.fill("125");
   await saveOffered(page);
   await expect(openSave).toHaveClass(/\bis-live\b/);
 
@@ -2412,6 +2425,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const reason = page.locator("#preset-save-reason");
 
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
   await expect(openSave).toHaveAttribute("aria-describedby", "preset-save-reason");
   await expect(reason).toHaveText("No changes to save");
@@ -2430,7 +2444,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
   await expect(panel).toBeHidden();
   await expect(openSave).toHaveAttribute("aria-expanded", "false");
 
-  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByLabel("Tempo in beats per minute").fill("125");
   await saveOffered(page);
   await expect(reason).toHaveText("Save this setup as a preset");
   await openSave.click();
@@ -2456,7 +2470,7 @@ test("the submit shows in a glyph and in its name which of the two acts it will 
   await tempo.fill("120");
   await savePreset(page, "Rehearsal");
 
-  await tempo.fill("121");
+  await typeTempo(page, 121);
   await page.getByRole("button", { name: "+ Save" }).click();
   // It opens on the Preset this Configuration came from, which is a name already
   // stored, so this is a replacement before a key is pressed.
@@ -2505,13 +2519,12 @@ test("the save row is a bounded field and a square icon clear of the close contr
  * branches have to place focus rather than let it fall to the document.
  */
 test("saving keeps focus on a control rather than dropping it", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const presets = page.getByRole("button", { name: "Presets", exact: true });
   const openSave = page.getByRole("button", { name: "+ Save" });
 
   // Closed: focus returns to the chip the save was started from, which is inert
   // now and holds focus anyway, because it is marked rather than disabled.
-  await tempo.fill("112");
+  await typeTempo(page, 112);
   await savePreset(page, "Unwatched");
   await saveNotOffered(page);
   await expect(openSave).toBeFocused();
@@ -2519,7 +2532,7 @@ test("saving keeps focus on a control rather than dropping it", async ({ page })
   // Open: the Preset the save just produced is on screen and is what the user
   // is most likely to act on next.
   await presets.click();
-  await tempo.fill("113");
+  await typeTempo(page, 113);
   await savePreset(page, "Watched");
   await expect(presetButton(page, "Watched")).toBeFocused();
 });

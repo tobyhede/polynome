@@ -175,7 +175,7 @@ export function createConfiguration(input) {
         : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
-    bpm: Math.round(normaliseNumber(source.bpm, 96, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
+    bpm: Math.round(normaliseNumber(source.bpm, 120, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
     sequence: { cycles: validCycles },
   };
 }
@@ -186,20 +186,27 @@ export function createConfiguration(input) {
  * and nothing here is consulted again.
  */
 const SEED_PRESETS = Object.freeze([
-  // Repair fills in the rest, so this one is the default Configuration.
-  { name: "4/4", configuration: {} },
   {
-    name: "4/4 + 3/4",
+    name: "4/4 8ths",
     configuration: {
-      bpm: 112,
+      bpm: 120,
       sequence: {
         cycles: [
           {
-            repetitions: 1,
-            rhythms: [
-              { signature: { count: 4, unit: 4 }, sound: "high" },
-              { signature: { count: 3, unit: 4 }, sound: "low" },
-            ],
+            rhythms: [{ subdivision: 2, displayMode: "beat" }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: "4/4 Triplets",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            rhythms: [{ subdivision: 3, displayMode: "beat" }],
           },
         ],
       },

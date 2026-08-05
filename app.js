@@ -28,7 +28,7 @@ import { createPersistence, readStoredValue } from "./persistence.js";
 import { html, render } from "htm/preact";
 
 const STORAGE_KEY = "polynome-configuration-v2";
-const PRESET_STORAGE_KEY = "polynome-presets-v2";
+const PRESET_STORAGE_KEY = "polynome-presets-v3";
 const PERSIST_DELAY_MS = 400;
 // The meter domain narrowed in v2. Values from earlier releases are retired
 // instead of repaired into different rhythms without the listener's consent.
@@ -41,7 +41,7 @@ const RETIRED_STORAGE_KEYS = [
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
-const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets"];
+const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
 
 /**
  * `querySelector` is typed as returning the base `Element`, which carries none
@@ -880,11 +880,14 @@ function RhythmSettings({ rhythm }) {
            every render. -->
       <label class="control-label">
         <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
-        <input type="range" min="0" max="1" step="0.01" value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
+        <input type="range" min="0" max="1" step="0.05" value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
       </label>
       <label class="control-label">
         <span>Balance <span class="balance-axis" aria-hidden="true">L · R</span><output class="sr-only" data-output="pan">${panLabel(rhythm.pan)}</output></span>
-        <input type="range" min="-1" max="1" step="0.01" value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
+        <span class="balance-slider">
+          <input type="range" min="-1" max="1" step="0.05" value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
+          <span class="balance-midpoint" aria-hidden="true"></span>
+        </span>
       </label>
     </div>
   `;

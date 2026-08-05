@@ -69,8 +69,9 @@ test("the preset panel has no accessibility violations, populated and empty", as
   // + Save is live only while the Configuration differs from the Preset it came
   // from, so the tempo moves first. The save panel is scanned open, since it is
   // the only state in which its field and submit are in the document at all.
-  const bpm = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
   await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+  await bpm.blur();
   const openSave = page.getByRole("button", { name: "+ Save" });
   await expect(openSave).toBeEnabled();
   await openSave.click();
@@ -90,7 +91,7 @@ test("the preset panel has no accessibility violations, populated and empty", as
   // An empty list is a state the listener now arrives at by deleting every
   // Preset, rather than the one a new browser opens in.
   await page.getByRole("button", { name: "Confirm deleting Scanned preset" }).click();
-  for (const name of ["4/4", "4/4 + 3/4"]) {
+  for (const name of ["4/4 8ths", "4/4 Triplets"]) {
     await page.getByRole("button", { name: `Delete ${name} preset`, exact: true }).click();
     await page
       .getByRole("button", { name: `Confirm deleting ${name} preset`, exact: true })

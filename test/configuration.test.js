@@ -44,7 +44,7 @@ function withoutIds(configuration) {
 test("the default Configuration contains one active 4/4 Rhythm layer", () => {
   const configuration = createConfiguration();
 
-  assert.equal(configuration.bpm, 96);
+  assert.equal(configuration.bpm, 120);
   assert.equal(configuration.sequence.cycles.length, 1);
   assert.equal(configuration.sequence.cycles[0].repetitions, 1);
   assert.deepEqual(
@@ -160,7 +160,7 @@ test("tempo edits return a new Configuration and restart consequence", () => {
   const result = changeConfiguration(original, { type: "set-tempo", bpm: 140 });
 
   assert.equal(result.configuration.bpm, 140);
-  assert.equal(original.bpm, 96);
+  assert.equal(original.bpm, 120);
   assert.equal(result.consequence, "restart-transport-run");
   assert.equal(result.reason, null);
 });
@@ -172,16 +172,23 @@ test("applying a Preset replaces the complete Configuration", () => {
     configuration: example.configuration,
   });
 
-  assert.equal(result.configuration.bpm, 112);
+  assert.equal(result.configuration.bpm, 120);
   assert.deepEqual(
     result.configuration.sequence.cycles[0].rhythms.map((rhythm) => ({
       signature: rhythm.signature,
+      subdivision: rhythm.subdivision,
+      displayMode: rhythm.displayMode,
       sound: rhythm.sound,
       pan: rhythm.pan,
     })),
     [
-      { signature: { count: 4, unit: 4 }, sound: "high", pan: 0 },
-      { signature: { count: 3, unit: 4 }, sound: "low", pan: 0 },
+      {
+        signature: { count: 4, unit: 4 },
+        subdivision: 3,
+        displayMode: "beat",
+        sound: "high",
+        pan: 0,
+      },
     ],
   );
   assert.equal(result.consequence, "restart-transport-run");
@@ -269,7 +276,7 @@ test("saved Preset names cannot be empty or oversized", () => {
 test("a name an example Preset holds saves like any other", () => {
   const configuration = createConfiguration({ bpm: 155 });
 
-  for (const name of ["4/4", "  4/4 + 3/4  "]) {
+  for (const name of ["4/4 8ths", "  4/4 Triplets  "]) {
     const result = savePreset([], name, configuration);
     assert.equal(result.reason, null);
     assert.equal(result.preset.name, name.trim());
@@ -313,27 +320,18 @@ test("a Preset key that was never written seeds the example Presets", () => {
 
   assert.deepEqual(
     presets.map(({ name }) => name),
-    ["4/4", "4/4 + 3/4"],
+    ["4/4 8ths", "4/4 Triplets"],
   );
   for (const { id } of presets) assert.match(id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
-  assert.deepEqual(withoutIds(presets[0].configuration), withoutIds(createConfiguration()));
-  assert.equal(presets[1].configuration.bpm, 112);
   assert.deepEqual(
-    presets[1].configuration.sequence.cycles.map((cycle) => ({
-      repetitions: cycle.repetitions,
-      rhythms: cycle.rhythms.map((rhythm) => ({
-        signature: rhythm.signature,
-        sound: rhythm.sound,
-      })),
+    presets.map(({ configuration }) => ({
+      bpm: configuration.bpm,
+      subdivision: configuration.sequence.cycles[0].rhythms[0].subdivision,
+      displayMode: configuration.sequence.cycles[0].rhythms[0].displayMode,
     })),
     [
-      {
-        repetitions: 1,
-        rhythms: [
-          { signature: { count: 4, unit: 4 }, sound: "high" },
-          { signature: { count: 3, unit: 4 }, sound: "low" },
-        ],
-      },
+      { bpm: 120, subdivision: 2, displayMode: "beat" },
+      { bpm: 120, subdivision: 3, displayMode: "beat" },
     ],
   );
 });
@@ -958,7 +956,7 @@ test("Beats outside the Meter are rejected", () => {
 
 test("sound and mix edits preserve transport position and all affect Preset identity", () => {
   const base = createConfiguration();
-  const [example] = createStoredPresets(null);
+  const [example] = createSavedPresets([{ name: "Baseline", configuration: base }]);
   const cycle = base.sequence.cycles[0];
   const rhythm = cycle.rhythms[0];
   const edits = [
@@ -1186,7 +1184,7 @@ test("an edit replaces identifiers the module did not issue", () => {
       cycles: [{ ...cycle, id: '"><img src=x onerror=alert(1)>' }],
     },
   };
-  const result = changeConfiguration(forged, { type: "set-tempo", bpm: "96" });
+  const result = changeConfiguration(forged, { type: "set-tempo", bpm: "120" });
 
   assert.strictEqual(result.consequence, "none");
   assert.notStrictEqual(result.configuration, forged);
@@ -1436,7 +1434,7 @@ test("valid edits that leave every user-editable value unchanged are no-ops", ()
   const rhythm = cycle.rhythms[0];
   const sameValueEdits = [
     { type: "apply-preset", configuration: createConfiguration() },
-    { type: "set-tempo", bpm: "96" },
+    { type: "set-tempo", bpm: "120" },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: "1" },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: "4" },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: "4" },
@@ -1494,7 +1492,7 @@ test("repairing a repaired Configuration leaves it unchanged", () => {
 
 test("Preset identity ignores the key order of a stored Configuration", () => {
   const configuration = reorderKeys(createConfiguration());
-  const [example] = createStoredPresets(null);
+  const [example] = createSavedPresets([{ name: "Baseline", configuration }]);
 
   assert.equal(describePresets(configuration, [example])[0].selected, true);
 
@@ -1518,7 +1516,7 @@ test("a Configuration carrying unknown fields is still replaced by a repaired on
       })),
     },
   };
-  const result = changeConfiguration(embellished, { type: "set-tempo", bpm: "96" });
+  const result = changeConfiguration(embellished, { type: "set-tempo", bpm: "120" });
 
   assert.notStrictEqual(result.configuration, embellished);
   assert.equal(Object.hasOwn(result.configuration.sequence.cycles[0].rhythms[0], "swing"), false);
@@ -1530,7 +1528,7 @@ test("stored key order does not change an edit outcome", () => {
   const rhythm = cycle.rhythms[0];
 
   for (const edit of [
-    { type: "set-tempo", bpm: "96" },
+    { type: "set-tempo", bpm: "120" },
     { type: "set-stereo-position", cycleId: cycle.id, rhythmId: rhythm.id, pan: "0" },
     { type: "remove-cycle", cycleId: cycle.id },
   ]) {
@@ -1561,7 +1559,7 @@ test("a name is in use exactly when saving it would replace a preset", () => {
     { name: "", inUse: false, because: "no name at all" },
     { name: "   ", inUse: false, because: "space is not a name" },
     { name: "4/4", inUse: true, because: "a stored example is replaced like any other" },
-    { name: "4/4 + 3/4", inUse: false, because: "an example this list does not hold" },
+    { name: "4/4 Triplets", inUse: false, because: "an example this list does not hold" },
   ];
 
   for (const { name, inUse, because } of cases) {
