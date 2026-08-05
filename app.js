@@ -891,12 +891,18 @@ function RhythmSettings({ rhythm }) {
            every render.
 
            The step comes from the model rather than being written out here as
-           the hundredth it is, because the grid it sets is what decides which
+           the twentieth it is, because the grid it sets is what decides which
            values these controls can hold at all: anything else is rounded onto
            it silently, so a default or a stored value off the grid arrives on
            screen as a different number than the one this Configuration is
-           playing. A literal here would be a second answer to that question,
-           sitting where nothing that could check it can reach. -->
+           playing. A literal here would be a second answer to that question.
+
+           The minimum beside it is the other half of the grid, because the
+           standard counts steps from it rather than from zero, and it stays a
+           literal because it is this control's own end rather than anything the
+           domain names. The model suite reads this template for both, and
+           measures every default the application ships from the minimum it
+           finds here. -->
       <label class="control-label">
         <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
         <input type="range" min="0" max="1" step=${String(MIX_STEP)} value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
@@ -1189,10 +1195,12 @@ elements.bpm.addEventListener("change", (event) =>
 );
 /**
  * The slider reports whatever tempo the pointer is over and the Configuration
- * takes it as it comes. Nothing here rounds it toward the tick row's tenths: the
- * slider's own step is five BPM, which is finer than the two either side of a
- * mark such a snap could catch, so it would move no value the control is able to
- * produce. The row below the slider is a scale rather than a set of stops.
+ * takes it as it comes. Nothing here rounds it toward the tempos the tick row
+ * draws: the slider's own step is five BPM, which is coarser than the two either
+ * side of a mark such a snap could catch, so every tempo it would have moved is
+ * one this control cannot produce in the first place — a drag lands exactly on a
+ * mark or a full five from one, and never in between. The row below the slider
+ * is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
   const dragged = /** @type {HTMLInputElement} */ (event.target).value;

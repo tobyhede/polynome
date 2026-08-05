@@ -19,6 +19,7 @@ import {
   subdivisionLabel,
 } from "../model.js";
 import {
+  changeConfiguration,
   createConfiguration,
   createStoredPresets,
   describeConfiguration,
@@ -205,7 +206,9 @@ const rhythmsOf = (configuration) =>
  * Each stepped control's grid, described in the smallest unit its values are
  * written in: whole bpm for the tempo, hundredths for the two mix sliders. The
  * bounds are the `min` the control carries, because that is what the standard's
- * stepping counts from; the shell's own copy of the tempo's is asserted below.
+ * stepping counts from; each control's own copy of its grid is asserted below —
+ * the tempo's from the shell, the two mix sliders' from the `app.js` template
+ * that renders them, named here by the `data-field` that finds them there.
  */
 const STEPPED_CONTROLS = [
   {
@@ -217,6 +220,7 @@ const STEPPED_CONTROLS = [
   },
   {
     name: "the Level slider",
+    field: "volume",
     unit: 100,
     minimum: 0,
     step: MIX_STEP,
@@ -224,6 +228,7 @@ const STEPPED_CONTROLS = [
   },
   {
     name: "the Balance slider",
+    field: "pan",
     unit: 100,
     minimum: -1,
     step: MIX_STEP,
@@ -236,7 +241,7 @@ const STEPPED_CONTROLS = [
  * is made on these counts and never leaves the integers, because this is exactly
  * the question floating point cannot answer: `0.72 / 0.05` is
  * `14.399999999999999` and is genuinely off a five-hundredth grid, while
- * `0.7 / 0.05` is `14.000000000000002` and is not, and a test that cannot tell
+ * `0.7 / 0.05` is `13.999999999999998` and is not, and a test that cannot tell
  * those two apart is a test of its own arithmetic.
  *
  * The rounding is not a tolerance. It undoes the dust a product leaves — `0.05`
@@ -267,16 +272,38 @@ function inUnits(value, unit, description) {
  * what a first run holds and `createStoredPresets(null)` is what a first run
  * writes into storage, so a new seed Preset, another Rhythm layer inside one, or
  * a moved default joins this check by existing rather than by being remembered.
+ *
+ * A Rhythm layer added during a session is enumerated too, and it has to be
+ * added by the edit rather than assumed to match: its Level and Balance are a
+ * separate call to the same builder, reached only through `add-rhythm`, and they
+ * arrive in front of a listener on the same two sliders. A layer given its own
+ * defaults there would sit off the grid with nothing else in the suite looking.
  */
 test("every default the application ships sits on its control's grid", () => {
+  const fresh = createConfiguration();
+  const grown = changeConfiguration(fresh, {
+    type: "add-rhythm",
+    cycleId: fresh.sequence.cycles[0].id,
+  }).configuration;
+  // The added layer is the whole point of this source, and an `add-rhythm` that
+  // was refused would leave a Configuration identical to the one above — a check
+  // that still passes while testing nothing, which is the failure this file
+  // exists to catch.
+  assert.equal(
+    rhythmsOf(grown).length,
+    rhythmsOf(fresh).length + 1,
+    "Expected `add-rhythm` to have added the Rhythm layer this checks the defaults of",
+  );
+
   const shipped = [
-    { source: "the default Configuration", configuration: createConfiguration() },
+    { source: "the default Configuration", configuration: fresh },
+    { source: "a Rhythm layer added to a Cycle", configuration: grown },
     ...createStoredPresets(null).map((preset) => ({
       source: `the ${preset.name} Preset`,
       configuration: preset.configuration,
     })),
   ];
-  assert.ok(shipped.length > 1, "Expected the seed Presets to be among the defaults checked");
+  assert.ok(shipped.length > 2, "Expected the seed Presets to be among the defaults checked");
 
   const offGrid = [];
   for (const { source, configuration } of shipped) {
@@ -317,6 +344,46 @@ test("the shell's tempo slider carries the grid the model names", async () => {
   assert.ok(slider, "Expected the shell to hold a tempo slider");
   assert.match(slider[0], new RegExp(`\\sstep="${TEMPO_STEP}"`));
   assert.match(slider[0], new RegExp(`\\smin="${TEMPO_LIMIT.minimum}"`));
+});
+
+/**
+ * The other two stepped controls are rendered by `app.js`, so their grid is
+ * written there and the check above measures every default against the copy of
+ * it in `STEPPED_CONTROLS`. Nothing else holds those two copies together.
+ *
+ * Both halves are the grid. The step is what the thumb moves by, and it has to
+ * be `MIX_STEP` itself rather than the number `MIX_STEP` currently holds — a
+ * literal is a second answer to which values these sliders can hold, and it can
+ * drift from the constant that names the grid without either one looking wrong
+ * where it is written. The `min` is what the standard counts those steps from,
+ * and it is the control's own end rather than anything the model names, so a
+ * `min` moved here would shift every value the slider can reach while the check
+ * above went on measuring from where it used to be — and the values it measures
+ * would all still pass.
+ *
+ * Read as text because `app.js` reaches for the document as it loads, which is
+ * the same reason the shell above is.
+ */
+test("the grid the rendered mix sliders carry is the one the model names", async () => {
+  const source = await readFile(fileURLToPath(new URL("../app.js", import.meta.url)), "utf8");
+  const rendered = STEPPED_CONTROLS.filter(({ field }) => field);
+
+  assert.equal(rendered.length, 2, "Expected the Level and the Balance to be rendered by app.js");
+  for (const control of rendered) {
+    const slider = source.match(new RegExp(`<input[^>]*data-field="${control.field}"[^>]*>`));
+
+    assert.ok(slider, `Expected app.js to render ${control.name}`);
+    assert.match(
+      slider[0],
+      /\sstep=\$\{String\(MIX_STEP\)\}/,
+      `${control.name} writes its own step instead of taking MIX_STEP`,
+    );
+    assert.match(
+      slider[0],
+      new RegExp(`\\smin="${control.minimum}"`),
+      `${control.name} counts its steps from a different minimum than this file measures from`,
+    );
+  }
 });
 
 /**
