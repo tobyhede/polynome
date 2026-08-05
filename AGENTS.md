@@ -98,6 +98,8 @@ npm run check
 
 `npm test` is the fast loop. `npm run check` is what CI runs, and adds, in order: `npm run lint` (Biome), `npm run types` (TypeScript), the coverage thresholds, the browser tests, and the site build. `npm run format` writes the fixes Biome can apply itself.
 
+The browser tests take port 4174 and do not attach to a server already on it, so two checkouts running them at once will find the second one refused. `POLYNOME_TEST_PORT=4591 npm run check` moves one of them out of the way. Read the exit code rather than the last lines of output, and do not pipe: the browser reporter is long enough to invite `| tail`, and the status of `a | b` is `b`'s, so a red suite reads as a green one. Redirect to a file and echo `$?`, or set `pipefail` first.
+
 Two ratchets guard against drift, and both are set where the code already stands rather than where it might ideally be. Raise either when the real figure rises; do not lower one to make a change fit.
 
 Coverage is enforced at 95% lines, 87% branches, and 94% functions, measured over the source modules only — `test/` and `e2e/` are excluded because coverage of a test file measures nothing.
