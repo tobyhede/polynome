@@ -407,6 +407,137 @@ for (const [field, control, expected] of [
   });
 }
 
+/**
+ * Level and Balance stop on marks the way the tempo does. Asserting a particular
+ * value at a particular offset would pin the browser's own mapping from pointer
+ * position to value, half a thumb width inset at either end, so what is asserted
+ * is the property the snap has: a dragged value is either on a mark or clear of
+ * one by more than the tolerance, never stranded beside it.
+ *
+ * Both are counted in the percent their marks are spaced in rather than in the
+ * fraction the slider carries, because that is the domain the snap works in and
+ * a comparison in the other one is a comparison against float dust.
+ */
+for (const { name, control, interval, tolerance } of [
+  { name: "Level", control: "4/4 level", interval: 10, tolerance: 2 },
+  { name: "Balance", control: "4/4 stereo balance", interval: 25, tolerance: 5 },
+]) {
+  test(`dragging the ${name} stops on its marks`, async ({ page }) => {
+    await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+    const slider = page.getByRole("slider", { name: control });
+    const track = await slider.boundingBox();
+    const y = track.y + track.height / 2;
+    const from = track.x + track.width * 0.2;
+    const span = Math.round(track.width * 0.5);
+
+    await page.mouse.move(from, y);
+    await page.mouse.down();
+    const dragged = [];
+    for (let offset = 0; offset <= span; offset += 2) {
+      await page.mouse.move(from + offset, y);
+      dragged.push(Math.round(Number(await slider.inputValue()) * 100));
+    }
+    await page.mouse.up();
+
+    const distanceToMark = (percent) => {
+      const remainder = ((percent % interval) + interval) % interval;
+      return Math.min(remainder, interval - remainder);
+    };
+    expect(
+      dragged.filter((percent) => {
+        const distance = distanceToMark(percent);
+        return distance > 0 && distance <= tolerance;
+      }),
+      `${name} settled beside a mark rather than on it: ${dragged.join(", ")}`,
+    ).toEqual([]);
+    // Both confirm the drag moved and that it crossed marks rather than sitting
+    // in one gap the whole way, which would satisfy the assertion above
+    // trivially.
+    expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
+    expect(new Set(dragged.filter((percent) => percent % interval === 0)).size).toBeGreaterThan(1);
+  });
+}
+
+/**
+ * Centre is the mark that has to be exactly reachable, because `panLabel` calls
+ * anything inside four percent of the middle "Centre" — a reading a drag could
+ * not make true before, leaving the word over a Balance that was audibly off to
+ * one side. The tolerance is wider than that window, so what reads Centre is
+ * centred.
+ */
+test("dragging the Balance through the middle lands on centre exactly", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const slider = page.getByRole("slider", { name: "4/4 stereo balance" });
+  const readout = page.locator('[data-output="pan"]');
+  const track = await slider.boundingBox();
+  const y = track.y + track.height / 2;
+
+  await page.mouse.move(track.x + track.width * 0.3, y);
+  await page.mouse.down();
+  const crossing = [];
+  for (let offset = -6; offset <= 6; offset += 1) {
+    await page.mouse.move(track.x + track.width / 2 + offset, y);
+    crossing.push(await slider.inputValue());
+  }
+  // Released on the middle rather than wherever the sweep ended, because what
+  // the sweep shows is that centre is reachable and what this shows is that it
+  // is what a pointer resting there leaves behind.
+  await page.mouse.move(track.x + track.width / 2, y);
+  await page.mouse.up();
+
+  expect(crossing, "a pointer crossing the middle never landed on centre").toContain("0");
+  await expect(slider).toHaveValue("0");
+  await expect(readout).toHaveText("Centre");
+});
+
+/**
+ * Only the pointer snaps. A keyboard step of one away from a mark would be
+ * pulled straight back onto it and the slider would be stuck there for good, so
+ * the arrow keys reach the values between the marks and hold them. Both sliders
+ * are stepped off a mark, which is the case the snap would undo.
+ */
+test("the mix arrow keys reach and hold the values between the marks", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const level = page.getByRole("slider", { name: "4/4 level" });
+  const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
+
+  await level.fill("0.5");
+  await level.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(level).toHaveValue("0.51");
+  await expect(page.locator('[data-output="volume"]')).toHaveText("51%");
+
+  await balance.fill("0.5");
+  await balance.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(balance).toHaveValue("0.49");
+  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 49%");
+});
+
+/**
+ * A press can end without the slider ever seeing a release: the context menu
+ * takes a right button's, and a press abandoned when the window loses the
+ * pointer ends the same way. One flag serves both sliders and every rhythm, so a
+ * press left raised on one of them would go on snapping the others — and the
+ * first arrow key after it would be pulled straight back onto the mark it
+ * stepped off. Pressing a key ends the drag for that reason, and this abandons
+ * the press on one slider to step the other.
+ */
+test("a press the mix is never released from leaves the arrow keys unsnapped", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const level = page.getByRole("slider", { name: "4/4 level" });
+  const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
+  const track = await level.boundingBox();
+
+  await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
+  await page.mouse.down({ button: "right" });
+
+  await balance.fill("0.5");
+  await balance.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(balance).toHaveValue("0.49");
+});
+
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });
@@ -968,15 +1099,29 @@ async function beatsPerRow(page) {
   });
 }
 
-async function setSignature(page, count) {
+/**
+ * Both Meter controls live in the settings pane, and the control that reveals it
+ * toggles — so opening one already open closes it. Every caller below wants the
+ * pane open rather than switched, which is a difference only a caller that
+ * happens to be second would ever notice.
+ */
+async function openRhythmSettings(page) {
+  const subdivision = page.locator('[data-action="toggle-subdivision-menu"]').first();
+  if (await subdivision.isVisible()) return;
   await page
     .getByRole("button", { name: /^Edit \d+\/\d+$/ })
     .first()
     .click();
+  await expect(subdivision).toBeVisible();
+}
+
+async function setSignature(page, count) {
+  await openRhythmSettings(page);
   await page.getByRole("combobox", { name: /meter numerator$/ }).selectOption(String(count));
 }
 
 async function setSubdivision(page, subdivision) {
+  await openRhythmSettings(page);
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator(`.subdivision-option[data-subdivision="${subdivision}"]`).click();
 }
@@ -1071,6 +1216,293 @@ test("a beat wider than the row scrolls instead of shrinking", async ({ page }) 
   await expect(steps).toHaveCSS("mask-image", "none");
 });
 
+/**
+ * The steps stand over evenly spaced onsets, so they have to be evenly spaced
+ * themselves. Setting beats further apart than the steps inside them drew a
+ * grouping the rhythm does not have — at a Subdivision of two it is exactly the
+ * engraved form of a swung pair, which is a claim about the timing that the
+ * scheduler does not make. Every Subdivision is walked because the gap that did
+ * this scaled with the Subdivision, so one of them alone would not have caught
+ * it.
+ */
+for (const subdivision of [1, 2, 3, 4, 5]) {
+  test(`a beat of ${subdivision} spaces its steps evenly with its neighbours`, async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    if (subdivision !== 1) await setSubdivision(page, subdivision);
+    await expect(page.locator(".rhythm-card .step")).toHaveCount(4 * subdivision);
+    await settleLayout(page);
+
+    const deltas = await page.evaluate(() => {
+      const centres = [...document.querySelectorAll(".rhythm-card .step")].map((step) => {
+        const { left, right, top } = step.getBoundingClientRect();
+        return { centre: (left + right) / 2, row: Math.round(top) };
+      });
+      return (
+        centres
+          .slice(1)
+          .map((step, index) => ({ step, previous: centres[index] }))
+          // A row break is not a gap between two steps, so it is not one of the
+          // distances this compares.
+          .filter(({ step, previous }) => step.row === previous.row)
+          .map(({ step, previous }) => Math.round(step.centre - previous.centre))
+      );
+    });
+
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(new Set(deltas), `subdivision ${subdivision} spaced steps ${deltas.join(", ")}`).toEqual(
+      new Set([deltas[0]]),
+    );
+  });
+}
+
+/**
+ * Even spacing means the grid no longer says where a beat starts, and the first
+ * step of a bar cannot say it either: its voice is the listener's to change, and
+ * a downbeat switched off is the dimmest circle in the row. So a dot marks it,
+ * under the step the beat begins on.
+ *
+ * The dots hang below their row, and it is the pulsed dot the row gap has to
+ * clear rather than the resting one — a dot that grew into the steps beneath it
+ * would only do so while playing, which is exactly when nobody is looking for
+ * it. Sixteen steps of four is where that shows, because it is the widest grid
+ * that still wraps.
+ */
+test("a dot marks each beat, clear of the row below even when it pulses", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await setSubdivision(page, 4);
+  await settleLayout(page);
+
+  // One round trip per beat, with the dot's own 90ms transition allowed to
+  // settle between writing the class and reading the style. Settling inside a
+  // single `evaluate` with animation frames is not enough: it can land before
+  // the style engine has processed the change, which reads back as a dot that
+  // never pulsed and fails only under load.
+  const measureLit = async (beat) => {
+    await page.evaluate((index) => {
+      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      steps.forEach((step, position) => {
+        step.classList.toggle("is-current", position === index * 4);
+      });
+    }, beat);
+    await page.waitForTimeout(150);
+    return page.evaluate((index) => {
+      const element = document.querySelectorAll(".rhythm-card .beat")[index];
+      const dot = getComputedStyle(element, "::after");
+      const size = parseFloat(dot.height);
+      const scale = Number(dot.transform.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
+      const top = element.getBoundingClientRect().bottom + parseFloat(dot.marginTop);
+      return {
+        content: dot.content,
+        left: parseFloat(dot.left),
+        scale,
+        beatBottom: element.getBoundingClientRect().bottom,
+        // A pseudo-element has no box to measure, so its reach comes from the
+        // beat it hangs off and its own resolved lengths, grown about its centre.
+        reach: top + size / 2 + (size * scale) / 2,
+      };
+    }, beat);
+  };
+
+  const dots = [];
+  for (const beat of [0, 1, 2, 3]) dots.push(await measureLit(beat));
+
+  const frame = await page.evaluate(() => {
+    const card = document.querySelector(".rhythm-card");
+    for (const step of card.querySelectorAll(".step")) step.classList.remove("is-current");
+    const steps = [...card.querySelectorAll(".step")];
+    return {
+      stepSize: steps[0].getBoundingClientRect().width,
+      stepTops: steps.map((step) => step.getBoundingClientRect().top),
+      rowBottom: card.querySelector(".steps").getBoundingClientRect().bottom,
+    };
+  });
+
+  expect(dots).toHaveLength(4);
+  for (const [index, dot] of dots.entries()) {
+    expect(dot.content, `beat ${index + 1} draws no dot`).not.toBe("none");
+    // Without this the rest of the loop silently measures the resting dot, and
+    // the gap it clears is not the gap that has to be cleared.
+    expect(dot.scale, `beat ${index + 1} was measured at rest, not pulsing`).toBeGreaterThan(1);
+    // Half a step in from the beat's left edge is the centre of its first step,
+    // which is the onset the dot stands for.
+    expect(dot.left, `beat ${index + 1} is not over its own step`).toBeCloseTo(
+      frame.stepSize / 2,
+      0,
+    );
+
+    // A step starting below this beat's own bottom edge is a step on a later
+    // row, and the pulsed dot hangs in the space between the two.
+    for (const top of frame.stepTops.filter((top) => top > dot.beatBottom)) {
+      expect(top, `beat ${index + 1} pulses into the row beneath it`).toBeGreaterThanOrEqual(
+        dot.reach,
+      );
+    }
+    expect(dot.reach, `beat ${index + 1} pulses out of the step row`).toBeLessThanOrEqual(
+      frame.rowBottom,
+    );
+  }
+});
+
+/**
+ * The rhythm re-renders on every edit — a step click, a Meter change, a Preset
+ * applied — and the dot has to go on pulsing after one. This walks the playhead
+ * the way `updateActiveSteps` does, but only after reconciliation has replaced
+ * the beat's children, because that is the state a mark keyed off its own
+ * subtree can quietly stop tracking.
+ *
+ * Walked under both motion settings. Reduced motion is a reader's setting and
+ * not a harness convenience, and it changes when the style behind this mark is
+ * recalculated — so a dot that pulses for one reader and not the other is a
+ * defect neither run alone would find.
+ *
+ * The 150ms is the dot's own 90ms transition settling, not a guess at how long
+ * a runner takes.
+ */
+for (const motion of ["no-preference", "reduce"]) {
+  test(`the dot still pulses after a re-render with motion ${motion}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: motion });
+    // The re-render. Every beat below is a node reconciliation has just written.
+    await setSubdivision(page, 4);
+    await settleLayout(page);
+
+    const dotsAt = async (step) => {
+      await page.evaluate((current) => {
+        const steps = [...document.querySelectorAll(".rhythm-card .step")];
+        steps.forEach((element, index) => {
+          element.classList.toggle("is-current", index === current);
+        });
+      }, step);
+      await page.waitForTimeout(150);
+      return page.evaluate(() =>
+        [...document.querySelectorAll(".rhythm-card .beat")].map(
+          (beat) => getComputedStyle(beat, "::after").transform,
+        ),
+      );
+    };
+
+    const resting = await dotsAt(-1);
+    expect(new Set(resting).size, "a dot was already pulsing at rest").toBe(1);
+
+    for (const beat of [0, 1, 2, 3]) {
+      const lit = await dotsAt(beat * 4);
+      expect(lit[beat], `beat ${beat + 1} did not pulse after a re-render`).not.toBe(resting[beat]);
+      for (const other of [0, 1, 2, 3].filter((index) => index !== beat)) {
+        expect(lit[other], `beat ${other + 1} pulsed on beat ${beat + 1}'s onset`).toBe(
+          resting[other],
+        );
+      }
+    }
+  });
+}
+
+/**
+ * The dot takes the accent and grows on the beat the playhead is on, and it
+ * pulses on that beat's own onset rather than through its whole length — the
+ * selector reads the beat's first step, not any step of it. Reading any step
+ * would leave the mark lit through four sixteenths and pulsing at a quarter of
+ * the rate it stands for.
+ *
+ * Driven by writing the class the playhead writes, rather than by running the
+ * transport, so what is asserted is a state and not a moment. Reduced motion is
+ * emulated and two frames are let past before each reading, for the same
+ * reason: the transition is 90ms, and a computed style taken before the first
+ * recalc after a class change is the value the transition starts from, which is
+ * indistinguishable from the state never having changed. That mistake is what
+ * made this look at first like a Chromium bug rather than a measurement error.
+ * A timeout would be a number too short on a loaded runner and wasted
+ * everywhere else.
+ */
+test("the beat dot pulses on its own onset, not through the whole beat", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await setSubdivision(page, 4);
+  await settleLayout(page);
+
+  const dotsWhilePlaying = (step) =>
+    page.evaluate(async (index) => {
+      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      for (const element of steps) element.classList.remove("is-current");
+      if (index !== null) steps[index].classList.add("is-current");
+      await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
+      return [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+        const dot = getComputedStyle(beat, "::after");
+        return `${dot.backgroundColor} ${dot.transform}`;
+      });
+    }, step);
+
+  const resting = await dotsWhilePlaying(null);
+  // Step 0 is beat one's own onset; step 2 is inside beat one but past it; step
+  // 4 is beat two's onset and must leave beat one alone.
+  const atOnset = await dotsWhilePlaying(0);
+  const within = await dotsWhilePlaying(2);
+  const nextBeat = await dotsWhilePlaying(4);
+
+  expect(new Set(resting).size, "a dot was already pulsing at rest").toBe(1);
+  expect(atOnset[0], "beat one did not pulse on its own onset").not.toBe(resting[0]);
+  expect(atOnset.slice(1), "a beat pulsed that was not being played").toEqual(resting.slice(1));
+  expect(within, "the dot stayed lit past its own onset").toEqual(resting);
+  expect(nextBeat[1], "beat two did not pulse on its own onset").not.toBe(resting[1]);
+  expect(nextBeat[0], "beat one pulsed on beat two's onset").toBe(resting[0]);
+
+  // Grows rather than merely recolours.
+  const scaleOf = (dot) => Number(dot.match(/matrix\(([\d.]+)/)[1]);
+  expect(scaleOf(atOnset[0])).toBeGreaterThan(scaleOf(resting[0]));
+});
+
+/**
+ * The label hangs above the number's box, but what a reader sees is the distance
+ * to the ink — and half the leading, the block padding and the display font's
+ * own ascent above its capitals all sit between the two, every one of them a
+ * share of the glyph size. So a margin that does not pull back at least as fast
+ * as the type grows leaves the label drifting away from the number it names,
+ * which is what the tempo curve doubling the glyph size makes visible.
+ *
+ * Measured against the ink rather than the box, because the box is the thing
+ * that hides the drift.
+ */
+test("the BPM label closes on the number as the tempo enlarges it", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+
+  const gapAt = async (bpm) => {
+    await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
+    await settleLayout(page);
+    return page.evaluate(async () => {
+      // measureText answers against whatever face is loaded when it runs, and
+      // the display font is a web font served with `font-display: swap`. A
+      // reading taken before it arrives is of the fallback, whose ascent is
+      // about 3px shorter at this size — enough to measure the two tempos
+      // against two different faces, and to move a gap this small either way.
+      await document.fonts.ready;
+      const input = document.querySelector("#bpm-input");
+      const style = getComputedStyle(input);
+      const fontPx = parseFloat(style.fontSize);
+      const context = document.createElement("canvas").getContext("2d");
+      context.font = `${fontPx}px ${style.fontFamily}`;
+      const metrics = context.measureText(input.value);
+      const leading =
+        (parseFloat(style.lineHeight) -
+          (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent)) /
+        2;
+      const baseline =
+        input.getBoundingClientRect().top +
+        parseFloat(style.paddingTop) +
+        leading +
+        metrics.fontBoundingBoxAscent;
+      const inkTop = baseline - metrics.actualBoundingBoxAscent;
+      return inkTop - document.querySelector("#bpm-readout label").getBoundingClientRect().bottom;
+    });
+  };
+
+  const small = await gapAt(30);
+  const large = await gapAt(300);
+
+  // Closes rather than opens, and never so far that the two touch.
+  expect(large).toBeLessThanOrEqual(small);
+  expect(large).toBeGreaterThan(0);
+  // A slight reduction, not a collapse: the label must still read as a label
+  // sitting above the number rather than as part of it.
+  expect(large).toBeGreaterThan(small * 0.6);
+});
+
 test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 
@@ -1097,10 +1529,9 @@ async function settleLayout(page) {
 }
 
 /**
- * The readout is a box positioned over the tempo it names, so its width has to
- * be the width of the digits inside it: the box is what centres the number on
- * its own point of the track, and what `--bpm-half` measures to keep it inside
- * the card.
+ * The readout is a box centred in the track, so its width has to be the width
+ * of the digits inside it: a box wider than what it holds centres itself and
+ * leaves the number off-centre by half the difference.
  *
  * A reader who raises their browser's default text size is what pulls the two
  * apart. The glyphs are sized in `rem` and grow; a width computed in pixels
@@ -1160,45 +1591,337 @@ test("transport spacing follows the viewport and its contents follow the card", 
 });
 
 /**
- * The readout travels the width of the track and grows with the tempo, so the
- * two ends are where it can hang off the card. Nothing else pins that: the
- * inline padding that used to reserve room for it is gone, and `--bpm-half`
- * now holds it half its own width inside either end instead.
+ * The number grows with the tempo but no longer travels with it. It docks in
+ * the middle of the track and hangs from the bottom edge, so the growth goes
+ * upward into the height the track reserves: the readout stays centred, the
+ * slider under it does not move, and neither end of the card is anywhere the
+ * number can reach.
  */
-test("the travelling tempo readout stays inside the transport card", async ({ page }) => {
-  for (const width of [320, 375, 540, 800, 1024]) {
+test("the tempo readout grows in place rather than travelling", async ({ page }) => {
+  for (const width of [320, 500, 968]) {
     await page.setViewportSize({ width, height: 900 });
+    let sliderTop = null;
+
     for (const bpm of [30, 96, 300]) {
       await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
       await settleLayout(page);
 
-      const {
-        readout,
-        card,
-        page: viewport,
-      } = await page.evaluate(() => {
+      const measured = await page.evaluate(() => {
         const box = (selector) => {
-          const { left, right } = document.querySelector(selector).getBoundingClientRect();
-          return { left, right };
+          const { left, right, top, bottom } = document
+            .querySelector(selector)
+            .getBoundingClientRect();
+          return { left, right, top, bottom, centre: (left + right) / 2 };
         };
         return {
           readout: box("#bpm-readout"),
+          track: box(".bpm-track"),
+          slider: box(".tempo-slider"),
           card: box(".transport"),
-          page: {
-            client: document.documentElement.clientWidth,
-            scroll: document.documentElement.scrollWidth,
-          },
+          scroll: document.documentElement.scrollWidth,
+          client: document.documentElement.clientWidth,
         };
       });
 
       const where = `${width}px at ${bpm}bpm`;
-      expect(readout.left, `${where} overhangs the card on the left`).toBeGreaterThanOrEqual(
-        card.left,
+      expect(measured.readout.centre, `${where} is off the track's centre`).toBeCloseTo(
+        measured.track.centre,
+        1,
       );
-      expect(readout.right, `${where} overhangs the card on the right`).toBeLessThanOrEqual(
-        card.right,
+      expect(measured.readout.bottom, `${where} has left the track's floor`).toBeCloseTo(
+        measured.track.bottom,
+        1,
       );
-      expect(viewport.scroll, `${where} widened the page`).toBeLessThanOrEqual(viewport.client);
+      expect(
+        measured.readout.left,
+        `${where} overhangs the track on the left`,
+      ).toBeGreaterThanOrEqual(measured.track.left);
+      expect(
+        measured.readout.right,
+        `${where} overhangs the track on the right`,
+      ).toBeLessThanOrEqual(measured.track.right);
+      expect(
+        measured.readout.left,
+        `${where} overhangs the card on the left`,
+      ).toBeGreaterThanOrEqual(measured.card.left);
+      expect(
+        measured.readout.right,
+        `${where} overhangs the card on the right`,
+      ).toBeLessThanOrEqual(measured.card.right);
+      expect(measured.scroll, `${where} widened the page`).toBeLessThanOrEqual(measured.client);
+
+      // The reserved height is what makes this true: the number is bottom
+      // anchored inside it, so a larger glyph takes room above itself only.
+      if (sliderTop === null) sliderTop = measured.slider.top;
+      else expect(measured.slider.top, `${where} moved the slider`).toBeCloseTo(sliderTop, 1);
+    }
+  }
+});
+
+/**
+ * The keys are the exact control the slider is not, and both halves of that
+ * matter: a tap has to be one bpm rather than a step the acceleration has
+ * already run away with, and the end of the range has to be a key that says it
+ * cannot act rather than one that silently does nothing.
+ */
+test("a tap on a tempo key is one bpm and the ends of the range disable one", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const up = page.getByRole("button", { name: "Increase tempo" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("112");
+  await readout.blur();
+
+  await up.click();
+  await expect(readout).toHaveValue("113");
+  await down.click();
+  await down.click();
+  await expect(readout).toHaveValue("111");
+
+  // Space reaches the same hold the pointer does, and the browser's own click
+  // on release would be a second step if anything listened for it.
+  await up.focus();
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("112");
+
+  await readout.fill("30");
+  await readout.blur();
+  await expect(down).toBeDisabled();
+  await expect(up).toBeEnabled();
+
+  await readout.fill("300");
+  await readout.blur();
+  await expect(up).toBeDisabled();
+  await expect(down).toBeEnabled();
+});
+
+/**
+ * The key that reaches the end of the range keeps its place in the tab order.
+ * A held key disables itself under the user, and `disabled` would take it out
+ * of that order at exactly that moment: focus falls to the document, and the
+ * next Tab restarts from the top of the panel rather than continuing from the
+ * key they were on. Marked unavailable instead, the control stays where it was
+ * and still says it will not act — which is the rule the save chip already
+ * follows, for its own reasons.
+ *
+ * `aria-disabled` states and does not enforce, so the press it is still given
+ * has to be declined by what handles it.
+ */
+test("a tempo key held to the end of its range keeps its place", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("31");
+  await readout.blur();
+  await down.focus();
+
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("30");
+  await expect(down).toHaveAttribute("aria-disabled", "true");
+  await expect(down).toBeFocused();
+
+  // Still reachable, so the press still arrives, and still declined.
+  await page.keyboard.press("Space");
+  await expect(readout).toHaveValue("30");
+  await expect(down).toBeFocused();
+
+  // And it comes back when there is somewhere to go.
+  await readout.fill("40");
+  await readout.blur();
+  await expect(down).toHaveAttribute("aria-disabled", "false");
+});
+
+/**
+ * A hold is what covers a long move, so it has to accelerate. Thirty steps
+ * inside the five seconds allowed below is only reachable if the interval
+ * decays: a repeat held at `HOLD_DELAY_MS` throughout would take twelve seconds
+ * to walk 60 down to 30, and would still be seven seconds short when this gave
+ * up on it.
+ *
+ * It also has to stop at the end of the range and stay stopped once the finger
+ * lifts, which is what the wait after the release is for — a timer that outlived
+ * the press would show as a number that kept moving after it.
+ *
+ * What this cannot see is the hold ending itself on the step the range declined.
+ * The key that got there is marked `aria-disabled` rather than disabled, so the
+ * release still reaches it and ends the hold anyway; ending early is in the code
+ * for the work it saves over the rest of the press, and saved work leaves
+ * nothing here to assert.
+ */
+test("holding a tempo key accelerates and stops at the end of the range", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("60");
+  await readout.blur();
+
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down();
+  // Long enough to pass 30 from 60 several times over if the repeat ran on.
+  await expect(down).toBeDisabled({ timeout: 5000 });
+  await page.mouse.up();
+
+  await expect(readout).toHaveValue("30");
+  await page.waitForTimeout(400);
+  await expect(readout).toHaveValue("30");
+});
+
+/**
+ * Only the primary button holds. The slider's own comment names the lost release
+ * from the other side: the context menu takes a right button's release, so a
+ * repeat that a right press started is never told to stop and runs unattended to
+ * the end of the range — a right-click on − arriving at 30 bpm. The slider comes
+ * to no harm from the same loss, because the flag it leaves raised only decides
+ * what an `input` event does, and both things that produce one settle it first.
+ * What this leaves behind is a timer moving the tempo with nobody holding it, so
+ * the press has to be refused before the first step lands.
+ *
+ * A right press is the case that can be driven here, and it is the one with a
+ * native gesture behind it, but the guard is on the button being primary rather
+ * than on which non-primary button it was: a middle press has no more claim to
+ * a tempo than a right one does.
+ */
+test("a non-primary button press does not start a tempo hold", async ({ page }) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+
+  await readout.fill("112");
+  await readout.blur();
+
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down({ button: "right" });
+  // Past HOLD_DELAY_MS and the two repeats that land inside it, so this fails on
+  // the step a press takes immediately and fails again on everything the
+  // acceleration would have added to it.
+  await page.waitForTimeout(900);
+  await expect(readout).toHaveValue("112");
+
+  await page.mouse.up({ button: "right" });
+  await expect(readout).toHaveValue("112");
+});
+
+/**
+ * Every step of a hold defers its transport consequence, and the acceleration is
+ * what makes that necessary: `restart-transport-run` per repeat would begin a
+ * new run every 45ms at the floor, and a run that never outlives its own
+ * look-ahead is one nobody hears. The engine is module scope and says nothing
+ * about itself, so what is read here is what a restart does to the one thing on
+ * screen that asks the transport where it is. A restart re-anchors the run
+ * `START_DELAY_SECONDS` ahead of the audio clock, and every position before that
+ * origin is the top of the pattern, so a run restarted faster than a step lasts
+ * is a playhead that never leaves the first step or two. A run left alone walks
+ * the pattern. Measured against this build, that is the difference between
+ * sampling 0 and 1 and nothing else, and sampling all four steps of 4/4 in turn.
+ *
+ * The playhead does not go out under the failing version, because `start` calls
+ * the scheduler tick that re-anchors inside its own synchronous run. So the
+ * assertion below that it never goes out is guarding playback stopping, not the
+ * restart; the walk is what carries the restart.
+ *
+ * Sampled from `classList` rather than from computed style, so unlike the tests
+ * that measure the beat dot there is nothing here a transition could be caught
+ * part way through, and no reason to emulate reduced motion.
+ */
+test("holding a tempo key while playing leaves the run alone until the release", async ({
+  page,
+}) => {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const down = page.getByRole("button", { name: "Decrease tempo" });
+  const status = page.locator("#status");
+  const current = page.locator(".rhythm-card .step.is-current");
+
+  // A quarter-second step, so the hold below walks 4/4's four positions twice
+  // over, and far enough inside the range that the repeat never reaches a bound
+  // and ends itself early.
+  await readout.fill("240");
+  await readout.blur();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(status).toHaveText("Playing");
+  await expect(current).toHaveCount(1);
+
+  // A frame sampler rather than a poll from here: the playhead is written once
+  // per animation frame, so a reading per frame is every value it ever had, and
+  // a gap between two polls is a restart this could miss.
+  const sampleFrames = () =>
+    page.evaluate(() => {
+      window.playhead = [];
+      const sample = () => {
+        const steps = [...document.querySelectorAll(".rhythm-card .step")];
+        window.playhead.push(steps.findIndex((step) => step.classList.contains("is-current")));
+        window.playheadFrame = requestAnimationFrame(sample);
+      };
+      sample();
+    });
+  const sampled = () =>
+    page.evaluate(() => {
+      cancelAnimationFrame(window.playheadFrame);
+      return window.playhead;
+    });
+
+  await sampleFrames();
+  const key = await down.boundingBox();
+  await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
+  await page.mouse.down();
+  // The acceleration reaches its floor around 1.4s, so this covers the decaying
+  // intervals and then some twenty repeats at 45ms — the interval the deferral
+  // exists for, rather than only the leisurely ones before it.
+  await page.waitForTimeout(2200);
+  const held = await sampled();
+  await page.mouse.up();
+
+  expect(held, "playback stopped during the hold").not.toContain(-1);
+  expect(
+    new Set(held).size,
+    "the playhead did not walk the pattern, so the run was being cut off",
+  ).toBeGreaterThan(2);
+
+  // The release is where the run is finally handed the tempo, and it has to
+  // survive being handed it: still playing, still walking, and carrying the
+  // value the hold arrived at rather than the one it started from.
+  await expect(status).toHaveText("Playing");
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  expect(Number(await readout.inputValue())).toBeLessThan(240);
+
+  await sampleFrames();
+  // Longer than four steps at the tempo the hold arrived at, so a walk is what
+  // this sees rather than a step that happened to be long.
+  await page.waitForTimeout(1200);
+  const released = await sampled();
+  expect(
+    new Set(released.filter((index) => index >= 0)).size,
+    "the playhead stopped walking after the release",
+  ).toBeGreaterThan(2);
+});
+
+/**
+ * One control height in the panel: the keys are the play bar's height at every
+ * width, and they are a tap target at the narrowest one.
+ */
+test("the tempo keys are the play bar's height and stay a tap target", async ({ page }) => {
+  for (const width of [320, 500, 968]) {
+    await page.setViewportSize({ width, height: 900 });
+    await settleLayout(page);
+
+    const measured = await page.evaluate(() => {
+      const size = (selector) => {
+        const { width, height } = document.querySelector(selector).getBoundingClientRect();
+        return { width, height };
+      };
+      return { down: size("#bpm-down"), up: size("#bpm-up"), play: size(".play-button") };
+    });
+
+    for (const [name, key] of [
+      ["−", measured.down],
+      ["+", measured.up],
+    ]) {
+      expect(key.height, `${name} is not the play bar's height at ${width}px`).toBeCloseTo(
+        measured.play.height,
+        1,
+      );
+      expect(key.width, `${name} is not square at ${width}px`).toBeCloseTo(key.height, 1);
+      expect(key.height, `${name} is under 48px at ${width}px`).toBeGreaterThanOrEqual(48);
     }
   }
 });

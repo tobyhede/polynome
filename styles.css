@@ -416,6 +416,20 @@ h1 {
    card tracks the shell up to its cap and both reach the 20px ceiling above it,
    the viewport is the honest spelling of what these already do. */
 .transport {
+  /* One length for the panel's control height. The play bar spells it once and
+     each tempo key spells it twice, for its width and its height, and literals
+     that have to agree are literals that can drift apart — which here would
+     cost the one thing the keys are shaped for, being the bar's height at every
+     width.
+
+     A `cqw` inside a custom property is safe on this element in a way the gap
+     and padding below are not, and for the reason the note above gives: nothing
+     resolves this where it is declared. An unregistered custom property is
+     carried as tokens and resolved in the declaration that substitutes it, so
+     the unit lands in `.play-button` and `.bpm-step` and asks their container,
+     which is this card. */
+  --control-size: clamp(48px, 13cqw, 60px);
+
   display: grid;
   grid-template-columns: minmax(0, 500px);
   gap: clamp(14px, 4vw, 20px);
@@ -436,7 +450,7 @@ h1 {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  height: clamp(48px, 13cqw, 60px);
+  height: var(--control-size);
   padding: 0 0 0 4px;
   border: 0;
   border-radius: 2px;
@@ -456,9 +470,9 @@ h1 {
   font-size: clamp(0.95rem, 3.4cqw, 1.4rem);
 }
 
-/* No inline padding: reserving half the readout's width here is what collapsed
-   the track at narrow widths. The readout's travel is clamped in `.bpm-readout`
-   instead, which costs nothing when there is room. */
+/* No inline padding: the number is docked in the middle of the track rather
+   than travelling along it, so nothing here has to reserve room at either end
+   for it to overhang into. */
 .tempo {
   display: grid;
   gap: 6px;
@@ -467,19 +481,75 @@ h1 {
   min-width: 0;
 }
 
+/* The keys bracket the number, so they belong to its row rather than to the
+   track's. The track is the flexible column; the keys size themselves. */
+.bpm-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: clamp(10px, 3cqw, 16px);
+  align-items: center;
+}
+
+/* One control height with the play bar at every width, which is `--control-size`
+   on the card both rules read it from rather than a length spelled here and
+   there; square, so the glyph is centred in a target the same size either way.
+
+   `touch-action: none` is a decision rather than a default, and what it costs is
+   worth recording so nobody has to rediscover it. `manipulation` would leave the
+   browser free to reclaim a touch as a page scroll once the finger drifts past
+   its slop budget, and the reclaim arrives as the `pointercancel` that
+   `endTempoHold` already handles — so nothing would break; the tempo would
+   simply stop moving part-way through a press. That is the wrong thing to be
+   able to lose, because a hold here is the long gesture: thirteen seconds from
+   one end of the range to the other at the acceleration floor, and a finger
+   resting that long drifts by however much it drifts. Measured in Chromium the
+   budget is tens of CSS pixels rather than the handful the word slop suggests,
+   but it is browser-tuned and not a number a page may lean on. What `none` costs
+   is bounded and known: a swipe beginning on one of these two keys does not
+   scroll, on a page with plenty of other surface that does.
+
+   The two `user-select` declarations keep a held glyph from being selected under
+   the finger. */
+.bpm-step {
+  display: grid;
+  place-items: center;
+  width: var(--control-size);
+  height: var(--control-size);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: clamp(1.2rem, 4cqw, 1.6rem);
+  line-height: 1;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.bpm-step:hover:not(:disabled, [aria-disabled="true"]) {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
 .bpm-track {
   position: relative;
   width: 100%;
   height: clamp(56px, 17cqw, 80px);
 }
 
-/* --bpm-left / --bpm-width / --bpm-half / --bpm-size are set in renderTransport().
-   The clamp keeps the travelling number half its own width inside either end of
-   the track, so it can never overhang the card. */
+/* --bpm-width / --bpm-size / --bpm-label-margin are set in renderTransport().
+   The number docks centred in the track and hangs from its bottom edge, so
+   growing with the tempo pushes it upward into the height the track reserves
+   and nothing below it moves. */
 .bpm-readout {
   position: absolute;
   bottom: 0;
-  left: clamp(var(--bpm-half, 54px), var(--bpm-left, 24%), calc(100% - var(--bpm-half, 54px)));
+  left: 50%;
   display: block;
   width: var(--bpm-width, 108px);
   transform: translateX(-50%);
@@ -809,19 +879,37 @@ h1.is-glitching {
    column count is what makes the rows equal: beats cannot pack greedily into a
    fixed number of columns. */
 .steps {
+  /* One length for the step, read by the beat number below it as well, so the
+     breakpoint changes the size in one place rather than in each rule that has
+     to agree with it. */
+  --step-size: 58px;
+
+  /* And one length for the gap, for the same reason: the column gap below and
+     the gap inside a beat have to hold the same value, and two literals that
+     have to agree are two literals that can drift apart. */
+  --step-gap: 10px;
+
   /* Grid and flex items are min-content wide by default, which would let a wide
      beat push the card past the shell and hand layoutSteps() a width the screen
      does not have. */
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--beats-per-row, 1), max-content);
-  /* Beats are set apart more than the steps inside them, so a wrapped row still
-     reads as whole beats. The clamp leaves an unsubdivided rhythm — where a beat
-     is a single step — spaced exactly as it was. */
-  gap: 10px clamp(10px, calc(var(--subdivision, 1) * 10px), 20px);
+  /* One column gap everywhere, between beats exactly as inside them. Setting
+     beats further apart than their own steps drew a grouping the rhythm does
+     not have: at a Subdivision of two it is the engraved form of a swung pair,
+     and the onsets it stands over are evenly spaced. A row still breaks only
+     between beats — `.beat` is what guarantees that, not the gap.
+
+     The row gap is the wider one because the beat dots hang below their row;
+     at the column gap's 10px the first row's dots would land on the second
+     row's steps, and the gap has to clear the pulsed dot rather than the
+     resting one. The bottom padding is opened further still, so the last row's
+     dots sit inside the card rather than against its edge. */
+  gap: 22px var(--step-gap);
   align-items: center;
   justify-content: start;
-  padding: 14px 16px 18px;
+  padding: 14px 16px 34px;
 }
 
 /* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
@@ -844,15 +932,53 @@ h1.is-glitching {
 
 /* A beat is atomic: a row break can only fall between beats, never inside one. */
 .beat {
+  position: relative;
   display: flex;
-  gap: 10px;
+  gap: var(--step-gap);
+}
+
+/* A dot under the step the beat starts on: the quietest mark that still says
+   a beat begins here. Half a step in from the beat's own left edge, so it
+   centres on that step whatever the beat's width is.
+
+   It pulses on its own onset rather than for the beat's whole length, so the
+   mark answers the beat and settles: the selector reads the beat's *first*
+   step, not any step of it. Reading any step would leave the dot lit through
+   four sixteenths and pulsing at a quarter of the rate it stands for.
+
+   The class is the one the visual playhead already writes onto a step every
+   frame, so the pulse costs no JavaScript of its own and cannot drift from
+   what is sounding.
+
+   Under `prefers-reduced-motion` the block at the end of this file takes the
+   transition to nothing, so the dot changes state without travelling. That is
+   the intent, not a casualty of it: the beat still marks itself. */
+.beat::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(var(--step-size) / 2);
+  width: 4px;
+  height: 4px;
+  margin-top: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition:
+    background-color 90ms ease,
+    transform 90ms ease;
+}
+
+.beat:has(> .step:first-child.is-current)::after {
+  transform: translateX(-50%) scale(2.2);
+  background: var(--accent);
 }
 
 .step {
   --ghost: color-mix(in oklab, var(--line-strong), transparent 28%);
 
-  width: 58px;
-  height: 58px;
+  width: var(--step-size);
+  height: var(--step-size);
   padding: 0;
   border: 1.5px solid color-mix(in oklab, var(--accent), transparent 52%);
   border-radius: 50%;
@@ -1271,12 +1397,9 @@ h1.is-glitching {
   }
 
   .steps {
-    padding-inline: 12px;
-  }
+    --step-size: 52px;
 
-  .step {
-    width: 52px;
-    height: 52px;
+    padding-inline: 12px;
   }
 
   .repeat-dots {

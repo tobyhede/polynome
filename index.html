@@ -97,11 +97,18 @@
 
       <section class="transport" aria-label="Transport and tempo">
         <div class="tempo">
-          <div class="bpm-track">
-            <div id="bpm-readout" class="bpm-readout">
-              <label for="bpm-input">BPM</label>
-              <input id="bpm-input" type="number" min="30" max="300" inputmode="numeric" />
+          <!-- The keys bracket the number rather than the slider, so the row
+               reads `− 112 +`. Each is a glyph and nothing else — U+2212 MINUS
+               SIGN and U+002B, not a hyphen — so each needs its own label. -->
+          <div class="bpm-row">
+            <button id="bpm-down" class="bpm-step" type="button" aria-label="Decrease tempo">−</button>
+            <div class="bpm-track">
+              <div id="bpm-readout" class="bpm-readout">
+                <label for="bpm-input">BPM</label>
+                <input id="bpm-input" type="number" min="30" max="300" inputmode="numeric" />
+              </div>
             </div>
+            <button id="bpm-up" class="bpm-step" type="button" aria-label="Increase tempo">+</button>
           </div>
           <input
             id="bpm-slider"
