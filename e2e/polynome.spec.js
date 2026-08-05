@@ -204,7 +204,7 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
   // direction turns back into a sign — written with a real minus.
   await drawer.getByRole("button", { name: "Flat" }).click();
   await expect(amount).toHaveValue("−40");
-  await expect(tempo).toHaveText("96 ⇒ 56");
+  await expect(tempo).toHaveText("steady 56");
 
   const peak = drawer.getByRole("button", { name: "Peak" });
   await peak.click();
@@ -219,21 +219,27 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
 });
 
 /**
- * A step and a ramp of the same amount state the same pair of tempos, so the
- * arrow is what tells them apart: doubled for the instantaneous change, single
- * for the one spent across the Cycle.
+ * A ramp travels and states the tempos it passes through; a Flat does not
+ * travel at all, and states the one tempo it holds. At the same amount the two
+ * are different kinds of statement rather than the same one differently marked.
  */
-test("a Flat step and an Up ramp are distinguished by their arrow", async ({ page }) => {
+test("a Flat states one tempo where a ramp states the pair it crosses", async ({ page }) => {
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   const drawer = cycleDrawer(page);
   const amount = envelopeAmount(page);
 
   await drawer.getByRole("button", { name: "Up" }).click();
   await amount.fill("20");
+  await amount.blur();
   await expect(drawer.locator("output")).toHaveText("96 → 116");
 
   await drawer.getByRole("button", { name: "Flat" }).click();
-  await expect(drawer.locator("output")).toHaveText("96 ⇒ 116");
+  await expect(drawer.locator("output")).toHaveText("steady 116");
+
+  // Flat zero is the same statement, holding the tempo it was handed.
+  await amount.fill("0");
+  await amount.blur();
+  await expect(drawer.locator("output")).toHaveText("steady 96");
 });
 
 /**
@@ -252,7 +258,7 @@ test("the envelope amount accepts either minus, clamps, and refuses a fraction",
   await amount.fill("-30");
   await amount.blur();
   await expect(amount).toHaveValue("−30");
-  await expect(tempo).toHaveText("96 ⇒ 66");
+  await expect(tempo).toHaveText("steady 66");
 
   await amount.fill("−45");
   await amount.blur();
@@ -293,14 +299,14 @@ test("Cycle envelopes fold forward and skip an inactive Cycle", async ({ page })
   await envelopeAmount(page, "Cycle 3").blur();
 
   await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 116");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("116 ⇒ 96");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 96");
   await expect(cycleDrawer(page, 2).locator("output")).toHaveText("96 → 116 → 96");
 
   // One edit to the first Cycle, and both readings after it move with it.
   await first.fill("40");
   await first.blur();
   await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 136");
-  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("136 ⇒ 116");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 116");
   await expect(cycleDrawer(page, 2).locator("output")).toHaveText("116 → 136 → 116");
 
   // Switched off, the middle Cycle stops affecting the tempo and keeps its

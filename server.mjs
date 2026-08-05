@@ -109,10 +109,13 @@ createServer(async (request, response) => {
     if (fileStats.isDirectory()) filePath = join(filePath, "index.html");
 
     const contentType = types[extname(filePath)] || "application/octet-stream";
-    let body = await readFile(filePath);
-    if (reloading && contentType.startsWith("text/html")) {
-      body = body.toString("utf8").replace("</body>", `${RELOAD_CLIENT}</body>`);
-    }
+    // The bytes go out untouched unless this is a page being served for
+    // reloading, which is the one case that reads them as text.
+    const file = await readFile(filePath);
+    const body =
+      reloading && contentType.startsWith("text/html")
+        ? file.toString("utf8").replace("</body>", `${RELOAD_CLIENT}</body>`)
+        : file;
     response.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" });
     response.end(body);
   } catch {

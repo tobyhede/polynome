@@ -562,16 +562,20 @@ const ENVELOPE_PHRASE = lookup({
   peak: (amount) => `rising ${amount} bpm and back`,
 });
 
-// Flat lands its whole change on the Cycle's first beat while a ramp spends the
-// Cycle reaching it, and at the same amount the two state the same pair of
-// tempos. The arrow is what separates them: doubled for the step, single for
-// the ramp. A trailing word was tried and cut — it read as clutter beside a
-// number that is already the widest thing in the row.
-function envelopeTempoText(shape, amount, incomingBpm, targetBpm, outgoingBpm) {
+/**
+ * A Flat states one tempo, because one tempo is all it plays: its whole change
+ * lands on the Cycle's first beat and the Cycle holds the result from there.
+ * Writing it as a journey said something untrue — that the Cycle travels — and
+ * no arrow fixes that, so a Flat has none. What it changed from is the previous
+ * Cycle's reading, which is on screen directly above it.
+ *
+ * The ramps do travel, and say so with the tempos they pass through. Flat zero
+ * is the same statement as any other Flat: the tempo it holds, unchanged.
+ */
+function envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm) {
   const from = Math.round(incomingBpm);
-  if (!amount) return `steady ${from}`;
   const to = Math.round(targetBpm);
-  if (shape === ENVELOPE.FLAT) return `${from} ⇒ ${to}`;
+  if (shape === ENVELOPE.FLAT) return `steady ${to}`;
   if (shape === ENVELOPE.PEAK) return `${from} → ${to} → ${Math.round(outgoingBpm)}`;
   return `${from} → ${to}`;
 }
@@ -594,7 +598,7 @@ export function describeConfiguration(configuration) {
         // is nothing at all — whatever envelope it is still holding for the day
         // its repetitions come back.
         tempo: active
-          ? envelopeTempoText(shape, amount, incomingBpm, targetBpm, outgoingBpm)
+          ? envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm)
           : `steady ${Math.round(incomingBpm)}`,
         notation: amount ? ENVELOPE_NOTATION[shape](amount) : "",
         accessibleNotation: amount ? `${ENVELOPE_PHRASE[shape](amount)}${active ? span : ""}` : "",
