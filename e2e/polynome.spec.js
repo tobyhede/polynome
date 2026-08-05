@@ -407,6 +407,137 @@ for (const [field, control, expected] of [
   });
 }
 
+/**
+ * Level and Balance stop on marks the way the tempo does. Asserting a particular
+ * value at a particular offset would pin the browser's own mapping from pointer
+ * position to value, half a thumb width inset at either end, so what is asserted
+ * is the property the snap has: a dragged value is either on a mark or clear of
+ * one by more than the tolerance, never stranded beside it.
+ *
+ * Both are counted in the percent their marks are spaced in rather than in the
+ * fraction the slider carries, because that is the domain the snap works in and
+ * a comparison in the other one is a comparison against float dust.
+ */
+for (const { name, control, interval, tolerance } of [
+  { name: "Level", control: "4/4 level", interval: 10, tolerance: 2 },
+  { name: "Balance", control: "4/4 stereo balance", interval: 25, tolerance: 5 },
+]) {
+  test(`dragging the ${name} stops on its marks`, async ({ page }) => {
+    await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+    const slider = page.getByRole("slider", { name: control });
+    const track = await slider.boundingBox();
+    const y = track.y + track.height / 2;
+    const from = track.x + track.width * 0.2;
+    const span = Math.round(track.width * 0.5);
+
+    await page.mouse.move(from, y);
+    await page.mouse.down();
+    const dragged = [];
+    for (let offset = 0; offset <= span; offset += 2) {
+      await page.mouse.move(from + offset, y);
+      dragged.push(Math.round(Number(await slider.inputValue()) * 100));
+    }
+    await page.mouse.up();
+
+    const distanceToMark = (percent) => {
+      const remainder = ((percent % interval) + interval) % interval;
+      return Math.min(remainder, interval - remainder);
+    };
+    expect(
+      dragged.filter((percent) => {
+        const distance = distanceToMark(percent);
+        return distance > 0 && distance <= tolerance;
+      }),
+      `${name} settled beside a mark rather than on it: ${dragged.join(", ")}`,
+    ).toEqual([]);
+    // Both confirm the drag moved and that it crossed marks rather than sitting
+    // in one gap the whole way, which would satisfy the assertion above
+    // trivially.
+    expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
+    expect(new Set(dragged.filter((percent) => percent % interval === 0)).size).toBeGreaterThan(1);
+  });
+}
+
+/**
+ * Centre is the mark that has to be exactly reachable, because `panLabel` calls
+ * anything inside four percent of the middle "Centre" — a reading a drag could
+ * not make true before, leaving the word over a Balance that was audibly off to
+ * one side. The tolerance is wider than that window, so what reads Centre is
+ * centred.
+ */
+test("dragging the Balance through the middle lands on centre exactly", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const slider = page.getByRole("slider", { name: "4/4 stereo balance" });
+  const readout = page.locator('[data-output="pan"]');
+  const track = await slider.boundingBox();
+  const y = track.y + track.height / 2;
+
+  await page.mouse.move(track.x + track.width * 0.3, y);
+  await page.mouse.down();
+  const crossing = [];
+  for (let offset = -6; offset <= 6; offset += 1) {
+    await page.mouse.move(track.x + track.width / 2 + offset, y);
+    crossing.push(await slider.inputValue());
+  }
+  // Released on the middle rather than wherever the sweep ended, because what
+  // the sweep shows is that centre is reachable and what this shows is that it
+  // is what a pointer resting there leaves behind.
+  await page.mouse.move(track.x + track.width / 2, y);
+  await page.mouse.up();
+
+  expect(crossing, "a pointer crossing the middle never landed on centre").toContain("0");
+  await expect(slider).toHaveValue("0");
+  await expect(readout).toHaveText("Centre");
+});
+
+/**
+ * Only the pointer snaps. A keyboard step of one away from a mark would be
+ * pulled straight back onto it and the slider would be stuck there for good, so
+ * the arrow keys reach the values between the marks and hold them. Both sliders
+ * are stepped off a mark, which is the case the snap would undo.
+ */
+test("the mix arrow keys reach and hold the values between the marks", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const level = page.getByRole("slider", { name: "4/4 level" });
+  const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
+
+  await level.fill("0.5");
+  await level.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(level).toHaveValue("0.51");
+  await expect(page.locator('[data-output="volume"]')).toHaveText("51%");
+
+  await balance.fill("0.5");
+  await balance.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(balance).toHaveValue("0.49");
+  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 49%");
+});
+
+/**
+ * A press can end without the slider ever seeing a release: the context menu
+ * takes a right button's, and a press abandoned when the window loses the
+ * pointer ends the same way. One flag serves both sliders and every rhythm, so a
+ * press left raised on one of them would go on snapping the others — and the
+ * first arrow key after it would be pulled straight back onto the mark it
+ * stepped off. Pressing a key ends the drag for that reason, and this abandons
+ * the press on one slider to step the other.
+ */
+test("a press the mix is never released from leaves the arrow keys unsnapped", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const level = page.getByRole("slider", { name: "4/4 level" });
+  const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
+  const track = await level.boundingBox();
+
+  await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
+  await page.mouse.down({ button: "right" });
+
+  await balance.fill("0.5");
+  await balance.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(balance).toHaveValue("0.49");
+});
+
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
   const steps = page.getByRole("group", { name: "4/4 step voices" });
   const first = steps.getByRole("button", { name: /^Step 1:/ });

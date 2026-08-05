@@ -182,20 +182,68 @@ export function subdivisionLabel(subdivision, unit) {
  * pointer drag snaps: a keyboard step of one from a mark would be pulled
  * straight back to it, and the slider would never move at all.
  */
-export const TEMPO_SNAP = Object.freeze({ interval: 10, tolerance: 2 });
+export const TEMPO_SNAP = Object.freeze({ interval: 10, tolerance: 2, scale: 1 });
+
+/**
+ * The Level marks, counted in the percent its own readout speaks rather than in
+ * the 0-to-1 the slider carries. Every ten percent, with the tolerance the tempo
+ * uses in its units — so the two controls are sticky to the same degree, a fifth
+ * of the gap on either side of every mark, and a reader who has learned one has
+ * learned the other.
+ *
+ * `scale` is what those units cost: the marks are whole percent while the value
+ * is a fraction, so the arithmetic below counts in percent and divides once at
+ * the end. Rounding `0.3` out of `Math.round(0.3 / 0.1) * 0.1` gives
+ * `0.30000000000000004`, and a Level carrying that reads as a Configuration
+ * that has moved from the Preset holding `0.3` — an unsaved change nobody made,
+ * offered by a control that only looks like it landed on a mark.
+ */
+export const LEVEL_SNAP = Object.freeze({ interval: 10, tolerance: 2, scale: 100 });
+
+/**
+ * The Balance marks: hard left, half left, centre, half right, hard right. A
+ * quarter is the coarsest interval that still holds the position a stereo
+ * placement is usually described by, and centre is the one that has to be
+ * exactly reachable — `panLabel` already calls anything inside four percent
+ * "Centre", which was a reading a drag could not make true. Inside the five
+ * percent here it now is: a dragged Balance that reads Centre is centred.
+ *
+ * Double-clicking the slider still returns it to centre outright. That serves
+ * the pointer that is nowhere near the middle; this serves the one that is.
+ */
+export const BALANCE_SNAP = Object.freeze({ interval: 25, tolerance: 5, scale: 100 });
 
 /**
  * Returns a number for anything numeric and the caller's own value untouched
  * for everything else — the slider's string, an empty field, a `null` read back
- * from storage. Repairing those here would decide what an unusable tempo means
+ * from storage. Repairing those here would decide what an unusable value means
  * in the one place that cannot report it; the Configuration refuses them and
- * says why, which is where `set-tempo` already sends every form value.
+ * says why, which is where every form value already goes.
  */
-export function snapTempo(value) {
+export function snapToMark(value, { interval, tolerance, scale }) {
   const parsed = numericValue(value);
   if (!Number.isFinite(parsed)) return value;
-  const mark = Math.round(parsed / TEMPO_SNAP.interval) * TEMPO_SNAP.interval;
-  return Math.abs(parsed - mark) <= TEMPO_SNAP.tolerance ? mark : parsed;
+  const counted = parsed * scale;
+  const mark = Math.round(counted / interval) * interval;
+  // The count is a product, so a value sitting exactly on the tolerance can
+  // arrive a hair outside it: `0.58 * 100` is `57.99999999999999`, which stands
+  // two and a hundred-billionth from the mark at sixty rather than the two that
+  // mark is meant to catch, and the slider passes over it without stopping. The
+  // margin below is orders beneath the hundredth these controls can hold and the
+  // one bpm the tempo can, so it separates dust from a value genuinely outside
+  // the tolerance rather than widening the tolerance.
+  if (Math.abs(counted - mark) > tolerance + 1e-9) return parsed;
+  // A Balance approached from the left rounds to `-0`, which is the centre by
+  // every comparison the application makes and a different value to `Object.is`
+  // and to anything that prints it. It reaches storage, the Preset snapshot and
+  // the readout, so it is worth the one line here rather than a footnote in each
+  // of them.
+  const snapped = mark / scale;
+  return snapped === 0 ? 0 : snapped;
+}
+
+export function snapTempo(value) {
+  return snapToMark(value, TEMPO_SNAP);
 }
 
 export function panLabel(value) {

@@ -11,7 +11,16 @@ import {
   sameConfiguration,
   savePreset,
 } from "./configuration.js";
-import { panLabel, snapTempo, subdivisionLabel, TEMPO_LIMIT, TEMPO_SNAP } from "./model.js";
+import {
+  panLabel,
+  snapTempo,
+  snapToMark,
+  subdivisionLabel,
+  BALANCE_SNAP,
+  LEVEL_SNAP,
+  TEMPO_LIMIT,
+  TEMPO_SNAP,
+} from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
@@ -1646,6 +1655,44 @@ function writeReadout(rhythmElement, field, text) {
   readout.data = text;
 }
 
+/**
+ * Level and Balance stop on their marks the way the tempo does, and only under a
+ * pointer for the reason the tempo gives: an arrow key stepping off a mark would
+ * be pulled straight back onto it, and the slider would be stuck there for good.
+ *
+ * One flag serves every rhythm's two sliders, because one pointer is what a drag
+ * is. A press these controls never see the release of leaves it raised, and that
+ * is as harmless here as it is on the tempo slider: the flag decides nothing but
+ * what an `input` event does, and both things that produce one settle it first —
+ * a drag by raising it on the way in, the keyboard by lowering it.
+ */
+const MIX_SLIDERS = 'input[data-field="volume"], input[data-field="pan"]';
+let mixSliderDragging = false;
+elements.cycles.addEventListener("pointerdown", (event) => {
+  if (/** @type {HTMLElement} */ (event.target).matches(MIX_SLIDERS)) mixSliderDragging = true;
+});
+for (const type of ["pointerup", "pointercancel", "keydown"]) {
+  elements.cycles.addEventListener(type, () => {
+    mixSliderDragging = false;
+  });
+}
+
+/**
+ * A snap that does not move the thumb is a control saying one thing while the
+ * mix says another, and this is the only write the slider gets while a drag is
+ * in progress: the grid is deliberately not re-rendered under the pointer, so
+ * nothing else puts the settled value back. The browser tracks the drag by
+ * pointer position rather than by where the thumb was left, so the next move
+ * still reports the value the pointer is over — which is what lets the thumb
+ * hold a mark while the pointer crosses the tolerance around it.
+ *
+ * @param {HTMLInputElement} slider
+ * @param {number} value
+ */
+function holdOnMark(slider, value) {
+  slider.value = String(value);
+}
+
 elements.cycles.addEventListener("input", (event) => {
   const target = /** @type {HTMLInputElement} */ (event.target);
   const field = target.dataset.field;
@@ -1659,7 +1706,7 @@ elements.cycles.addEventListener("input", (event) => {
         type: "set-rhythm-volume",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        volume: target.value,
+        volume: mixSliderDragging ? snapToMark(target.value, LEVEL_SNAP) : target.value,
       },
       { render: false },
     );
@@ -1667,13 +1714,14 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).volume;
     writeReadout(rhythmElement, "volume", `${Math.round(volume * 100)}%`);
+    holdOnMark(target, volume);
   } else {
     const result = applyEdit(
       {
         type: "set-stereo-position",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        pan: target.value,
+        pan: mixSliderDragging ? snapToMark(target.value, BALANCE_SNAP) : target.value,
       },
       { render: false },
     );
@@ -1681,6 +1729,7 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).pan;
     writeReadout(rhythmElement, "pan", panLabel(pan));
+    holdOnMark(target, pan);
   }
   renderPresetPanel();
 });
