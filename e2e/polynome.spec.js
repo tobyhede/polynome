@@ -512,49 +512,67 @@ test("playback shows live rounded BPM without changing the saved Configuration",
 });
 
 /**
- * Stopped, the track fills from the bottom of the range to the thumb, which is
- * what a control someone is about to drag should say. Under an envelope nobody
- * is dragging it, and the useful thing to draw is the stretch of the range the
- * run moves through with the thumb travelling inside it.
- *
- * The stops are fractions of the thumb's own travel rather than of the track's
- * width, so they are asserted as the fractions the transport writes rather than
- * by measuring pixels the browser rounds.
+ * The tempo slider is the browser's own control, which can fill a track from its
+ * start to the thumb and nothing else — so the stretch a run travels is marked
+ * on the tick row beneath it, which is markup this page owns. Stopped, the marks
+ * count up to where the thumb is, the way a control about to be dragged should.
+ * Under a ramp they light the span instead, ends included and nothing outside.
  */
-test("the tempo track bands the range an envelope moves through", async ({ page }) => {
+test("the tick row marks the range a ramp travels rather than the tempo of the moment", async ({
+  page,
+}) => {
   const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
-  const stops = () =>
-    slider.evaluate((element) => ({
-      banded: element.classList.contains("is-banded"),
-      start: element.style.getPropertyValue("--band-start"),
-      end: element.style.getPropertyValue("--band-end"),
-    }));
+  const ticks = page.locator("#bpm-ticks");
+  const lit = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("#bpm-ticks span.is-passed")].map((mark) =>
+        Number(mark.dataset.bpm),
+      ),
+    );
 
   await slider.fill("96");
-  await expect.poll(async () => (await stops()).banded).toBe(false);
+  await expect(ticks).not.toHaveClass(/\bis-banded\b/);
+  // Counting up from the bottom of the range to the tempo set.
+  expect((await lit()).at(0)).toBe(30);
+  expect((await lit()).at(-1)).toBe(90);
 
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
   await envelopeAmount(page).fill("54");
   await envelopeAmount(page).blur();
-
-  // Still no band: the range is only drawn once it is being travelled.
-  expect((await stops()).banded).toBe(false);
+  // Still counting up: the span is only marked once it is being travelled.
+  await expect(ticks).not.toHaveClass(/\bis-banded\b/);
 
   await page.getByRole("button", { name: "Play metronome" }).click();
-  const banded = await stops();
-  expect(banded.banded).toBe(true);
-  // 96 through 150 of the 30-to-300 the control offers.
-  expect(Number(banded.start)).toBeCloseTo((96 - 30) / 270, 5);
-  expect(Number(banded.end)).toBeCloseTo((150 - 30) / 270, 5);
+  await expect(ticks).toHaveClass(/\bis-banded\b/);
+  // 96 through 150, so every ten from 100 to 150 and nothing either side.
+  expect(await lit()).toEqual([100, 110, 120, 130, 140, 150]);
 
-  // The thumb travels inside what the band drew, never past it.
+  // The tempo climbs and the marks do not follow it.
   await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(96);
-  const live = Number(await slider.inputValue());
-  expect(live).toBeLessThanOrEqual(150);
+  expect(await lit()).toEqual([100, 110, 120, 130, 140, 150]);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
-  expect((await stops()).banded).toBe(false);
+  await expect(ticks).not.toHaveClass(/\bis-banded\b/);
+});
+
+/**
+ * The tempo slider is the browser's own control and stays that way. A band
+ * across its track is the one thing `accent-color` cannot express, and buying it
+ * would mean drawing the track and the thumb by hand in every engine — for a
+ * control that is disabled the whole time the band would be on it, and that sits
+ * beside two mix sliders which would go on being native.
+ */
+test("the tempo slider is left to the browser to draw", async ({ page }) => {
+  const painted = await page
+    .getByLabel("Tempo in beats per minute", { exact: true })
+    .evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { appearance: style.appearance, accent: style.accentColor };
+    });
+
+  expect(painted.appearance).toBe("auto");
+  expect(painted.accent).toBe("rgb(126, 163, 240)");
 });
 
 /**
@@ -565,7 +583,7 @@ test("the tempo track bands the range an envelope moves through", async ({ page 
  * and the large number is no longer showing it — which is the point at which
  * these two stopped being the same question.
  */
-test("a Flat envelope moves the tempo without banding the track", async ({ page }) => {
+test("a Flat envelope moves the tempo without marking a range", async ({ page }) => {
   const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
   await slider.fill("96");
 
@@ -575,11 +593,18 @@ test("a Flat envelope moves the tempo without banding the track", async ({ page 
   await expect(cycleDrawer(page).locator("output")).toHaveText("136");
 
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(slider).not.toHaveClass(/\bis-banded\b/);
   await expect(page.locator("#bpm-ticks")).not.toHaveClass(/\bis-banded\b/);
   await expect(page.locator("#bpm-readout label")).toHaveText("96");
-
+  // 136 is what it plays from the first beat, so 136 is what sizes the glyphs.
+  // The tempo it inherited is never sounded and has no claim on how they look.
+  const held = await page
+    .locator("#bpm-readout")
+    .evaluate((element) => element.style.getPropertyValue("--bpm-size"));
   await page.getByRole("button", { name: "Stop metronome" }).click();
+  await slider.fill("136");
+  expect(
+    await page.locator("#bpm-readout").evaluate((el) => el.style.getPropertyValue("--bpm-size")),
+  ).toBe(held);
 });
 
 /**

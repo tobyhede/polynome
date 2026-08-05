@@ -51,7 +51,7 @@ The Configuration BPM from which every complete Sequence traversal begins.
 _Avoid_: Base BPM, global BPM
 
 **Cycle BPM envelope**:
-An optional Flat, Up, Down, or Peak change in the Shared transport's tempo over one active Cycle and all its repetitions.
+A Flat, Up, Down, or Peak change in the Shared transport's tempo over one active Cycle and all its repetitions. Every Cycle carries one; Flat zero is the state that changes nothing.
 _Avoid_: Tempo automation lane, Cycle tempo, layer tempo
 
 **Incoming Cycle BPM**:

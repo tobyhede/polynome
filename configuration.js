@@ -584,7 +584,7 @@ function envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm) {
 export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
   const cycles = createSequenceTempoCurves(valid.bpm, valid.sequence.cycles).map(
-    ({ id, active, incomingBpm, targetBpm, outgoingBpm }, index) => {
+    ({ id, active, incomingBpm, targetBpm, outgoingBpm, curve }, index) => {
       // The fold walks these same Cycles in this same order, so the position is
       // the Cycle — searching for the id it was just handed would be a second
       // answer to a question already settled.
@@ -595,6 +595,10 @@ export function describeConfiguration(configuration) {
         id,
         active,
         incomingBpm,
+        // The tempo the Cycle opens on, which is its inherited one for a ramp and
+        // its stepped one for a Flat — a Flat spends its whole change on the
+        // first beat, so the tempo it inherited is never sounded.
+        startBpm: curve.startBpm,
         targetBpm,
         outgoingBpm,
         // An inactive Cycle is skipped by the fold, so what it does to the tempo

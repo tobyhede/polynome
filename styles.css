@@ -612,99 +612,10 @@ h1.is-glitching {
   will-change: transform;
 }
 
-/*
- * The one slider drawn rather than inherited from the browser. `accent-color`
- * fills a track from its start to its thumb and offers no way to say anything
- * else, and under an envelope there is something else to say: the stretch of the
- * range the run moves through, with the thumb travelling inside it. Taking the
- * track over means taking the thumb over too — a styled track leaves WebKit with
- * no thumb at all — so both are here, and the mix sliders keep the native
- * treatment they have no reason to leave.
- *
- * The stops are placed against the thumb's own travel rather than the track's
- * width: the thumb's centre stops half a thumb short of either end, which is the
- * same inset `.bpm-ticks` carries so its marks line up with it.
- */
 .tempo-slider {
-  --thumb-size: 18px;
-  --track-height: 6px;
-  --tempo-fill: 0;
-  --band-start: 0;
-  --band-end: 0;
-  /* A fraction of the thumb's travel, as a length along the track. */
-  --fill-stop: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--tempo-fill));
-  --band-from: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--band-start));
-  --band-to: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--band-end));
-  --tempo-track: linear-gradient(
-    to right,
-    var(--accent) 0 var(--fill-stop),
-    var(--line) var(--fill-stop) 100%
-  );
-
   width: 100%;
   height: 22px;
   margin: 0;
-  appearance: none;
-  background: transparent;
-}
-
-/* The band replaces the fill rather than joining it: two lit stretches on one
-   track would read as two values, and there is only one. It keeps the accent the
-   fill was drawn in, so the track's lit part means the same thing either way —
-   this is the tempo — and only its extent changes. */
-.tempo-slider.is-banded {
-  --tempo-track: linear-gradient(
-    to right,
-    var(--line) 0 var(--band-from),
-    var(--accent) var(--band-from) var(--band-to),
-    var(--line) var(--band-to) 100%
-  );
-}
-
-.tempo-slider::-webkit-slider-runnable-track {
-  height: var(--track-height);
-  border-radius: 999px;
-  background: var(--tempo-track);
-}
-
-.tempo-slider::-moz-range-track {
-  height: var(--track-height);
-  border-radius: 999px;
-  background: var(--tempo-track);
-}
-
-.tempo-slider::-webkit-slider-thumb {
-  width: var(--thumb-size);
-  height: var(--thumb-size);
-  /* The track is the shorter of the two, so the thumb is lifted by half their
-     difference to sit centred on it rather than hanging from its top edge. */
-  margin-top: calc((var(--track-height) - var(--thumb-size)) / 2);
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent);
-  appearance: none;
-}
-
-.tempo-slider::-moz-range-thumb {
-  width: var(--thumb-size);
-  height: var(--thumb-size);
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-/*
- * Disabled, the track keeps its full contrast: under an envelope this is the
- * one drawing of where the tempo has been and where it is going, and dimming it
- * would take that away exactly when it is worth reading. The thumb loses the
- * accent instead, which is the part that would otherwise invite a drag.
- */
-.tempo-slider:disabled::-webkit-slider-thumb {
-  background: var(--line-strong);
-}
-
-.tempo-slider:disabled::-moz-range-thumb {
-  background: var(--line-strong);
 }
 
 /* The ticks carry the scale: the major ones label themselves from `data-label`,

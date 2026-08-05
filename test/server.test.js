@@ -20,6 +20,14 @@ const server = fileURLToPath(new URL("../server.mjs", import.meta.url));
 const START_TIMEOUT_MS = 20_000;
 const EVENT_TIMEOUT_MS = 20_000;
 
+/*
+ * Short, because unlike the two above this one is bounded by the signal that
+ * caused it: a Node process with no SIGTERM handler has nothing left to do when
+ * the kernel delivers it. A child still here after this long is one that is not
+ * going, and the only thing worth doing about that is failing.
+ */
+const EXIT_TIMEOUT_MS = 5_000;
+
 /**
  * The dev server is given a tree of its own rather than the repository, because
  * proving that a change reloads means changing a file, and a test that edits the
@@ -77,22 +85,60 @@ async function startServer({ root, reload }) {
     child.once("exit", (code) =>
       reject(new Error(`server exited with ${code}. stderr: ${stderr}`)),
     );
+  }).catch(async (failure) => {
+    // Nothing was returned for the caller to stop, and a child still holding its
+    // pipes open keeps this process alive long past the failure it came here to
+    // report. The stop is allowed to fail quietly because the diagnosis worth
+    // reading is the one already on its way out.
+    await stopChild(child).catch(() => {});
+    throw failure;
   });
 
   return { child, origin };
 }
 
+/**
+ * A signal is a request, and `kill` returns once it has been made rather than
+ * once it has been honoured, so the exit is something to wait for rather than
+ * something to assume.
+ */
+function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  const exited = new Promise((resolve, reject) => {
+    const failed = setTimeout(
+      () => reject(new Error(`server pid ${child.pid} outlived SIGTERM by ${EXIT_TIMEOUT_MS}ms`)),
+      EXIT_TIMEOUT_MS,
+    );
+    child.once("exit", () => {
+      clearTimeout(failed);
+      resolve();
+    });
+  });
+  child.kill("SIGTERM");
+  return exited;
+}
+
+/**
+ * The directory goes after the process that was serving out of it. A reloading
+ * server has a watcher on this exact tree, and there is nothing to be gained
+ * from racing it to the deletion.
+ */
 async function stopServer(running, root) {
-  running?.child.kill("SIGTERM");
+  if (running) await stopChild(running.child);
   if (root) await rm(root, { recursive: true, force: true });
 }
 
 /**
- * Reads the event stream until it has seen as many events as asked for, so a
- * caller waits on the events themselves rather than on a duration chosen to be
- * longer than they should take.
+ * Reads the event stream until it has seen as many events as the caller is
+ * waiting on, so a caller waits on the events themselves rather than on a
+ * duration chosen to be longer than they should take.
+ *
+ * The kinds are named for the reporting and not for the counting: anything the
+ * server sends counts towards the total, so a run that produced the wrong event
+ * fails on the caller's comparison — which says what arrived — instead of on a
+ * deadline, which could only say that something did not.
  */
-async function readEvents(origin, count, act) {
+async function readEvents(origin, awaited, act) {
   const abort = new AbortController();
   const response = await fetch(`${origin}/dev/reload`, { signal: abort.signal });
   const reader = response.body.getReader();
@@ -104,19 +150,37 @@ async function readEvents(origin, count, act) {
   await act();
 
   const events = [];
-  const deadline = setTimeout(() => abort.abort(), EVENT_TIMEOUT_MS);
+  const outstanding = () =>
+    `waiting for ${awaited.join(", ")}, having seen ${events.length ? events.join(", ") : "nothing"}`;
+
+  let expired = false;
+  const deadline = setTimeout(() => {
+    expired = true;
+    abort.abort();
+  }, EVENT_TIMEOUT_MS);
   try {
-    while (events.length < count) {
+    while (events.length < awaited.length) {
       const { value, done } = await reader.read();
       if (done) break;
       for (const line of decoder.decode(value).split("\n")) {
         if (line.startsWith("event: ")) events.push(line.slice(7).trim());
       }
     }
+  } catch (cause) {
+    // The deadline reaches the read as a DOM exception carrying no message at
+    // all, and a server that died reaches it as a socket error naming neither
+    // this stream nor what was being waited on. Both are worth telling apart,
+    // and neither says anything on its own.
+    if (expired) throw new Error(`gave up after ${EVENT_TIMEOUT_MS}ms ${outstanding()}`, { cause });
+    throw new Error(`the event stream broke while ${outstanding()}: ${cause.message}`, { cause });
   } finally {
     clearTimeout(deadline);
     abort.abort();
   }
+  // Nothing ends this stream while the server is up, so a read that ran out is
+  // a server that has gone rather than a wait that is over.
+  if (events.length < awaited.length)
+    throw new Error(`the server closed the event stream while ${outstanding()}`);
   return { handshake, events };
 }
 
@@ -132,13 +196,13 @@ test("the reloading server injects its client and reports what changed", async (
     // is what keeps it out of anything a build later copies.
     assert.doesNotMatch(await readFile(join(root, "index.html"), "utf8"), /EventSource/);
 
-    const styled = await readEvents(running.origin, 1, async () => {
+    const styled = await readEvents(running.origin, ["css"], async () => {
       await writeFile(join(root, "styles.css"), "body { color: #000 }\n");
     });
     assert.equal(styled.handshake.trim(), ": open");
     assert.deepEqual(styled.events, ["css"]);
 
-    const scripted = await readEvents(running.origin, 1, async () => {
+    const scripted = await readEvents(running.origin, ["reload"], async () => {
       await writeFile(join(root, "app.js"), "export const ready = false;\n");
     });
     assert.deepEqual(scripted.events, ["reload"]);

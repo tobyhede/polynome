@@ -13,6 +13,7 @@ import {
   savePreset,
 } from "./configuration.js";
 import {
+  lookup,
   panLabel,
   snapBalance,
   subdivisionLabel,
@@ -360,15 +361,14 @@ function renderTransport() {
 
   elements.bpmLabel.textContent = tempoMoves ? String(state.bpm) : "BPM";
   elements.bpmLabel.classList.toggle("is-starting-tempo", tempoMoves);
-  heldTempo = tempoMoves ? state.bpm : null;
-  elements.bpmSlider.classList.toggle("is-banded", tempoTravels);
+  // The tempo the run opens on, which is not always the one the Preset stores:
+  // a Flat spends its whole change on the first beat, so a Sequence starting on
+  // Flat +60 at 96 plays 156 from the outset and never sounds 96 at all. Sizing
+  // the glyphs from a tempo nobody hears is a smaller wrong than sizing them
+  // from one that keeps changing, but it is still one.
+  heldTempo = tempoMoves ? description.cycles.find(({ active }) => active).startBpm : null;
   elements.bpmTicks.classList.toggle("is-banded", tempoTravels);
   tempoBand = tempoTravels ? description.tempoRange : null;
-  // Collapsed to nothing when there is no band, so a stale pair of stops cannot
-  // be left behind the class that stopped drawing them.
-  const band = tempoBand ?? { minimum: 0, maximum: 0 };
-  elements.bpmSlider.style.setProperty("--band-start", String(tempoFraction(band.minimum)));
-  elements.bpmSlider.style.setProperty("--band-end", String(tempoFraction(band.maximum)));
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;
@@ -393,9 +393,8 @@ function renderTransport() {
 }
 
 /**
- * Where a tempo sits in the range the control offers, as a fraction. The track
- * and the glyph sizing both count from the same two ends, so they count them
- * once.
+ * Where a tempo sits in the range the control offers, as a fraction, counted
+ * from the limit rather than from a pair of numbers restated here.
  */
 function tempoFraction(bpm) {
   const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
@@ -420,7 +419,6 @@ function tempoFraction(bpm) {
 function renderDisplayedTempo(displayedBpm) {
   const shapedBy = heldTempo ?? displayedBpm;
   const progress = tempoFraction(shapedBy);
-  elements.bpmSlider.style.setProperty("--tempo-fill", String(tempoFraction(displayedBpm)));
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
   const glitchIntensity = Math.min(1, Math.max(0, (shapedBy - 250) / 50));
@@ -894,12 +892,12 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
  * comes back. The word beside each glyph is the accessible name, which is why
  * the drawing itself is hidden from the tree rather than labelled.
  */
-const ENVELOPE_GLYPH_POINTS = {
+const ENVELOPE_GLYPH_POINTS = lookup({
   [ENVELOPE.FLAT]: "2,9 32,9",
   [ENVELOPE.UP]: "2,15 32,4",
   [ENVELOPE.DOWN]: "2,4 32,15",
   [ENVELOPE.PEAK]: "2,15 17,3 32,15",
-};
+});
 
 function EnvelopeGlyph({ shape }) {
   return html`<svg
