@@ -52,7 +52,7 @@ Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup dest
 
 `model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`) and the increments its stepped controls move in (`TEMPO_STEP`, `MIX_STEP`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place. A step belongs there for the same reason a bound does, and for one more: it decides which values a control can hold at all, so every default is held against it — see [ADR-0014](docs/adr/0014-snap-only-the-balance-and-hold-defaults-to-the-step.md).
 
-Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
+Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default, at 120 BPM. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each signature unit into Pattern positions.
 
 An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-voices` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
 
@@ -116,7 +116,7 @@ Workflows are linted by actionlint, in CI only, since the binary does not come f
 
 Also manually verify the audio-specific behavior Playwright cannot assess:
 
-1. Presets `4/4 8ths` and `4/4 Triplets` sound as configured. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
+1. Presets `4/4 8ths` and `4/4 Triplets` each sound as one 4/4 Beat Mode rhythm at 120 BPM, with Subdivision two and three respectively. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
 2. Headphone separation at hard left and hard right through physical output.
 3. Primary, secondary, and tertiary Step voices are perceptually distinguishable at equal gain, and `off` is silent. Check this on a `low` layer, not the default `high`: `low` is the worst case, because its voices land lowest and the ear is least sensitive there.
 4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.

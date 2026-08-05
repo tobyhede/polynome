@@ -11,7 +11,7 @@ They were never decided to be two. `advance-step-voice` arrived with Step voices
 themselves; `advance-beat-voice` arrived with display modes and was built beside
 it rather than through it. Each then named its target in its own mode's terms —
 `beat: 3` against `position: 7` — and two payloads made two operations out of
-one. The bodies say otherwise: a beat edit writes the advanced voice at the
+one. The bodies say otherwise: a Beat-control edit writes the advanced voice at the
 run's first position and `tertiary` across the rest, and a position edit is that
 with a run of one, where the rest is empty and the `off` exception cannot arise.
 
@@ -33,7 +33,7 @@ the count of controls that Display mode offers.
   repair, the runs a Display mode lays out, and the inverse the visual playhead
   needs. It imports [`model.js`](../../model.js) and nothing else, so both
   [`configuration.js`](../../configuration.js) and [`app.js`](../../app.js) read
-  it. The nine places that stated the beat-to-position relation independently —
+  it. The nine places that stated the signature-unit-to-position relation independently —
   six in `app.js`, one of them by writing a DOM attribute and reading it back —
   become one.
 - `canonicalSteps` and `resizeSteps` move there as `canonicalPattern` and
@@ -52,17 +52,18 @@ the count of controls that Display mode offers.
 - The two reason codes `beat-not-found` and `pattern-position-not-found` become
   `control-not-found`. The bound each expressed is preserved rather than widened:
   in Beat Mode a control past the end of the Meter is still refused, which is what
-  stops it rewriting the pulses of a beat inside the Meter.
+  stops it rewriting the pulses of a signature unit inside the Meter.
 - The interface emits one `data-action`, `control`, and one `data-control`
-  attribute in place of `beat`/`step` and their two indices. `Step` no longer
-  takes a mode; what a control is called is composed in `app.js`, because
+  attribute in place of `beat`/`step` and their two indices. `GridControl` takes
+  no mode; what a control is called is composed in `app.js`, because
   `grid.js` is read by `configuration.js` and has no business holding a string
   neither of them will ever show.
-- `data-steps-per-beat` becomes `data-controls-per-beat` and is sourced from
-  `controlCounts`, as `data-beats` now is. `layoutSteps` still reads both off the
-  grid the renderer just produced rather than off the Configuration, which is the
-  discipline recorded in [`AGENTS.md`](../../AGENTS.md); what changes is that the
-  DOM carries the counts instead of restating them.
+- `data-steps-per-beat` becomes `data-controls-per-signature-unit`, and
+  `data-beats` becomes `data-signature-units`; both are sourced from
+  `controlCounts`. `layoutSteps` still reads them off the grid the renderer just
+  produced rather than off the Configuration, which is the discipline recorded
+  in [`AGENTS.md`](../../AGENTS.md); what changes is that the DOM carries the
+  counts instead of restating them.
 - `styles.css` keeps `data-display-mode`, which it reads to give a Beat Mode
   control its current-step pulse. The animation restart in `updateActiveSteps`
   keeps naming the mode for the same reason: what it depends on is that a control

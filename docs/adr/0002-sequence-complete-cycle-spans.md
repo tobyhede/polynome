@@ -4,6 +4,10 @@ Polynome will compose rhythm layers into cycles and play an ordered sequence of 
 
 The repetition range, cycle activity rule, generated summary, and control presentation below are superseded by ADR-0003. The complete cycle-span and shared-transport decisions remain in force.
 
+The Preset catalogue below was superseded first by
+[ADR-0010](0010-seed-example-presets-into-storage.md), and its current examples
+are recorded in [ADR-0015](0015-refine-defaults-and-sliders.md).
+
 ## Consequences
 
 - The state hierarchy is `Sequence → Cycle → Rhythm layer`. A sequence and each cycle are non-empty, every rhythm belongs to exactly one cycle, and at most 12 rhythms exist across the sequence.

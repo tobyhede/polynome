@@ -139,5 +139,11 @@ A named reusable snapshot of a Configuration. Applying a preset recalls that Con
 _Avoid_: Pattern, project, session
 
 **Seeding**:
-Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time Polynome runs, when the preset key has never been written. It names the act and nothing else: what it writes are Presets, renameable, replaceable, and deletable like any other, and afterwards nothing tells them apart from the ones a user saved. Deleting them all leaves no Presets, which is a state Polynome stays in.
+Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time
+Polynome runs, when the preset key has never been written. Both recall one 4/4
+Beat Mode rhythm at 120 BPM: the first at Subdivision two and the second at
+Subdivision three. Seeding names the act and nothing else: what it writes are
+Presets, renameable, replaceable, and deletable like any other, and afterwards
+nothing tells them apart from the ones a user saved. Deleting them all leaves no
+Presets, which is a state Polynome stays in.
 _Avoid_: Built-in preset, factory preset, default preset, seed preset

@@ -514,19 +514,20 @@ function descendingDivisors(count) {
 }
 
 /**
- * Grouping only: this chooses how many beats share a row and changes nothing
- * else. Step size and spacing belong to the stylesheet and are measured here
- * rather than set.
+ * Grouping only: this chooses how many signature units share a row and changes
+ * nothing else. Step size and spacing belong to the stylesheet and are measured
+ * here rather than set.
  *
- * A beat is indivisible — engraving beams a beat's divisions together in every
- * meter — so a row holds a whole number of beats, and equal rows mean that
- * number must divide the beat count. Taking the divisors largest-first under a
- * sixteen-step ceiling lands on the conventions by itself: 4/4 sixteenths give
- * one row of sixteen, and an irregular meter like 7/8 is prime, so its only
- * options are the whole bar or a beat per row, never a false even split.
+ * A signature unit is indivisible, so a row holds a whole number of them, and
+ * equal rows mean that number must divide the Meter numerator. Taking the
+ * divisors largest-first under a sixteen-step ceiling lands on the conventions
+ * by itself: 4/4 sixteenths give one row of sixteen, and an irregular meter like
+ * 7/8 is prime, so its only options are the whole grid or one signature unit per
+ * row, never a false even split.
  *
  * Width can only narrow that choice further, never make it. When even a single
- * beat is wider than the row, the pattern scrolls rather than shrinking.
+ * signature unit is wider than the row, the pattern scrolls rather than
+ * shrinking.
  */
 function layoutSteps() {
   // Measure every rhythm, then write every rhythm. Interleaving the two costs a
@@ -538,26 +539,26 @@ function layoutSteps() {
   for (const steps of /** @type {NodeListOf<HTMLElement>} */ (
     elements.cycles.querySelectorAll(".steps")
   )) {
-    const beat = steps.querySelector(".beat");
+    const signatureUnit = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
       steps.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    if (!beat || !(available > 0)) continue;
+    if (!signatureUnit || !(available > 0)) continue;
 
-    // A beat is a flex row of fixed-size steps, so its width does not depend on
-    // the grouping being chosen and can be measured before choosing it.
-    const beatWidth = beat.getBoundingClientRect().width;
-    const beatGap = parseFloat(style.columnGap) || 0;
-    const beats = Number(steps.dataset.beats);
-    const controlsPerBeat = Number(steps.dataset.controlsPerBeat);
+    // A signature unit is a flex row of fixed-size controls, so its width does
+    // not depend on the grouping being chosen and can be measured first.
+    const signatureUnitWidth = signatureUnit.getBoundingClientRect().width;
+    const signatureUnitGap = parseFloat(style.columnGap) || 0;
+    const signatureUnits = Number(steps.dataset.signatureUnits);
+    const controlsPerSignatureUnit = Number(steps.dataset.controlsPerSignatureUnit);
     const perRow =
-      descendingDivisors(beats).find(
+      descendingDivisors(signatureUnits).find(
         (candidate) =>
-          candidate * controlsPerBeat <= STEPS_PER_ROW_LIMIT &&
-          candidate * beatWidth + (candidate - 1) * beatGap <= available,
+          candidate * controlsPerSignatureUnit <= STEPS_PER_ROW_LIMIT &&
+          candidate * signatureUnitWidth + (candidate - 1) * signatureUnitGap <= available,
       ) ?? 1;
 
-    plans.push({ steps, perRow, scrolling: beatWidth > available });
+    plans.push({ steps, perRow, scrolling: signatureUnitWidth > available });
   }
 
   for (const { steps, perRow, scrolling } of plans) {
@@ -574,16 +575,16 @@ function layoutSteps() {
  * changes page height, which on a classic-scrollbar platform can toggle the
  * vertical scrollbar and so change this container's width. That settles rather
  * than oscillates, because the grouping is monotone in width — a narrower row
- * can only take the same number of beats or fewer, so it can only produce the
- * same number of rows or more. Losing the scrollbar therefore never makes the
- * page taller, and gaining one never makes it shorter, so each toggle is
- * self-confirming and stops after one pass.
+ * can only take the same number of signature units or fewer, so it can only
+ * produce the same number of rows or more. Losing the scrollbar therefore never
+ * makes the page taller, and gaining one never makes it shorter, so each toggle
+ * is self-confirming and stops after one pass.
  *
  * The exception is a step-size breakpoint sitting inside one scrollbar width of
- * the current viewport, where narrowing shrinks the steps and can fit more beats
- * to a row. Reaching it needs the page height to cross the viewport height at
- * that same width; the browser's own ResizeObserver loop limit ends it after a
- * frame, which is why there is no debounce here to buy.
+ * the current viewport, where narrowing shrinks the controls and can fit more
+ * signature units to a row. Reaching it needs the page height to cross the
+ * viewport height at that same width; the browser's own ResizeObserver loop
+ * limit ends it after a frame, which is why there is no debounce here to buy.
  */
 let laidOutWidth = 0;
 new ResizeObserver((entries) => {
@@ -749,23 +750,23 @@ function RhythmCard({ rhythm, cycle }) {
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
-      <!-- The controls each beat holds are carried for layoutSteps(), which
-           reads the number to choose how many beats share a row. Both counts
-           come from grid.js rather than being derived here: what the row fits
-           is controls, and how many of them a beat holds is the Display mode's
-           decision, made once. The Subdivision was carried a second time as a
-           custom property the beat-gap clamp calculated with; that gap is now
-           the same one the steps inside a beat use, so nothing in the
-           stylesheet asks for it any more. -->
+      <!-- The controls each signature unit holds are carried for layoutSteps(),
+           which reads the number to choose how many units share a row. Both
+           counts come from grid.js rather than being derived here: what the row
+           fits is controls, and how many of them a signature unit holds is the
+           Display mode's decision, made once. The Subdivision was carried a
+           second time as a custom property the gap clamp calculated with; that
+           gap is now the same one the controls inside a unit use, so nothing in
+           the stylesheet asks for it any more. -->
       <div
         class="steps"
         role="group"
         aria-label=${`${label} ${controlNoun(rhythm).toLowerCase()} voices`}
-        data-beats=${counts.beats}
-        data-controls-per-beat=${counts.controlsPerBeat}
+        data-signature-units=${counts.signatureUnits}
+        data-controls-per-signature-unit=${counts.controlsPerSignatureUnit}
         data-display-mode=${rhythm.displayMode}
       >
-        <${Beats} rhythm=${rhythm} />
+        <${SignatureUnits} rhythm=${rhythm} />
       </div>
     </article>
   `;
@@ -911,26 +912,28 @@ function RhythmSettings({ rhythm }) {
   `;
 }
 
-// Controls are grouped a beat at a time so a narrow screen can only ever break
-// between beats. Which beat a control falls in is the control's own, from
-// `grid.js`, so nothing here strides the pattern to work it out; every group is
-// full and no row is left ragged, because a run never crosses a signature unit.
+// Controls are grouped a signature unit at a time so a narrow screen can only
+// ever break between units. Which unit a control falls in is the control's own,
+// from `grid.js`, so nothing here strides the pattern to work it out; every
+// group is full and no row is left ragged, because a run never crosses a unit.
 //
-// Where a beat starts is marked by a dot the stylesheet draws on `.beat`
+// Where a signature unit starts is marked by a dot the stylesheet draws on `.beat`
 // itself, so nothing here emits it. The steps are evenly spaced and say
 // nothing about grouping, and the first step of a bar cannot say it either:
 // its voice is the listener's to change, and a downbeat switched off is the
 // dimmest circle in the row. A pseudo-element keeps the mark out of the
 // accessibility tree without an `aria-hidden` element to carry it, which is
 // what a purely decorative mark inside a named group should be.
-function Beats({ rhythm }) {
+function SignatureUnits({ rhythm }) {
   const noun = controlNoun(rhythm);
-  const beats = [];
-  for (const [control, { voice, beat }] of controls(rhythm).entries()) {
-    if (!beats[beat]) beats[beat] = [];
-    beats[beat].push(html`<${Step} voice=${voice} control=${control} noun=${noun} />`);
+  const signatureUnits = [];
+  for (const [control, { voice, signatureUnit }] of controls(rhythm).entries()) {
+    if (!signatureUnits[signatureUnit]) signatureUnits[signatureUnit] = [];
+    signatureUnits[signatureUnit].push(
+      html`<${GridControl} voice=${voice} control=${control} noun=${noun} />`,
+    );
   }
-  return html`${beats.map((group) => html`<div class="beat">${group}</div>`)}`;
+  return html`${signatureUnits.map((group) => html`<div class="beat">${group}</div>`)}`;
 }
 
 /**
@@ -947,7 +950,7 @@ function controlNoun(rhythm) {
   return rhythm.displayMode === "beat" ? "Beat" : "Step";
 }
 
-function Step({ voice, control, noun }) {
+function GridControl({ voice, control, noun }) {
   const name = `${noun} ${control + 1}`;
   return html`
     <button

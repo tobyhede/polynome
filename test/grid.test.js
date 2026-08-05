@@ -48,10 +48,10 @@ test("the same grid length gives different canonical patterns", () => {
 });
 
 test("a Beat Mode control runs a signature unit and a Subdivision Mode control runs one position", () => {
-  const beat = controls(layer({ count: 2, subdivision: 3 }));
-  assert.equal(beat.length, 2);
+  const beatModeControls = controls(layer({ count: 2, subdivision: 3 }));
+  assert.equal(beatModeControls.length, 2);
   assert.deepEqual(
-    beat.map(({ positions }) => positions),
+    beatModeControls.map(({ positions }) => positions),
     [
       [0, 1, 2],
       [3, 4, 5],
@@ -82,27 +82,27 @@ test("a control shows the Step voice of the position its run begins on", () => {
 });
 
 /**
- * A row can only break between beats, so every control has to say which beat it
- * falls in. A run never crosses a signature unit in either mode, so no control
- * belongs to two.
+ * A row can only break between signature units, so every control has to say
+ * which one it falls in. A run never crosses a signature unit in either mode,
+ * so no control belongs to two.
  */
 test("every control names the signature unit it falls in", () => {
   assert.deepEqual(
-    controls(layer({ count: 3, subdivision: 2 })).map(({ beat }) => beat),
+    controls(layer({ count: 3, subdivision: 2 })).map(({ signatureUnit }) => signatureUnit),
     [0, 1, 2],
   );
   assert.deepEqual(
     controls(layer({ count: 3, subdivision: 2, displayMode: "subdivision" })).map(
-      ({ beat }) => beat,
+      ({ signatureUnit }) => signatureUnit,
     ),
     [0, 0, 1, 1, 2, 2],
   );
 });
 
 test("a control index inverts the run a pattern position falls in", () => {
-  const beat = layer({ count: 2, subdivision: 3 });
+  const beatModeLayer = layer({ count: 2, subdivision: 3 });
   assert.deepEqual(
-    [0, 1, 2, 3, 4, 5].map((position) => controlIndexAt(beat, position)),
+    [0, 1, 2, 3, 4, 5].map((position) => controlIndexAt(beatModeLayer, position)),
     [0, 0, 0, 1, 1, 1],
   );
 
@@ -139,28 +139,29 @@ test("the index a control is at is the index its own run reports back", () => {
 
 test("the row counts follow the run length rather than the mode", () => {
   assert.deepEqual(controlCounts(layer({ count: 7, subdivision: 4 })), {
-    beats: 7,
-    controlsPerBeat: 1,
+    signatureUnits: 7,
+    controlsPerSignatureUnit: 1,
   });
   assert.deepEqual(controlCounts(layer({ count: 7, subdivision: 4, displayMode: "subdivision" })), {
-    beats: 7,
-    controlsPerBeat: 4,
+    signatureUnits: 7,
+    controlsPerSignatureUnit: 4,
   });
 });
 
 /**
  * Every control the counts promise is a control that exists, at every grid the
- * domain offers. A row layout that fits `beats × controlsPerBeat` boxes and
- * found a different number of controls in them would leave a ragged row.
+ * domain offers. A row layout that fits
+ * `signatureUnits × controlsPerSignatureUnit` boxes and found a different
+ * number of controls in them would leave a ragged row.
  */
 test("the row counts multiply out to the controls there are", () => {
   for (const displayMode of DISPLAY_MODES) {
     for (let count = 1; count <= 16; count += 1) {
       for (let subdivision = 1; subdivision <= 5; subdivision += 1) {
         const rhythm = layer({ count, subdivision, displayMode });
-        const { beats, controlsPerBeat } = controlCounts(rhythm);
+        const { signatureUnits, controlsPerSignatureUnit } = controlCounts(rhythm);
 
-        assert.equal(beats * controlsPerBeat, controls(rhythm).length);
+        assert.equal(signatureUnits * controlsPerSignatureUnit, controls(rhythm).length);
       }
     }
   }

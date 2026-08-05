@@ -818,7 +818,7 @@ test("changing a Rhythm layer to Beat Mode also resets its Step voices", () => {
   assert.equal(result.reason, null);
 });
 
-test("advancing a Beat voice normalises its remaining subdivision pulses", () => {
+test("advancing a Beat Mode Grid control normalises its remaining subdivision pulses", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -857,11 +857,11 @@ test("advancing a Beat voice normalises its remaining subdivision pulses", () =>
 
 /**
  * In Beat Mode a control runs the whole signature unit, so its voice has to be
- * the voice of every pulse inside it. Only `off` is silent, so a beat advanced
+ * the voice of every pulse inside it. Only `off` is silent, so a control advanced
  * to `off` that kept `tertiary` trailing pulses would go on sounding under a
  * control announcing it as off.
  */
-test("advancing a Beat voice carries all four voices across the whole beat", () => {
+test("advancing a Beat Mode Grid control carries all four voices across its signature unit", () => {
   const configuration = createConfiguration({
     sequence: {
       cycles: [
@@ -925,7 +925,7 @@ test("repair rejects inherited object names as Step voices", () => {
  * which is the Meter's numerator in Beat Mode and the grid's length in
  * Subdivision Mode. At any Subdivision above one the two differ, and taking the
  * wider of them in Beat Mode would let a control past the end of the Meter
- * rewrite the pulses of a beat inside it.
+ * rewrite the pulses of a signature unit inside it.
  */
 test("controls outside the Display mode's own count are rejected", () => {
   const configuration = createConfiguration({
@@ -967,7 +967,7 @@ test("controls outside the Display mode's own count are rejected", () => {
  * signature unit in Beat Mode and the second pattern position in Subdivision
  * Mode, and nothing in the edit says which.
  */
-test("the same control edit addresses a beat or a position, per the layer's mode", () => {
+test("the same control edit addresses a signature unit or a position, per the layer's mode", () => {
   const base = createConfiguration({
     sequence: {
       cycles: [{ rhythms: [{ signature: { count: 2, unit: 4 }, subdivision: 3 }] }],

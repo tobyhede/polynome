@@ -42,6 +42,13 @@ test("a Cycle span completes every contained Meter and ignores Subdivision", () 
   closeTo(cycleSpanSeconds(120, cycle), 6);
 });
 
+test("a Cycle span falls back to 120 BPM when tempo is missing or invalid", () => {
+  const cycle = { rhythms: [{ signature: { count: 4, unit: 4 }, subdivision: 1 }] };
+
+  assert.equal(cycleSpanSeconds(undefined, cycle), 2);
+  assert.equal(cycleSpanSeconds("not a tempo", cycle), 2);
+});
+
 test("Meter count clamps to one shared maximum in Configuration and timing", () => {
   const excessive = { signature: { count: METER_COUNT_LIMIT.maximum + 1, unit: 4 } };
   const configuration = createConfiguration({
@@ -117,6 +124,13 @@ test("step duration follows Subdivision within each signature unit", () => {
   };
 
   closeTo(stepDurationSeconds(120, rhythm), 1 / 6);
+});
+
+test("step duration falls back to 120 BPM when tempo is missing or invalid", () => {
+  const rhythm = { signature: { count: 4, unit: 4 }, subdivision: 2 };
+
+  assert.equal(stepDurationSeconds(undefined, rhythm), 0.25);
+  assert.equal(stepDurationSeconds("not a tempo", rhythm), 0.25);
 });
 
 test("step duration follows BPM and Subdivision regardless of Meter denominator", () => {

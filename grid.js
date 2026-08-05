@@ -56,8 +56,9 @@ function runLength(rhythm) {
  * The Grid controls a rhythm layer's Display mode offers, in the order they are
  * shown. Each is a contiguous run of pattern positions: `positions` is the run,
  * `voice` is the Step voice it shows — the voice of the position the run begins
- * on — and `beat` is the signature unit it falls in, which is what lets a
- * caller group controls a beat at a time without restating the arithmetic.
+ * on — and `signatureUnit` is the signature unit it falls in, which is what
+ * lets a caller group controls a signature unit at a time without restating
+ * the arithmetic.
  *
  * The rhythm layer must be repaired. A subdivision of zero would not terminate,
  * and `createRhythm` is what rules that out; nothing here checks it, for the
@@ -70,7 +71,7 @@ export function controls(rhythm) {
     result.push({
       positions: Array.from({ length }, (_, offset) => first + offset),
       voice: rhythm.steps[first],
-      beat: Math.floor(first / rhythm.subdivision),
+      signatureUnit: Math.floor(first / rhythm.subdivision),
     });
   }
   return result;
@@ -95,7 +96,7 @@ export function controlIndexAt(rhythm, patternPosition) {
  */
 export function controlCounts(rhythm) {
   return {
-    beats: rhythm.signature.count,
-    controlsPerBeat: rhythm.subdivision / runLength(rhythm),
+    signatureUnits: rhythm.signature.count,
+    controlsPerSignatureUnit: rhythm.subdivision / runLength(rhythm),
   };
 }
