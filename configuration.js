@@ -98,7 +98,14 @@ function createRhythm(overrides = {}) {
     subdivision,
     displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
     steps: resizeSteps(overrides.steps, signature.count, subdivision),
-    volume: normaliseNumber(overrides.volume, 0.72, 0, 1),
+    // A value the Level slider can actually hold. Its step is `MIX_STEP` in
+    // `model.js`, and a default off that grid is rounded onto it by the control
+    // itself without an event, leaving the thumb, this Configuration and the
+    // audio graph on three different numbers. Written as the literal it is
+    // rather than counted out in steps, because a count is a product and
+    // `14 * 0.05` is `0.7000000000000001`, which is the same bug again.
+    // `test/model.test.js` holds every default here to its control's grid.
+    volume: normaliseNumber(overrides.volume, 0.7, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,
     muted: Boolean(overrides.muted),
@@ -175,7 +182,7 @@ export function createConfiguration(input) {
         : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
-    bpm: Math.round(normaliseNumber(source.bpm, 96, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
+    bpm: Math.round(normaliseNumber(source.bpm, 120, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
     sequence: { cycles: validCycles },
   };
 }
@@ -186,20 +193,27 @@ export function createConfiguration(input) {
  * and nothing here is consulted again.
  */
 const SEED_PRESETS = Object.freeze([
-  // Repair fills in the rest, so this one is the default Configuration.
-  { name: "4/4", configuration: {} },
   {
-    name: "4/4 + 3/4",
+    name: "4/4 8ths",
     configuration: {
-      bpm: 112,
+      bpm: 120,
       sequence: {
         cycles: [
           {
-            repetitions: 1,
-            rhythms: [
-              { signature: { count: 4, unit: 4 }, sound: "high" },
-              { signature: { count: 3, unit: 4 }, sound: "low" },
-            ],
+            rhythms: [{ subdivision: 2, displayMode: "beat" }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: "4/4 Triplets",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            rhythms: [{ subdivision: 3, displayMode: "beat" }],
           },
         ],
       },
@@ -351,13 +365,22 @@ export function createSavedPresets(input) {
 }
 
 /**
+ * Fresh copies of the Presets a first run receives. This is also the explicit
+ * factory reset boundary: callers get repaired Configurations and newly issued
+ * identifiers, never the frozen definitions above or a stored listener value.
+ */
+export function createFactoryPresets() {
+  return createSavedPresets(SEED_PRESETS);
+}
+
+/**
  * The one door in from storage, taking the raw stored value so that a key this
  * browser has never written stays distinguishable from one deliberately emptied.
  * Only the first is a first run, and only a first run is seeded with the
  * examples; an empty list is a listener who deleted the last Preset.
  */
 export function createStoredPresets(stored) {
-  if (stored === null) return createSavedPresets(SEED_PRESETS);
+  if (stored === null) return createFactoryPresets();
   if (typeof stored !== "string") {
     throw new TypeError("Stored Presets must be the stored string or null");
   }

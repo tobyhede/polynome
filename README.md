@@ -3,7 +3,7 @@
 A deliberately small browser metronome with:
 
 - ordered cycles of one or more simultaneous rhythm layers
-- polyrhythm and polymeter presets
+- named presets holding a complete configuration, with two examples seeded on a first run
 - editable meter and subdivision per signature unit for every layer
 - a per-layer view of either one control per beat or one per pattern position
 - four Step voices: primary, secondary, tertiary, and off

@@ -1,23 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import {
-  BALANCE_SNAP,
-  LEVEL_SNAP,
   METER_COUNT_LIMIT,
   METER_UNITS,
+  MIX_STEP,
   SOUND,
   STEP,
   TEMPO_LIMIT,
-  TEMPO_SNAP,
+  TEMPO_STEP,
+  TEMPO_TICK_INTERVAL,
   cycleSpanSeconds,
   panLabel,
-  snapTempo,
-  snapToMark,
+  snapBalance,
   stepDurationSeconds,
   subdivisionLabel,
 } from "../model.js";
-import { createConfiguration, describeConfiguration } from "../configuration.js";
+import {
+  createConfiguration,
+  createStoredPresets,
+  describeConfiguration,
+} from "../configuration.js";
 
 const closeTo = (actual, expected, tolerance = 1e-9) => {
   assert.ok(
@@ -178,156 +183,212 @@ test("changing only a Meter denominator does not change its Cycle span", () => {
   closeTo(cycleSpanSeconds(120, cycle), 2);
 });
 
-/**
- * A drag stops on the ten-BPM marks the tick row draws, and the slider carries
- * its value as a string, so the string form is the one the interface actually
- * passes.
- */
-test("a dragged tempo takes the nearest ten within the snap tolerance", () => {
-  assert.equal(snapTempo("88"), 90);
-  assert.equal(snapTempo("92"), 90);
-  assert.equal(snapTempo(89), 90);
-  assert.equal(snapTempo(90), 90);
-});
-
-test("a dragged tempo outside the tolerance is left where it landed", () => {
-  assert.equal(snapTempo(87), 87);
-  assert.equal(snapTempo("93"), 93);
-  assert.equal(snapTempo(85), 85);
-});
+/** Every Rhythm layer in a Configuration, which is where a mix value lives. */
+const rhythmsOf = (configuration) =>
+  configuration.sequence.cycles.flatMap((cycle) => cycle.rhythms);
 
 /**
- * Snapping never carries a tempo past a bound, and what makes that true is that
- * both ends of the range are marks themselves. That is a fact about the two
- * constants rather than about `snapTempo`, so it is asserted where a change to
- * either would be caught — a range ending anywhere else would let the tolerance
- * pull a tempo off the end of the slider.
+ * Each stepped control's grid, described in the smallest unit its values are
+ * written in: whole bpm for the tempo, hundredths for the two mix sliders. The
+ * bounds are the `min` the control carries, because that is what the standard's
+ * stepping counts from; the shell's own copy of the tempo's is asserted below.
  */
-test("both ends of the tempo range are marks", () => {
-  assert.equal(TEMPO_LIMIT.minimum % TEMPO_SNAP.interval, 0);
-  assert.equal(TEMPO_LIMIT.maximum % TEMPO_SNAP.interval, 0);
-});
-
-test("snapping holds the tempo range's own ends", () => {
-  assert.equal(snapTempo(TEMPO_LIMIT.minimum + 1), TEMPO_LIMIT.minimum);
-  assert.equal(snapTempo(TEMPO_LIMIT.maximum - 1), TEMPO_LIMIT.maximum);
-  assert.equal(snapTempo(TEMPO_LIMIT.minimum), TEMPO_LIMIT.minimum);
-  assert.equal(snapTempo(TEMPO_LIMIT.maximum), TEMPO_LIMIT.maximum);
-});
-
-/**
- * Every value the slider can hold is either a mark or within one tolerance of
- * the nearest one, so no drag can land somewhere the snap leaves further from a
- * mark than the tolerance allows.
- */
-test("no reachable tempo settles further from a mark than the tolerance", () => {
-  for (let bpm = TEMPO_LIMIT.minimum; bpm <= TEMPO_LIMIT.maximum; bpm += 1) {
-    const snapped = snapTempo(bpm);
-    const mark = Math.round(snapped / TEMPO_SNAP.interval) * TEMPO_SNAP.interval;
-    assert.ok(
-      snapped === mark || Math.abs(snapped - mark) > TEMPO_SNAP.tolerance,
-      `${bpm} settled at ${snapped}, which is neither a mark nor clear of one`,
-    );
-  }
-});
-
-test("a tempo that is not a number is left for the Configuration to refuse", () => {
-  assert.equal(snapTempo(""), "");
-  assert.equal(snapTempo("fast"), "fast");
-  assert.equal(snapTempo(null), null);
-});
-
-/**
- * The two mix sliders count their marks in percent while carrying a fraction,
- * so every reachable value is one of the hundredths the `step` allows. Both
- * walks below are over that set rather than over a float sequence, because a
- * loop adding 0.01 to itself drifts and would be testing its own arithmetic.
- */
-const reachable = (minimum, maximum) =>
-  Array.from(
-    { length: (maximum - minimum) * 100 + 1 },
-    (_, index) => (minimum * 100 + index) / 100,
-  );
-
-const MIX_SNAPS = [
-  { name: "Level", snap: LEVEL_SNAP, minimum: 0, maximum: 1 },
-  { name: "Balance", snap: BALANCE_SNAP, minimum: -1, maximum: 1 },
+const STEPPED_CONTROLS = [
+  {
+    name: "the tempo slider",
+    unit: 1,
+    minimum: TEMPO_LIMIT.minimum,
+    step: TEMPO_STEP,
+    values: (configuration) => [configuration.bpm],
+  },
+  {
+    name: "the Level slider",
+    unit: 100,
+    minimum: 0,
+    step: MIX_STEP,
+    values: (configuration) => rhythmsOf(configuration).map((rhythm) => rhythm.volume),
+  },
+  {
+    name: "the Balance slider",
+    unit: 100,
+    minimum: -1,
+    step: MIX_STEP,
+    values: (configuration) => rhythmsOf(configuration).map((rhythm) => rhythm.pan),
+  },
 ];
 
 /**
- * The same fact the tempo range is held to, for the same reason: a bound that
- * is not itself a mark is a bound the tolerance can pull a value off the end of.
+ * A value counted in its control's unit, as an integer. Every comparison below
+ * is made on these counts and never leaves the integers, because this is exactly
+ * the question floating point cannot answer: `0.72 / 0.05` is
+ * `14.399999999999999` and is genuinely off a five-hundredth grid, while
+ * `0.7 / 0.05` is `14.000000000000002` and is not, and a test that cannot tell
+ * those two apart is a test of its own arithmetic.
+ *
+ * The rounding is not a tolerance. It undoes the dust a product leaves — `0.05`
+ * times a hundred is `5.000000000000001` — and the assertion beside it holds the
+ * count to being the value exactly, so a default finer than the unit its control
+ * counts in is reported rather than rounded into a pass.
  */
-for (const { name, snap, minimum, maximum } of MIX_SNAPS) {
-  test(`both ends of the ${name} range are marks`, () => {
-    // `Math.abs` because a negative bound leaves a negative zero behind, which
-    // is the remainder this is asking about and not the same value to `equal`.
-    assert.equal(Math.abs((minimum * snap.scale) % snap.interval), 0);
-    assert.equal(Math.abs((maximum * snap.scale) % snap.interval), 0);
-  });
-
-  test(`snapping holds the ${name} range's own ends`, () => {
-    assert.equal(snapToMark(minimum, snap), minimum);
-    assert.equal(snapToMark(maximum, snap), maximum);
-    assert.equal(snapToMark(minimum + 0.01, snap), minimum);
-    assert.equal(snapToMark(maximum - 0.01, snap), maximum);
-  });
-
-  /**
-   * The whole specification, over every value the slider can hold: inside the
-   * tolerance the value is the mark, outside it the value is untouched.
-   *
-   * Stated both ways round on purpose. Asserting only that a settled value is
-   * never stranded beside a mark — which is how the tempo's own version of this
-   * reads — is satisfied by a snap that never fires at all, and that is not a
-   * hypothetical: `0.58` counted to `57.99999999999999` and missed a tolerance
-   * of two by a hundred-billionth, which the one-sided form waved through
-   * because a value that stays put is trivially clear of the mark it should
-   * have taken. The count here is a whole number that never leaves the integers,
-   * so what the assertion expects is exact rather than itself rounded.
-   */
-  test(`every ${name} within a tolerance of a mark lands on it`, () => {
-    for (let counted = minimum * snap.scale; counted <= maximum * snap.scale; counted += 1) {
-      const value = counted / snap.scale;
-      const mark = Math.round(counted / snap.interval) * snap.interval;
-      const settled = Math.abs(counted - mark) <= snap.tolerance ? mark / snap.scale : value;
-      assert.equal(snapToMark(value, snap), settled === 0 ? 0 : settled, `${value} settled wrong`);
-    }
-  });
-
-  /**
-   * A mark has to arrive as the number the Preset holding it would carry.
-   * `Math.round(0.3 / 0.1) * 0.1` is `0.30000000000000004`, and a Level or
-   * Balance carrying that compares unequal to the `0.3` it was saved at — which
-   * surfaces as a Configuration offering to be saved again over a change nobody
-   * made. Counting in percent and dividing once is what avoids it, so this
-   * asserts the arithmetic rather than trusting it.
-   */
-  test(`a snapped ${name} is the number a Preset would hold`, () => {
-    for (const value of reachable(minimum, maximum)) {
-      const snapped = snapToMark(value, snap);
-      assert.equal(snapped, Number(snapped.toFixed(2)), `${value} settled at ${snapped}`);
-    }
-  });
+function inUnits(value, unit, description) {
+  const count = Math.round(value * unit);
+  assert.equal(
+    count / unit,
+    value,
+    `${description} is ${value}, which is finer than the unit its control counts in`,
+  );
+  return count;
 }
 
-test("a mix value that is not a number is left for the Configuration to refuse", () => {
-  assert.equal(snapToMark("", LEVEL_SNAP), "");
-  assert.equal(snapToMark("centre", BALANCE_SNAP), "centre");
-  assert.equal(snapToMark(null, BALANCE_SNAP), null);
+/**
+ * Every default the application can put into a stepped control has to be a value
+ * that control can hold. `<input type="range">` sanitises a value off its step
+ * onto the nearest value on it — silently, firing no event — so a default that
+ * misses the grid is a thumb sitting where the readout beside it disagrees, an
+ * audio graph playing a third value, and a first arrow key that moves by the
+ * mismatch instead of by the step. Nothing downstream can notice, because
+ * nothing downstream is told.
+ *
+ * The defaults are enumerated rather than listed. `createConfiguration()` is
+ * what a first run holds and `createStoredPresets(null)` is what a first run
+ * writes into storage, so a new seed Preset, another Rhythm layer inside one, or
+ * a moved default joins this check by existing rather than by being remembered.
+ */
+test("every default the application ships sits on its control's grid", () => {
+  const shipped = [
+    { source: "the default Configuration", configuration: createConfiguration() },
+    ...createStoredPresets(null).map((preset) => ({
+      source: `the ${preset.name} Preset`,
+      configuration: preset.configuration,
+    })),
+  ];
+  assert.ok(shipped.length > 1, "Expected the seed Presets to be among the defaults checked");
+
+  const offGrid = [];
+  for (const { source, configuration } of shipped) {
+    for (const control of STEPPED_CONTROLS) {
+      const step = inUnits(control.step, control.unit, `${control.name}'s step`);
+      const minimum = inUnits(control.minimum, control.unit, `${control.name}'s minimum`);
+      const values = control.values(configuration);
+      assert.ok(values.length, `Expected ${source} to carry a value for ${control.name}`);
+      for (const value of values) {
+        const counted = inUnits(value, control.unit, `${source}'s value for ${control.name}`);
+        if ((counted - minimum) % step !== 0) {
+          offGrid.push(
+            `${source} carries ${value} for ${control.name}, which steps by ${control.step} from ${control.minimum}`,
+          );
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offGrid, []);
+});
+
+/**
+ * The tempo slider lives in the static shell, which has no way to import, so its
+ * grid is written there as string literals and this is the only thing holding
+ * them to the constants the rest of the application steps by. Both attributes
+ * are the grid: the step is what the thumb moves by, and the standard counts
+ * those steps from the minimum, so a shell that disagreed about either would put
+ * the slider on a different set of tempos than the check above tests defaults
+ * against. The maximum is the range's other end rather than part of the grid,
+ * and `e2e/polynome.spec.js` holds both bounds against `TEMPO_LIMIT` from the
+ * rendered control.
+ */
+test("the shell's tempo slider carries the grid the model names", async () => {
+  const shell = await readFile(fileURLToPath(new URL("../index.html", import.meta.url)), "utf8");
+  const slider = shell.match(/<input[^>]*id="bpm-slider"[^>]*>/);
+
+  assert.ok(slider, "Expected the shell to hold a tempo slider");
+  assert.match(slider[0], new RegExp(`\\sstep="${TEMPO_STEP}"`));
+  assert.match(slider[0], new RegExp(`\\smin="${TEMPO_LIMIT.minimum}"`));
+});
+
+/**
+ * The tick row under the tempo slider is a scale a reader aims at, so every
+ * tempo it draws has to be a tempo the slider can actually stop on: the step
+ * divides the interval, and the range spans a whole number of intervals, which
+ * together put the first and last marks on the slider's own ends. A row drawn at
+ * any other interval would be a ruler whose numbers sit between the values it
+ * measures rather than on them.
+ */
+test("every tempo the tick row draws is one the slider can hold", () => {
+  assert.equal(TEMPO_TICK_INTERVAL % TEMPO_STEP, 0);
+  assert.equal((TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) % TEMPO_TICK_INTERVAL, 0);
+});
+
+/**
+ * The one snap left in the interface. It exists for the reading: `panLabel`
+ * calls anything inside four percent of the middle "Centre", and before this a
+ * drag could leave that word over a Balance that was audibly off to one side.
+ * The slider carries its value as a string, so the string form is the one the
+ * interface actually passes.
+ */
+test("a dragged Balance inside the centre tolerance is centred exactly", () => {
+  assert.equal(snapBalance("0.05"), 0);
+  assert.equal(snapBalance("-0.05"), 0);
+  assert.equal(snapBalance("0"), 0);
+  // A Balance approached from the left can arrive as `-0`, which is the centre
+  // by every comparison the application makes and a different value to
+  // `Object.is` — which is what `assert/strict` compares with, so this asserts
+  // the sign as much as the value. It reaches storage, the Preset snapshot and
+  // the readout, so it is settled here rather than in each of them.
+  assert.equal(snapBalance("-0"), 0);
+});
+
+test("a dragged Balance outside the centre tolerance is left where it landed", () => {
+  assert.equal(snapBalance("0.1"), 0.1);
+  assert.equal(snapBalance("-0.1"), -0.1);
+  assert.equal(snapBalance("1"), 1);
+  assert.equal(snapBalance("-1"), -1);
+});
+
+/**
+ * What the snap costs, stated over every position the slider can stop on. A
+ * tolerance one step wide takes the two positions either side of centre and
+ * nothing else, and those two are still reachable by arrow key, because only the
+ * pointer snaps: a key stepping off centre would be pulled straight back onto it
+ * and the slider would be stuck there for good.
+ *
+ * The interval table this replaced also claimed marks at every quarter, and its
+ * five-percent tolerance around each one made sixteen of these positions
+ * unreachable by drag — ±0.20, ±0.30, ±0.45, ±0.55, ±0.70, ±0.80 and ±0.95 as
+ * well as ±0.05. Nobody chose to lose those, which is why the list below is
+ * asserted exactly rather than as an upper bound.
+ */
+test("a drag reaches every Balance the slider steps to except the two beside centre", () => {
+  const percentStep = Math.round(MIX_STEP * 100);
+  const swallowed = [];
+
+  for (let percent = -100; percent <= 100; percent += percentStep) {
+    const value = percent / 100;
+    if (snapBalance(value) !== value) swallowed.push(percent);
+  }
+
+  assert.deepEqual(swallowed, [-percentStep, percentStep]);
+});
+
+test("a Balance that is not a number is left for the Configuration to refuse", () => {
+  assert.equal(snapBalance(""), "");
+  assert.equal(snapBalance("centre"), "centre");
+  assert.equal(snapBalance(null), null);
 });
 
 /**
  * `panLabel` calls anything inside four percent of the middle "Centre", which
- * was a reading no drag could make true: the value under it was off-centre by
- * as much as three percent and the audio was too. The Balance tolerance is
- * wider than that window, so everything inside it now arrives at exactly zero —
- * which is the fact that makes the label honest, and it belongs to the two
- * constants rather than to either one.
+ * was a reading no drag could make true: the value under it was off-centre by as
+ * much as three percent and the audio was too. The centre tolerance is wider
+ * than that window, so everything inside it now arrives at exactly zero — which
+ * is the fact that makes the label honest, and it belongs to the two constants
+ * rather than to either one. The walk is over hundredths rather than over the
+ * slider's own step, because a stored Balance is any value in range and the
+ * label has to be honest about whatever a drag then settles.
  */
 test("a dragged Balance that reads Centre is centred", () => {
-  for (const value of reachable(-1, 1)) {
-    const snapped = snapToMark(value, BALANCE_SNAP);
+  for (let counted = -100; counted <= 100; counted += 1) {
+    const value = counted / 100;
+    const snapped = snapBalance(value);
     if (panLabel(snapped) === "Centre") {
       assert.equal(snapped, 0, `${value} settled at ${snapped}, which reads Centre but is not`);
     }

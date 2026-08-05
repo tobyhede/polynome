@@ -2,6 +2,7 @@ import { MetronomeEngine } from "./metronome.js";
 import {
   changeConfiguration,
   createConfiguration,
+  createFactoryPresets,
   createSavedPresets,
   createStoredPresets,
   describeConfiguration,
@@ -13,13 +14,11 @@ import {
 } from "./configuration.js";
 import {
   panLabel,
-  snapTempo,
-  snapToMark,
+  snapBalance,
   subdivisionLabel,
-  BALANCE_SNAP,
-  LEVEL_SNAP,
+  MIX_STEP,
   TEMPO_LIMIT,
-  TEMPO_SNAP,
+  TEMPO_TICK_INTERVAL,
 } from "./model.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
@@ -28,7 +27,7 @@ import { createPersistence, readStoredValue } from "./persistence.js";
 import { html, render } from "htm/preact";
 
 const STORAGE_KEY = "polynome-configuration-v2";
-const PRESET_STORAGE_KEY = "polynome-presets-v2";
+const PRESET_STORAGE_KEY = "polynome-presets-v3";
 const PERSIST_DELAY_MS = 400;
 // The meter domain narrowed in v2. Values from earlier releases are retired
 // instead of repaired into different rhythms without the listener's consent.
@@ -41,7 +40,7 @@ const RETIRED_STORAGE_KEYS = [
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
-const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets"];
+const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
 
 /**
  * `querySelector` is typed as returning the base `Element`, which carries none
@@ -202,6 +201,15 @@ function writeSavedPresets(presets) {
   } catch {
     return false;
   }
+}
+
+function restoreFactoryPresets() {
+  pendingDeletePresetId = null;
+  adoptSavedPresets(createFactoryPresets());
+  const persisted = writeSavedPresets(savedPresets);
+  elements.status.textContent = persisted
+    ? "Factory presets restored"
+    : "Factory presets could not be restored in this browser";
 }
 
 const persistence = createPersistence({
@@ -877,14 +885,25 @@ function RhythmSettings({ rhythm }) {
       <!-- Every range value is passed as a string, because the renderer decides
            whether to write one by comparing it against the control's own value,
            which is always a string: a number never matches and is rewritten on
-           every render. -->
+           every render.
+
+           The step comes from the model rather than being written out here as
+           the hundredth it is, because the grid it sets is what decides which
+           values these controls can hold at all: anything else is rounded onto
+           it silently, so a default or a stored value off the grid arrives on
+           screen as a different number than the one this Configuration is
+           playing. A literal here would be a second answer to that question,
+           sitting where nothing that could check it can reach. -->
       <label class="control-label">
         <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
-        <input type="range" min="0" max="1" step="0.01" value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
+        <input type="range" min="0" max="1" step=${String(MIX_STEP)} value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
       </label>
       <label class="control-label">
         <span>Balance <span class="balance-axis" aria-hidden="true">L · R</span><output class="sr-only" data-output="pan">${panLabel(rhythm.pan)}</output></span>
-        <input type="range" min="-1" max="1" step="0.01" value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
+        <span class="balance-slider">
+          <input type="range" min="-1" max="1" step=${String(MIX_STEP)} value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
+          <span class="balance-midpoint" aria-hidden="true"></span>
+        </span>
       </label>
     </div>
   `;
@@ -1168,37 +1187,19 @@ elements.bpm.addEventListener("change", (event) =>
   changeTempo(/** @type {HTMLInputElement} */ (event.target).value),
 );
 /**
- * Only a pointer drag snaps to the marks, so the flag is what the drag is
- * recognised by: an `input` event carries no pointer of its own.
- *
- * Everything that ends a drag lowers it, and a press does not always end in a
- * release the slider sees: a scroll gesture takes the drag over and cancels it,
- * the context menu takes a right button's release, and a press abandoned when
- * the window loses the pointer ends without one at all. The keyboard is the
- * backstop, because it is also the thing a raised flag would spoil — the first
- * arrow key would be pulled straight back onto the mark it stepped off, and the
- * slider would be stuck on that mark for good.
+ * The slider reports whatever tempo the pointer is over and the Configuration
+ * takes it as it comes. Nothing here rounds it toward the tick row's tenths: the
+ * slider's own step is five BPM, which is finer than the two either side of a
+ * mark such a snap could catch, so it would move no value the control is able to
+ * produce. The row below the slider is a scale rather than a set of stops.
  */
-let bpmSliderDragging = false;
-const endBpmSliderDrag = () => {
-  bpmSliderDragging = false;
-};
-elements.bpmSlider.addEventListener("pointerdown", () => {
-  bpmSliderDragging = true;
-});
-elements.bpmSlider.addEventListener("pointerup", endBpmSliderDrag);
-elements.bpmSlider.addEventListener("pointercancel", endBpmSliderDrag);
-elements.bpmSlider.addEventListener("keydown", endBpmSliderDrag);
 elements.bpmSlider.addEventListener("input", (event) => {
   const dragged = /** @type {HTMLInputElement} */ (event.target).value;
-  applyEdit(
-    { type: "set-tempo", bpm: bpmSliderDragging ? snapTempo(dragged) : dragged },
-    { deferConsequence: true, render: false },
-  );
-  // renderTransport() writes the tempo back onto the slider, which is what
-  // holds the thumb on a mark while the pointer moves inside its tolerance.
-  // The browser tracks the drag by pointer position, not by where the thumb
-  // was left, so the next move still reports the tempo the pointer is over.
+  applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
+  // The grid is deliberately not re-rendered under a drag, so this is what keeps
+  // everything the tempo is spoken by in step with the thumb: the number in the
+  // readout above it, the stepper keys marking themselves unavailable at either
+  // bound, and the type size and glitch the tempo drives.
   renderTransport();
   renderPresetPanel();
 });
@@ -1768,40 +1769,49 @@ function writeReadout(rhythmElement, field, text) {
 }
 
 /**
- * Level and Balance stop on their marks the way the tempo does, and only under a
- * pointer for the reason the tempo gives: an arrow key stepping off a mark would
- * be pulled straight back onto it, and the slider would be stuck there for good.
+ * The Balance centres itself when a drag leaves it near the middle, and only
+ * under a pointer: an arrow key stepping off centre would be pulled straight
+ * back onto it, and the slider would be stuck there for good. An `input` event
+ * carries no pointer of its own, so a flag is what a drag is recognised by.
  *
- * One flag serves every rhythm's two sliders, because one pointer is what a drag
- * is. A press these controls never see the release of leaves it raised, and that
- * is as harmless here as it is on the tempo slider: the flag decides nothing but
- * what an `input` event does, and both things that produce one settle it first —
- * a drag by raising it on the way in, the keyboard by lowering it.
+ * One flag serves every rhythm's Balance, because one pointer is what a drag is.
+ * A press these controls never see the release of leaves it raised — a scroll
+ * gesture takes the drag over and cancels it, the context menu takes a right
+ * button's release, and a press abandoned when the window loses the pointer ends
+ * without one at all — and the keyboard is the backstop for all of them, because
+ * the keyboard is also the only thing a stuck flag would spoil.
+ *
+ * Nothing else raises it. The Level and the tempo take whatever their drag
+ * reports, so a press on either is not a gesture this has to know about.
  */
-const MIX_SLIDERS = 'input[data-field="volume"], input[data-field="pan"]';
-let mixSliderDragging = false;
+const BALANCE_SLIDERS = 'input[data-field="pan"]';
+let balanceSliderDragging = false;
 elements.cycles.addEventListener("pointerdown", (event) => {
-  if (/** @type {HTMLElement} */ (event.target).matches(MIX_SLIDERS)) mixSliderDragging = true;
+  if (/** @type {HTMLElement} */ (event.target).matches(BALANCE_SLIDERS))
+    balanceSliderDragging = true;
 });
 for (const type of ["pointerup", "pointercancel", "keydown"]) {
   elements.cycles.addEventListener(type, () => {
-    mixSliderDragging = false;
+    balanceSliderDragging = false;
   });
 }
 
 /**
- * A snap that does not move the thumb is a control saying one thing while the
- * mix says another, and this is the only write the slider gets while a drag is
- * in progress: the grid is deliberately not re-rendered under the pointer, so
+ * The Configuration is what the mix is, so the control is written back from it
+ * rather than left holding what the pointer reported. The two differ in one
+ * case — a Balance the centre tolerance pulled in — and a thumb sitting off
+ * centre while the mix is centred is the control saying one thing while the
+ * audio does another. This is the only write the slider gets while a drag is in
+ * progress: the grid is deliberately not re-rendered under the pointer, so
  * nothing else puts the settled value back. The browser tracks the drag by
  * pointer position rather than by where the thumb was left, so the next move
  * still reports the value the pointer is over — which is what lets the thumb
- * hold a mark while the pointer crosses the tolerance around it.
+ * hold the middle while the pointer crosses the tolerance around it.
  *
  * @param {HTMLInputElement} slider
  * @param {number} value
  */
-function holdOnMark(slider, value) {
+function showSettledValue(slider, value) {
   slider.value = String(value);
 }
 
@@ -1818,7 +1828,7 @@ elements.cycles.addEventListener("input", (event) => {
         type: "set-rhythm-volume",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        volume: mixSliderDragging ? snapToMark(target.value, LEVEL_SNAP) : target.value,
+        volume: target.value,
       },
       { render: false },
     );
@@ -1826,14 +1836,14 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).volume;
     writeReadout(rhythmElement, "volume", `${Math.round(volume * 100)}%`);
-    holdOnMark(target, volume);
+    showSettledValue(target, volume);
   } else {
     const result = applyEdit(
       {
         type: "set-stereo-position",
         cycleId: context.cycle.id,
         rhythmId: rhythm.id,
-        pan: mixSliderDragging ? snapToMark(target.value, BALANCE_SNAP) : target.value,
+        pan: balanceSliderDragging ? snapBalance(target.value) : target.value,
       },
       { render: false },
     );
@@ -1841,7 +1851,7 @@ elements.cycles.addEventListener("input", (event) => {
       .find(({ id }) => id === context.cycle.id)
       .rhythms.find(({ id }) => id === rhythm.id).pan;
     writeReadout(rhythmElement, "pan", panLabel(pan));
-    holdOnMark(target, pan);
+    showSettledValue(target, pan);
   }
   renderPresetPanel();
 });
@@ -1888,6 +1898,20 @@ engine.addEventListener("audioerror", (event) =>
   showError(/** @type {CustomEvent} */ (event).detail),
 );
 document.addEventListener("keydown", (event) => {
+  if (
+    event.code === "KeyP" &&
+    event.altKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.repeat
+  ) {
+    const tag = document.activeElement?.tagName;
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
+    event.preventDefault();
+    restoreFactoryPresets();
+    return;
+  }
   if (event.code !== "Space" || event.repeat) return;
   const tag = document.activeElement?.tagName;
   if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;
@@ -1927,16 +1951,17 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistence.flush();
 });
 
-// Major ticks carry their own number, so the tick row is also the tempo scale.
-// The marks are `TEMPO_SNAP`'s own, spanning `TEMPO_LIMIT`, rather than a tenth
-// restated here: what a reader aims at and what a drag stops on have to be one
-// set of tempos, or the snap lands somewhere the row does not draw. Every ninth
-// mark is labelled, which is as close as the numbers sit before they collide at
-// the narrowest width.
+// Major ticks carry their own number, so the tick row is the tempo scale: it is
+// how a reader knows what the thumb above it is sitting on without reading the
+// number. The marks are `TEMPO_TICK_INTERVAL`'s, spanning `TEMPO_LIMIT`, rather
+// than a tenth restated here — the interval is a tempo the slider steps to, and
+// a scale drawn at some other spacing would put its numbers between the values
+// the control can hold rather than on them. Every ninth mark is labelled, which
+// is as close as the numbers sit before they collide at the narrowest width.
 const LABELLED_EVERY = 9;
-const tempoMarks = (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_SNAP.interval + 1;
+const tempoMarks = (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_TICK_INTERVAL + 1;
 elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
-  const bpm = TEMPO_LIMIT.minimum + index * TEMPO_SNAP.interval;
+  const bpm = TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL;
   const major = index % LABELLED_EVERY === 0;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");

@@ -52,8 +52,9 @@ function saveNotOffered(page) {
 async function savePreset(page, name) {
   const open = page.getByRole("button", { name: "+ Save" });
   if ((await open.getAttribute("aria-disabled")) === "true") {
-    const bpm = page.getByLabel("Tempo in beats per minute");
+    const bpm = page.getByRole("spinbutton", { name: "BPM" });
     await bpm.fill(String(Number(await bpm.inputValue()) + 1));
+    await bpm.blur();
   }
   await saveOffered(page);
   await open.click();
@@ -68,6 +69,19 @@ async function savePreset(page, name) {
 async function deletePreset(page, name) {
   await page.getByRole("button", { name: `Delete ${name} preset` }).click();
   await page.getByRole("button", { name: `Confirm deleting ${name} preset` }).click();
+}
+
+async function typeTempo(page, bpm) {
+  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  await readout.fill(String(bpm));
+  await readout.blur();
+}
+
+async function applyStoredPreset(page, name) {
+  const toggle = page.getByRole("button", { name: "Presets", exact: true });
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await presetButton(page, name).click();
+  await toggle.click();
 }
 
 test("playback toggles from the button and Space key", async ({ page }) => {
@@ -96,7 +110,7 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
   const bpm = page.getByLabel("Tempo in beats per minute");
   const heading = page.getByRole("heading", { name: "Polynome" });
 
-  await bpm.fill("251");
+  await bpm.fill("255");
   await expect(heading).toHaveClass(/is-glitching/);
   await expect(page.getByLabel("BPM")).toHaveClass(/is-glitching/);
   await expect(heading).toHaveCSS("animation-name", "bpm-glitch");
@@ -110,104 +124,101 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
 });
 
 /**
- * The tick row marks every ten BPM and a drag stops on those marks. Asserting a
- * particular tempo at a particular offset would pin the browser's own mapping
- * from pointer position to value, half a thumb width inset at either end, so
- * what is asserted is the property the snap has: a dragged tempo is either on a
- * mark or clear of one by more than the tolerance, never stranded beside it.
+ * Every value a pointer can leave a slider on, gathered by dragging the full
+ * width of its track. The stride is derived rather than chosen: three samples
+ * inside each position's share of the track, so a position can only go unseen by
+ * being genuinely unreachable rather than by being stepped over, and the three
+ * sliders this serves can be different widths carrying different counts. The
+ * sweep starts and ends outside the usable track, which is inset by half a thumb
+ * at either end, so the extreme positions are covered like any other.
+ *
+ * A drag is the only gesture that can be swallowed. The arrow keys walk the step
+ * itself and reach everything by construction, so what a pointer can reach is a
+ * question only a pointer can answer.
  */
-test("dragging the tempo slider stops on the ten-BPM marks", async ({ page }) => {
-  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+async function draggedValues(page, slider, positions) {
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
-  const from = track.x + track.width * 0.3;
+  const stride = Math.max(1, Math.floor(track.width / positions / 3));
 
-  await page.mouse.move(from, y);
+  await page.mouse.move(track.x, y);
   await page.mouse.down();
-  const dragged = [];
-  for (let offset = 0; offset <= 40; offset += 2) {
-    await page.mouse.move(from + offset, y);
-    dragged.push(Number(await slider.inputValue()));
+  const seen = [];
+  for (let x = track.x; x <= track.x + track.width; x += stride) {
+    await page.mouse.move(x, y);
+    seen.push(await slider.inputValue());
   }
   await page.mouse.up();
+  return seen;
+}
 
-  const distanceToMark = (bpm) => Math.min(bpm % 10, 10 - (bpm % 10));
-  expect(dragged.filter((bpm) => distanceToMark(bpm) > 0 && distanceToMark(bpm) <= 2)).toEqual([]);
-  // Both confirm the drag moved and that it crossed marks rather than sitting
-  // in one gap the whole way, which would satisfy the assertion above trivially.
-  expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
-  expect(new Set(dragged.filter((bpm) => bpm % 10 === 0)).size).toBeGreaterThan(1);
+/**
+ * Nothing swallows a tempo. The slider steps by five BPM and a drag can leave it
+ * on every one of them, which is the property that replaced a snap to the tick
+ * row's tenths: that snap held a value within two BPM of a mark, and no value
+ * the slider can produce is ever one or two BPM from a ten, so it moved nothing
+ * while making the whole range look as though it might.
+ *
+ * The check is that every position is reachable rather than that a particular
+ * offset produces a particular tempo, which would pin the browser's own mapping
+ * from pointer position to value.
+ */
+test("a tempo drag reaches every tempo the slider steps to", async ({ page }) => {
+  const { limit, step } = await page.evaluate(async () => {
+    const { TEMPO_LIMIT, TEMPO_STEP } = await import("/model.js");
+    return { limit: TEMPO_LIMIT, step: TEMPO_STEP };
+  });
+  const expected = Array.from(
+    { length: (limit.maximum - limit.minimum) / step + 1 },
+    (_, index) => limit.minimum + index * step,
+  );
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+
+  const seen = new Set((await draggedValues(page, slider, expected.length)).map(Number));
+
+  expect(expected.filter((bpm) => !seen.has(bpm))).toEqual([]);
 });
 
 /**
- * Only the pointer snaps. A keyboard step of one away from a mark would be
- * pulled straight back onto it, and the slider would be stuck on that mark for
- * good, so the arrow keys reach the tempos between the marks and the number
- * input keeps them.
+ * The slider moves in five-BPM intervals, and the one-BPM buttons and the number
+ * input provide finer adjustment.
  *
  * The starting tempo is set here rather than taken from the default, so moving
- * that default reads as a changed default rather than as a snap that stopped
- * working.
+ * that default reads as a changed default rather than as the keys stepping by
+ * something other than what the slider says.
  */
-test("the tempo arrow keys reach and hold the tempos between the marks", async ({ page }) => {
+test("the tempo slider increments by five BPM", async ({ page }) => {
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   const readout = page.getByRole("spinbutton", { name: "BPM" });
-
-  await readout.fill("98");
-  await readout.blur();
-  await expect(slider).toHaveValue("98");
-
-  await slider.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("99");
-  await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("100");
-  // Stepping off a mark is the case the snap would undo.
-  await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("101");
-
-  await readout.fill("108");
-  await readout.blur();
-  await expect(slider).toHaveValue("108");
-});
-
-/**
- * A press can end without the slider ever seeing a release: the context menu
- * takes a right button's, and a press abandoned when the window loses the
- * pointer ends the same way. The drag flag is raised on `pointerdown`, so one
- * left raised would go on snapping — and the first arrow key after it would be
- * pulled straight back onto the mark it stepped off, which is the state the
- * flag exists to prevent. Pressing a key ends the drag for that reason.
- */
-test("a press the slider is never released from leaves the arrow keys unsnapped", async ({
-  page,
-}) => {
-  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
-  const track = await slider.boundingBox();
-
-  await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
-  await page.mouse.down({ button: "right" });
 
   await readout.fill("100");
   await readout.blur();
+  await expect(slider).toHaveValue("100");
+
   await slider.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(readout).toHaveValue("101");
+  await expect(readout).toHaveValue("105");
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveValue("110");
+
+  await readout.fill("108");
+  await readout.blur();
+  await expect(readout).toHaveValue("108");
+  await expect(slider).toHaveValue("110");
 });
 
 /**
- * The tick row is the drawn form of the marks `snapTempo` stops on, and the
- * slider's own bounds are the range those marks span. The row is built from the
- * model's constants and the bounds are attributes in `index.html`, which cannot
- * import anything, so this is where the three are held to one another.
+ * The tick row is the tempo scale a reader aims at, and the slider's own bounds
+ * are the range it spans. The row is built from the model's constants and the
+ * bounds are attributes in `index.html`, which cannot import anything, so this
+ * is where the three are held to one another.
  */
 test("the tick row and the slider's bounds are the tempo range the model names", async ({
   page,
 }) => {
   const { limit, interval } = await page.evaluate(async () => {
-    const { TEMPO_LIMIT, TEMPO_SNAP } = await import("/model.js");
-    return { limit: TEMPO_LIMIT, interval: TEMPO_SNAP.interval };
+    const { TEMPO_LIMIT, TEMPO_TICK_INTERVAL } = await import("/model.js");
+    return { limit: TEMPO_LIMIT, interval: TEMPO_TICK_INTERVAL };
   });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
 
@@ -233,7 +244,7 @@ test("storage from the wider meter domain is retired instead of repaired", async
 
   await page.reload();
 
-  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("96");
+  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("120");
   await expect
     .poll(() =>
       page.evaluate(() => ({
@@ -409,95 +420,136 @@ for (const [field, control, expected] of [
 }
 
 /**
- * Level and Balance stop on marks the way the tempo does. Asserting a particular
- * value at a particular offset would pin the browser's own mapping from pointer
- * position to value, half a thumb width inset at either end, so what is asserted
- * is the property the snap has: a dragged value is either on a mark or clear of
- * one by more than the tolerance, never stranded beside it.
+ * A range control silently rounds a value that is not on its step onto one that
+ * is, firing no event, so a default off the grid leaves three different values
+ * in play: the thumb on the nearest step, the readout speaking the Configuration
+ * it was rendered from, and the audio graph playing that same unreachable
+ * number. Nothing on screen says so — the thumb looks placed and the readout
+ * looks right — which is why this asserts the two against each other rather than
+ * either against a literal, and why the arrow key follows: a first step from an
+ * off-grid value moves the Configuration by the mismatch instead of by the step
+ * the control promises.
  *
- * Both are counted in the percent their marks are spaced in rather than in the
- * fraction the slider carries, because that is the domain the snap works in and
- * a comparison in the other one is a comparison against float dust.
+ * Every test gets its own browser context, so nothing is stored and this is the
+ * default a first run puts on screen.
  */
-for (const { name, control, interval, tolerance } of [
-  { name: "Level", control: "4/4 level", interval: 10, tolerance: 2 },
-  { name: "Balance", control: "4/4 stereo balance", interval: 25, tolerance: 5 },
+test("a freshly loaded Level reads as the value its slider is holding", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const slider = page.getByRole("slider", { name: "4/4 level" });
+  const readout = page.locator('[data-output="volume"]');
+
+  const held = Math.round(Number(await slider.inputValue()) * 100);
+  await expect(readout, "the Level readout and its thumb disagree on a fresh load").toHaveText(
+    `${held}%`,
+  );
+
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(readout).toHaveText(`${held + 5}%`);
+});
+
+/**
+ * What each mix slider costs its listener in reach. The Level costs nothing: a
+ * drag can leave it on all twenty-one of the positions it steps to. The Balance
+ * costs exactly two — the step either side of centre, which the centre tolerance
+ * pulls in — and those two are named here rather than derived from the tolerance
+ * so that widening it has to be argued for rather than absorbed.
+ *
+ * The table this replaced had marks at every quarter and swallowed sixteen of
+ * the Balance's forty-one positions, which is what a test asserting only "on a
+ * mark or clear of one" could not see: a snap that never fires and a snap that
+ * eats a third of the control both satisfy it.
+ *
+ * Values are counted in whole percent rather than compared as the fractions the
+ * slider carries, because a comparison in the other domain is a comparison
+ * against float dust.
+ */
+for (const { name, control, minimum, maximum, unreachable } of [
+  { name: "Level", control: "4/4 level", minimum: 0, maximum: 100, unreachable: [] },
+  {
+    name: "Balance",
+    control: "4/4 stereo balance",
+    minimum: -100,
+    maximum: 100,
+    unreachable: [-5, 5],
+  },
 ]) {
-  test(`dragging the ${name} stops on its marks`, async ({ page }) => {
+  test(`a ${name} drag reaches every position the slider steps to`, async ({ page }) => {
     await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+    const step = await page.evaluate(async () => {
+      const { MIX_STEP } = await import("/model.js");
+      return Math.round(MIX_STEP * 100);
+    });
+    const expected = [];
+    for (let percent = minimum; percent <= maximum; percent += step) expected.push(percent);
     const slider = page.getByRole("slider", { name: control });
-    const track = await slider.boundingBox();
-    const y = track.y + track.height / 2;
-    const from = track.x + track.width * 0.2;
-    const span = Math.round(track.width * 0.5);
 
-    await page.mouse.move(from, y);
-    await page.mouse.down();
-    const dragged = [];
-    for (let offset = 0; offset <= span; offset += 2) {
-      await page.mouse.move(from + offset, y);
-      dragged.push(Math.round(Number(await slider.inputValue()) * 100));
-    }
-    await page.mouse.up();
+    const dragged = await draggedValues(page, slider, expected.length);
+    const seen = new Set(dragged.map((value) => Math.round(Number(value) * 100)));
 
-    const distanceToMark = (percent) => {
-      const remainder = ((percent % interval) + interval) % interval;
-      return Math.min(remainder, interval - remainder);
-    };
     expect(
-      dragged.filter((percent) => {
-        const distance = distanceToMark(percent);
-        return distance > 0 && distance <= tolerance;
-      }),
-      `${name} settled beside a mark rather than on it: ${dragged.join(", ")}`,
-    ).toEqual([]);
-    // Both confirm the drag moved and that it crossed marks rather than sitting
-    // in one gap the whole way, which would satisfy the assertion above
-    // trivially.
-    expect(dragged.at(-1)).toBeGreaterThan(dragged[0]);
-    expect(new Set(dragged.filter((percent) => percent % interval === 0)).size).toBeGreaterThan(1);
+      expected.filter((percent) => !seen.has(percent)),
+      `the ${name} positions a drag could not reach`,
+    ).toEqual(unreachable);
   });
 }
 
 /**
- * Centre is the mark that has to be exactly reachable, because `panLabel` calls
- * anything inside four percent of the middle "Centre" — a reading a drag could
- * not make true before, leaving the word over a Balance that was audibly off to
- * one side. The tolerance is wider than that window, so what reads Centre is
- * centred.
+ * Centre has to be exactly reachable, because `panLabel` calls anything inside
+ * four percent of the middle "Centre" — a reading a drag could not make true
+ * before, leaving the word over a Balance that was audibly off to one side.
+ *
+ * Reaching it is not the assertion, though: the slider steps to zero like any
+ * other position, so a pointer would find it with no snap at all. What the snap
+ * buys is that centre is sticky, and stickiness is measured rather than assumed
+ * — the run of pointer positions that leave the slider centred is three steps
+ * wide where an ordinary position's is one, because the tolerance takes the step
+ * either side. Comparing the two runs against each other keeps this independent
+ * of the browser's own mapping from pointer position to value, and of how wide
+ * the track happens to be drawn.
  */
-test("dragging the Balance through the middle lands on centre exactly", async ({ page }) => {
+test("a Balance drag through the middle sticks to centre", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const slider = page.getByRole("slider", { name: "4/4 stereo balance" });
   const readout = page.locator('[data-output="pan"]');
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
+  const middle = track.x + track.width / 2;
+  // A fifth of the track either side of the middle, which is several steps'
+  // worth at any width this is drawn at: wide enough that the neighbouring
+  // positions are crossed whole, and the assertion below confirms it was.
+  const reach = Math.round(track.width * 0.2);
 
-  await page.mouse.move(track.x + track.width * 0.3, y);
+  await page.mouse.move(middle - reach, y);
   await page.mouse.down();
   const crossing = [];
-  for (let offset = -6; offset <= 6; offset += 1) {
-    await page.mouse.move(track.x + track.width / 2 + offset, y);
+  for (let offset = -reach; offset <= reach; offset += 1) {
+    await page.mouse.move(middle + offset, y);
     crossing.push(await slider.inputValue());
   }
   // Released on the middle rather than wherever the sweep ended, because what
-  // the sweep shows is that centre is reachable and what this shows is that it
-  // is what a pointer resting there leaves behind.
-  await page.mouse.move(track.x + track.width / 2, y);
+  // the sweep shows is how the slider behaves on the way past centre and what
+  // this shows is what a pointer resting there leaves behind.
+  await page.mouse.move(middle, y);
   await page.mouse.up();
 
-  expect(crossing, "a pointer crossing the middle never landed on centre").toContain("0");
+  const run = (value) => crossing.filter((held) => held === value).length;
+  expect(crossing, "the sweep did not cross the positions it compares centre against").toEqual(
+    expect.arrayContaining(["-0.15", "0.15"]),
+  );
+  expect(run("0"), "centre held the pointer no longer than an ordinary position").toBeGreaterThan(
+    2 * run("0.1"),
+  );
   await expect(slider).toHaveValue("0");
   await expect(readout).toHaveText("Centre");
 });
 
 /**
- * Only the pointer snaps. A keyboard step of one away from a mark would be
- * pulled straight back onto it and the slider would be stuck there for good, so
- * the arrow keys reach the values between the marks and hold them. Both sliders
- * are stepped off a mark, which is the case the snap would undo.
+ * The keyboard never snaps, so the mix sliders step by the five percentage
+ * points their grid is written in — including the Balance, whose first step
+ * either side of centre is the one position a drag cannot leave it on.
  */
-test("the mix arrow keys reach and hold the values between the marks", async ({ page }) => {
+test("the mix sliders increment by five percentage points", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const level = page.getByRole("slider", { name: "4/4 level" });
   const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
@@ -505,38 +557,52 @@ test("the mix arrow keys reach and hold the values between the marks", async ({ 
   await level.fill("0.5");
   await level.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(level).toHaveValue("0.51");
-  await expect(page.locator('[data-output="volume"]')).toHaveText("51%");
+  await expect(level).toHaveValue("0.55");
+  await expect(page.locator('[data-output="volume"]')).toHaveText("55%");
 
-  await balance.fill("0.5");
+  // Stepped off centre rather than from anywhere else, because this is the one
+  // position a drag cannot leave the Balance on: the centre tolerance takes it,
+  // and the keyboard is what still reaches it.
+  await balance.fill("0");
   await balance.focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.49");
-  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 49%");
+  await page.keyboard.press("ArrowRight");
+  await expect(balance).toHaveValue("0.05");
+  await expect(page.locator('[data-output="pan"]')).toHaveText("Right 5%");
 });
 
 /**
  * A press can end without the slider ever seeing a release: the context menu
  * takes a right button's, and a press abandoned when the window loses the
- * pointer ends the same way. One flag serves both sliders and every rhythm, so a
- * press left raised on one of them would go on snapping the others — and the
- * first arrow key after it would be pulled straight back onto the mark it
- * stepped off. Pressing a key ends the drag for that reason, and this abandons
- * the press on one slider to step the other.
+ * pointer ends the same way. One flag serves every rhythm's Balance, so a press
+ * left raised on one of them would go on centring the others — and the first
+ * arrow key off centre would be pulled straight back onto it, leaving the slider
+ * stuck there for good. Pressing a key ends the drag for that reason.
+ *
+ * The step is off centre because that is where a raised flag shows: anywhere
+ * else the tolerance has nothing to say, and the test would pass with the
+ * backstop deleted.
  */
 test("a press the mix is never released from leaves the arrow keys unsnapped", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
-  const level = page.getByRole("slider", { name: "4/4 level" });
   const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
-  const track = await level.boundingBox();
+  const track = await balance.boundingBox();
 
   await page.mouse.move(track.x + track.width * 0.3, track.y + track.height / 2);
   await page.mouse.down({ button: "right" });
 
-  await balance.fill("0.5");
+  await balance.fill("0");
   await balance.focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(balance).toHaveValue("0.49");
+  await page.keyboard.press("ArrowRight");
+  await expect(balance).toHaveValue("0.05");
+});
+
+test("the Balance slider marks the centred 50% track position", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const track = await page.locator(".balance-slider").boundingBox();
+  const marker = await page.locator(".balance-midpoint").boundingBox();
+
+  expect(marker.x + marker.width / 2).toBeCloseTo(track.x + track.width / 2, 0);
+  expect(marker.height).toBeGreaterThan(0);
 });
 
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
@@ -771,7 +837,7 @@ test("sound customization clears preset selection and persists", async ({ page }
   // A preset button carries its name and a notation preview, so its accessible
   // name is the whole summary; the card its delete button names is what stays
   // addressable once every Preset's identifier is generated.
-  const preset = presetCard(page, "4/4").locator(".preset-button");
+  const preset = presetCard(page, "4/4 8ths").locator(".preset-button");
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
 
@@ -785,7 +851,7 @@ test("sound customization clears preset selection and persists", async ({ page }
 
   await page.reload();
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await expect(presetCard(page, "4/4").locator(".preset-button")).toHaveAttribute(
+  await expect(presetCard(page, "4/4 8ths").locator(".preset-button")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -805,15 +871,44 @@ test("sound customization clears preset selection and persists", async ({ page }
 test("a first load seeds the example Presets into storage", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
 
-  await expect(presetCard(page, "4/4")).toBeVisible();
-  await expect(presetCard(page, "4/4 + 3/4")).toBeVisible();
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() =>
-        JSON.parse(localStorage.getItem("polynome-presets-v2") ?? "null")?.map(({ name }) => name),
+        JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "null")?.map(({ name }) => name),
       ),
     )
-    .toEqual(["4/4", "4/4 + 3/4"]);
+    .toEqual(["4/4 8ths", "4/4 Triplets"]);
+});
+
+test("Alt+Shift+P restores factory Presets outside form controls", async ({ page }) => {
+  await savePreset(page, "Custom");
+  const storedNames = () =>
+    page.evaluate(() =>
+      JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "[]").map(({ name }) => name),
+    );
+
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  await bpm.focus();
+  await page.keyboard.press("Alt+Shift+P");
+  await expect.poll(storedNames).toContain("Custom");
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await presetButton(page, "Custom").focus();
+  await page.keyboard.press("Alt+Shift+P");
+  await expect(page.getByRole("status")).toHaveText("Factory presets restored");
+  await expect.poll(storedNames).toEqual(["4/4 8ths", "4/4 Triplets"]);
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetButton(page, "Custom")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Close presets" })).toBeFocused();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetButton(page, "Custom")).toHaveCount(0);
 });
 
 /**
@@ -823,32 +918,31 @@ test("a first load seeds the example Presets into storage", async ({ page }) => 
  */
 test("a deleted example Preset stays deleted across a reload", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4 + 3/4");
-  await expect(page.getByRole("status")).toHaveText("4/4 + 3/4 preset deleted");
+  await deletePreset(page, "4/4 Triplets");
+  await expect(page.getByRole("status")).toHaveText("4/4 Triplets preset deleted");
 
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
-  await expect(presetCard(page, "4/4 + 3/4")).toHaveCount(0);
-  await expect(presetCard(page, "4/4")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toHaveCount(0);
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
 
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
   await expect(page.locator(".preset-card")).toHaveCount(0);
 });
 
 test("an example Preset's name is the listener's to take back", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
 
-  await tempo.fill("144");
-  await savePreset(page, "4/4");
+  await typeTempo(page, 144);
+  await savePreset(page, "4/4 8ths");
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
-  await tempo.fill("96");
+  await typeTempo(page, 96);
 
-  await presetCard(page, "4/4").locator(".preset-button").click();
+  await presetCard(page, "4/4 8ths").locator(".preset-button").click();
   await expect(page.getByLabel("BPM")).toHaveValue("144");
 });
 
@@ -866,7 +960,7 @@ test("the preset heading counts the stored Presets before the panel is opened", 
   const count = page.locator("#preset-count");
   const noun = page.locator("#preset-count-noun");
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4 + 3/4");
+  await deletePreset(page, "4/4 Triplets");
 
   await page.reload();
   await expect(heading).toBeHidden();
@@ -874,7 +968,7 @@ test("the preset heading counts the stored Presets before the panel is opened", 
   await expect(noun).toHaveText("preset");
 
   await page.getByRole("button", { name: "Presets" }).click();
-  await deletePreset(page, "4/4");
+  await deletePreset(page, "4/4 8ths");
   await page.reload();
   await expect(heading).toBeHidden();
   await expect(count).toHaveText("0");
@@ -895,7 +989,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Shared");
 
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
   await savePreset(page, "Later");
 
   await expect(presetButton(page, "Later")).toBeVisible();
@@ -914,9 +1008,9 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("polynome-presets-v2"));
+    const stored = JSON.parse(localStorage.getItem("polynome-presets-v3"));
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
-    localStorage.setItem("polynome-presets-v2", JSON.stringify(stored));
+    localStorage.setItem("polynome-presets-v3", JSON.stringify(stored));
   });
   await deletePreset(page, "Doomed");
 
@@ -1023,7 +1117,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Ghost");
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v2", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
 
   await deletePreset(page, "Ghost");
 
@@ -1044,7 +1138,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   // Saving requires an edit, and the edit available to `savePreset` is the
   // tempo, so the arithmetic below starts from a value this test states rather
   // than from whatever it was left at.
-  await page.getByRole("spinbutton", { name: "BPM" }).fill("96");
+  await typeTempo(page, 100);
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toBeHidden();
 
@@ -1058,7 +1152,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   await slider.focus();
   for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("106");
+  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("150");
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
@@ -1095,14 +1189,14 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     await page.goto("/");
     await page.getByRole("button", { name: "Presets", exact: true }).click();
 
-    await page.getByLabel("Tempo in beats per minute").fill("101");
+    await typeTempo(page, 121);
     await openSave.click();
     await name.fill("First");
     await save.click();
     await expect(status).toHaveText("Preset could not be saved in this browser");
     await expect(presetButton(page, "First")).toBeVisible();
 
-    await page.getByLabel("Tempo in beats per minute").fill("102");
+    await typeTempo(page, 122);
     await openSave.click();
     await name.fill("Second");
     await save.click();
@@ -1113,6 +1207,12 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     await expect(status).toHaveText("Preset deletion could not be saved in this browser");
     await expect(presetButton(page, "First")).toHaveCount(0);
     await expect(presetButton(page, "Second")).toBeVisible();
+
+    await page.keyboard.press("Alt+Shift+P");
+    await expect(status).toHaveText("Factory presets could not be restored in this browser");
+    await expect(presetButton(page, "Second")).toHaveCount(0);
+    await expect(presetButton(page, "4/4 8ths")).toBeVisible();
+    await expect(presetButton(page, "4/4 Triplets")).toBeVisible();
   } finally {
     await denied.close();
   }
@@ -1127,7 +1227,7 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
 test("an open preset panel is not rebuilt when only the selection changes", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Watched");
-  const example = presetCard(page, "4/4").locator(".preset-button");
+  const example = presetCard(page, "4/4 8ths").locator(".preset-button");
   await example.click();
   await expect(example).toHaveAttribute("aria-pressed", "true");
 
@@ -1816,7 +1916,7 @@ test("the tempo readout grows in place rather than travelling", async ({ page })
     await page.setViewportSize({ width, height: 900 });
     let sliderTop = null;
 
-    for (const bpm of [30, 96, 300]) {
+    for (const bpm of [30, 95, 300]) {
       await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
       await settleLayout(page);
 
@@ -2195,27 +2295,27 @@ test("saving is offered only while the setup differs from the preset it came fro
   const tempo = page.getByLabel("Tempo in beats per minute");
   const bpm = page.getByRole("spinbutton", { name: "BPM" });
 
-  // The default Configuration is the 4/4 preset exactly, adopted at startup.
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
 
-  await tempo.fill("120");
+  await tempo.fill("125");
   await saveOffered(page);
 
   // Back to what the preset holds: the edit undid itself, so there is again
   // nothing to save. Nothing records that an edit happened, only what it left.
-  await tempo.fill("96");
+  await tempo.fill("120");
   await saveNotOffered(page);
 
-  await tempo.fill("132");
+  await tempo.fill("130");
   await savePreset(page, "Brisk");
   await saveNotOffered(page);
 
-  await tempo.fill("133");
+  await tempo.fill("135");
   await saveOffered(page);
 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await presetButton(page, "Brisk").click();
-  await expect(bpm).toHaveValue("132");
+  await expect(bpm).toHaveValue("130");
   await saveNotOffered(page);
 });
 
@@ -2229,10 +2329,9 @@ test("saving is offered only while the setup differs from the preset it came fro
  * because they are separate code paths and only one of them is a click.
  */
 test("deleting the preset the setup came from offers the save again", async ({ page, context }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const presets = page.getByRole("button", { name: "Presets", exact: true });
 
-  await tempo.fill("137");
+  await typeTempo(page, 137);
   await savePreset(page, "Doomed");
   await saveNotOffered(page);
 
@@ -2261,12 +2360,11 @@ test("deleting the preset the setup came from offers the save again", async ({ p
  * would replace — the count is what proves nothing was duplicated.
  */
 test("deleting another preset leaves the name the save field opens on", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const heading = page.getByRole("heading", { name: /^Presets/ });
 
-  await tempo.fill("138");
+  await typeTempo(page, 138);
   await savePreset(page, "Spare");
-  await tempo.fill("139");
+  await typeTempo(page, 139);
   await savePreset(page, "Kept");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toContainText("4");
@@ -2275,7 +2373,7 @@ test("deleting another preset leaves the name the save field opens on", async ({
   await expect(heading).toContainText("3");
   await saveNotOffered(page);
 
-  await tempo.fill("140");
+  await typeTempo(page, 140);
   await page.getByRole("button", { name: "+ Save" }).click();
   const panel = page.getByRole("region", { name: /^Save preset/ });
   await expect(panel.getByRole("textbox", { name: "Preset name" })).toHaveValue("Kept");
@@ -2290,18 +2388,17 @@ test("deleting another preset leaves the name the save field opens on", async ({
  * submit says which of the two it is about to do before it is pressed.
  */
 test("the save field opens on the preset the setup came from", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const bpm = page.getByRole("spinbutton", { name: "BPM" });
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
   const heading = page.getByRole("heading", { name: /^Presets/ });
 
-  await tempo.fill("144");
+  await typeTempo(page, 144);
   await savePreset(page, "Fast");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(heading).toContainText("3");
 
-  await tempo.fill("145");
+  await typeTempo(page, 145);
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(name).toHaveValue("Fast");
   await expect(name).toBeFocused();
@@ -2328,7 +2425,7 @@ test("closing the save panel abandons what was typed", async ({ page }) => {
 
   await tempo.fill("150");
   await savePreset(page, "Kept");
-  await tempo.fill("151");
+  await typeTempo(page, 151);
 
   await openSave.click();
   await panel.getByRole("textbox", { name: "Preset name" }).fill("Discarded");
@@ -2354,13 +2451,13 @@ test("closing the save panel abandons what was typed", async ({ page }) => {
  * one available.
  */
 test("editing an example preset opens the save field on its name", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
 
-  await tempo.fill("128");
+  await applyStoredPreset(page, "4/4 8ths");
+  await typeTempo(page, 128);
   await page.getByRole("button", { name: "+ Save" }).click();
-  await expect(name).toHaveValue("4/4");
+  await expect(name).toHaveValue("4/4 8ths");
   await expect(panel.getByRole("button", { name: "Replace" })).toBeVisible();
 
   await name.fill("Mine");
@@ -2369,7 +2466,7 @@ test("editing an example preset opens the save field on its name", async ({ page
   await expect(page.getByRole("status")).toHaveText("Mine preset saved");
 
   // Saved under its own name, the Preset now offers itself back for replacing.
-  await tempo.fill("129");
+  await typeTempo(page, 129);
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(name).toHaveValue("Mine");
 });
@@ -2385,12 +2482,11 @@ test("the save chip reads as live for as long as there is something to save", as
   const openSave = page.getByRole("button", { name: "+ Save" });
   const tempo = page.getByLabel("Tempo in beats per minute");
 
-  // The default Configuration is the 4/4 preset exactly: nothing to save, and
-  // nothing to advertise.
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
   await expect(openSave).not.toHaveClass(/\bis-live\b/);
 
-  await tempo.fill("120");
+  await tempo.fill("125");
   await saveOffered(page);
   await expect(openSave).toHaveClass(/\bis-live\b/);
 
@@ -2412,6 +2508,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const reason = page.locator("#preset-save-reason");
 
+  await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
   await expect(openSave).toHaveAttribute("aria-describedby", "preset-save-reason");
   await expect(reason).toHaveText("No changes to save");
@@ -2430,7 +2527,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
   await expect(panel).toBeHidden();
   await expect(openSave).toHaveAttribute("aria-expanded", "false");
 
-  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByLabel("Tempo in beats per minute").fill("125");
   await saveOffered(page);
   await expect(reason).toHaveText("Save this setup as a preset");
   await openSave.click();
@@ -2456,7 +2553,7 @@ test("the submit shows in a glyph and in its name which of the two acts it will 
   await tempo.fill("120");
   await savePreset(page, "Rehearsal");
 
-  await tempo.fill("121");
+  await typeTempo(page, 121);
   await page.getByRole("button", { name: "+ Save" }).click();
   // It opens on the Preset this Configuration came from, which is a name already
   // stored, so this is a replacement before a key is pressed.
@@ -2505,13 +2602,12 @@ test("the save row is a bounded field and a square icon clear of the close contr
  * branches have to place focus rather than let it fall to the document.
  */
 test("saving keeps focus on a control rather than dropping it", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
   const presets = page.getByRole("button", { name: "Presets", exact: true });
   const openSave = page.getByRole("button", { name: "+ Save" });
 
   // Closed: focus returns to the chip the save was started from, which is inert
   // now and holds focus anyway, because it is marked rather than disabled.
-  await tempo.fill("112");
+  await typeTempo(page, 112);
   await savePreset(page, "Unwatched");
   await saveNotOffered(page);
   await expect(openSave).toBeFocused();
@@ -2519,7 +2615,7 @@ test("saving keeps focus on a control rather than dropping it", async ({ page })
   // Open: the Preset the save just produced is on screen and is what the user
   // is most likely to act on next.
   await presets.click();
-  await tempo.fill("113");
+  await typeTempo(page, 113);
   await savePreset(page, "Watched");
   await expect(presetButton(page, "Watched")).toBeFocused();
 });

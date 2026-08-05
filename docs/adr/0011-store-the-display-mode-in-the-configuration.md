@@ -14,7 +14,7 @@ settings pane is open and which subdivision menu is showing. Those are all state
 a reload is expected to clear, and this one is not. A listener who has taken a
 layer at subdivision five down to four Beat controls has said how they want to
 work on it, and finding twenty controls again on the next visit is the same kind
-of loss as finding the tempo back at 96. Keeping it there and persisting it
+of loss as finding the tempo back at 120. Keeping it there and persisting it
 anyway would mean a second stored value keyed by rhythm identifiers — which
 repair regenerates whenever they do not match the shape this module issues — so
 the reference would break exactly when a Configuration arrived from storage

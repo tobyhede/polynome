@@ -4,9 +4,13 @@ Polynome will adopt the visual and interaction model of an external single-file 
 
 Master volume as an editable mix value is superseded by ADR-0007. The
 fractional step-level vocabulary and its amplitude-only voicing are superseded
-by ADR-0008. Every other mix and transport consequence below remains in force,
-and reads the same with `primary`, `secondary`, and `tertiary` substituted for
-`full`, `half`, and `quarter`.
+by ADR-0008. The immutable built-in catalogue is superseded by ADR-0010, which
+is where that correction is read from; the two examples it names are `4/4 8ths`
+and `4/4 Triplets` since [PR #22](https://github.com/tobyhede/polynome/pull/22),
+and they are ordinary Presets rather than a catalogue. Every other mix and
+transport consequence below remains in force, and reads the same with
+`primary`, `secondary`, and `tertiary` substituted for `full`, `half`, and
+`quarter`.
 
 ## Consequences
 
