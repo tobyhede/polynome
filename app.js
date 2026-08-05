@@ -20,6 +20,7 @@ import {
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
 } from "./model.js";
+import { controlCounts, controlIndexAt, controls } from "./grid.js";
 import { createPersistence, readStoredValue } from "./persistence.js";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
@@ -513,19 +514,20 @@ function descendingDivisors(count) {
 }
 
 /**
- * Grouping only: this chooses how many beats share a row and changes nothing
- * else. Step size and spacing belong to the stylesheet and are measured here
- * rather than set.
+ * Grouping only: this chooses how many signature units share a row and changes
+ * nothing else. Step size and spacing belong to the stylesheet and are measured
+ * here rather than set.
  *
- * A beat is indivisible — engraving beams a beat's divisions together in every
- * meter — so a row holds a whole number of beats, and equal rows mean that
- * number must divide the beat count. Taking the divisors largest-first under a
- * sixteen-step ceiling lands on the conventions by itself: 4/4 sixteenths give
- * one row of sixteen, and an irregular meter like 7/8 is prime, so its only
- * options are the whole bar or a beat per row, never a false even split.
+ * A signature unit is indivisible, so a row holds a whole number of them, and
+ * equal rows mean that number must divide the Meter numerator. Taking the
+ * divisors largest-first under a sixteen-step ceiling lands on the conventions
+ * by itself: 4/4 sixteenths give one row of sixteen, and an irregular meter like
+ * 7/8 is prime, so its only options are the whole grid or one signature unit per
+ * row, never a false even split.
  *
  * Width can only narrow that choice further, never make it. When even a single
- * beat is wider than the row, the pattern scrolls rather than shrinking.
+ * signature unit is wider than the row, the pattern scrolls rather than
+ * shrinking.
  */
 function layoutSteps() {
   // Measure every rhythm, then write every rhythm. Interleaving the two costs a
@@ -537,26 +539,26 @@ function layoutSteps() {
   for (const steps of /** @type {NodeListOf<HTMLElement>} */ (
     elements.cycles.querySelectorAll(".steps")
   )) {
-    const beat = steps.querySelector(".beat");
+    const signatureUnit = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
       steps.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    if (!beat || !(available > 0)) continue;
+    if (!signatureUnit || !(available > 0)) continue;
 
-    // A beat is a flex row of fixed-size steps, so its width does not depend on
-    // the grouping being chosen and can be measured before choosing it.
-    const beatWidth = beat.getBoundingClientRect().width;
-    const beatGap = parseFloat(style.columnGap) || 0;
-    const beats = Number(steps.dataset.beats);
-    const stepsPerBeat = Number(steps.dataset.stepsPerBeat);
+    // A signature unit is a flex row of fixed-size controls, so its width does
+    // not depend on the grouping being chosen and can be measured first.
+    const signatureUnitWidth = signatureUnit.getBoundingClientRect().width;
+    const signatureUnitGap = parseFloat(style.columnGap) || 0;
+    const signatureUnits = Number(steps.dataset.signatureUnits);
+    const controlsPerSignatureUnit = Number(steps.dataset.controlsPerSignatureUnit);
     const perRow =
-      descendingDivisors(beats).find(
+      descendingDivisors(signatureUnits).find(
         (candidate) =>
-          candidate * stepsPerBeat <= STEPS_PER_ROW_LIMIT &&
-          candidate * beatWidth + (candidate - 1) * beatGap <= available,
+          candidate * controlsPerSignatureUnit <= STEPS_PER_ROW_LIMIT &&
+          candidate * signatureUnitWidth + (candidate - 1) * signatureUnitGap <= available,
       ) ?? 1;
 
-    plans.push({ steps, perRow, scrolling: beatWidth > available });
+    plans.push({ steps, perRow, scrolling: signatureUnitWidth > available });
   }
 
   for (const { steps, perRow, scrolling } of plans) {
@@ -573,16 +575,16 @@ function layoutSteps() {
  * changes page height, which on a classic-scrollbar platform can toggle the
  * vertical scrollbar and so change this container's width. That settles rather
  * than oscillates, because the grouping is monotone in width — a narrower row
- * can only take the same number of beats or fewer, so it can only produce the
- * same number of rows or more. Losing the scrollbar therefore never makes the
- * page taller, and gaining one never makes it shorter, so each toggle is
- * self-confirming and stops after one pass.
+ * can only take the same number of signature units or fewer, so it can only
+ * produce the same number of rows or more. Losing the scrollbar therefore never
+ * makes the page taller, and gaining one never makes it shorter, so each toggle
+ * is self-confirming and stops after one pass.
  *
  * The exception is a step-size breakpoint sitting inside one scrollbar width of
- * the current viewport, where narrowing shrinks the steps and can fit more beats
- * to a row. Reaching it needs the page height to cross the viewport height at
- * that same width; the browser's own ResizeObserver loop limit ends it after a
- * frame, which is why there is no debounce here to buy.
+ * the current viewport, where narrowing shrinks the controls and can fit more
+ * signature units to a row. Reaching it needs the page height to cross the
+ * viewport height at that same width; the browser's own ResizeObserver loop
+ * limit ends it after a frame, which is why there is no debounce here to buy.
  */
 let laidOutWidth = 0;
 new ResizeObserver((entries) => {
@@ -698,6 +700,7 @@ function RhythmCard({ rhythm, cycle }) {
   const label = rhythmLabel(rhythm);
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
+  const counts = controlCounts(rhythm);
   const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
   return html`
     <article class="rhythm-card${rhythm.muted ? " is-muted" : ""}" data-layer-id=${rhythm.id}>
@@ -747,23 +750,23 @@ function RhythmCard({ rhythm, cycle }) {
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
-      <!-- The controls each beat holds are carried for layoutSteps(), which
-           reads the number to choose how many beats share a row. It is the
-           Subdivision in Subdivision Mode and one in Beat Mode, which is why it
-           is not named for the Subdivision: what the row fits is controls. The
-           Subdivision was carried a second time as a custom property the
-           beat-gap clamp calculated with; that gap is now the same one the steps
-           inside a beat use, so nothing in the stylesheet asks for it any
-           more. -->
+      <!-- The controls each signature unit holds are carried for layoutSteps(),
+           which reads the number to choose how many units share a row. Both
+           counts come from grid.js rather than being derived here: what the row
+           fits is controls, and how many of them a signature unit holds is the
+           Display mode's decision, made once. The Subdivision was carried a
+           second time as a custom property the gap clamp calculated with; that
+           gap is now the same one the controls inside a unit use, so nothing in
+           the stylesheet asks for it any more. -->
       <div
         class="steps"
         role="group"
-        aria-label=${`${label} ${rhythm.displayMode === "beat" ? "beat" : "step"} voices`}
-        data-beats=${rhythm.signature.count}
-        data-steps-per-beat=${rhythm.displayMode === "beat" ? 1 : rhythm.subdivision}
+        aria-label=${`${label} ${controlNoun(rhythm).toLowerCase()} voices`}
+        data-signature-units=${counts.signatureUnits}
+        data-controls-per-signature-unit=${counts.controlsPerSignatureUnit}
         data-display-mode=${rhythm.displayMode}
       >
-        <${Beats} rhythm=${rhythm} />
+        <${SignatureUnits} rhythm=${rhythm} />
       </div>
     </article>
   `;
@@ -888,12 +891,18 @@ function RhythmSettings({ rhythm }) {
            every render.
 
            The step comes from the model rather than being written out here as
-           the hundredth it is, because the grid it sets is what decides which
+           the twentieth it is, because the grid it sets is what decides which
            values these controls can hold at all: anything else is rounded onto
            it silently, so a default or a stored value off the grid arrives on
            screen as a different number than the one this Configuration is
-           playing. A literal here would be a second answer to that question,
-           sitting where nothing that could check it can reach. -->
+           playing. A literal here would be a second answer to that question.
+
+           The minimum beside it is the other half of the grid, because the
+           standard counts steps from it rather than from zero, and it stays a
+           literal because it is this control's own end rather than anything the
+           domain names. The model suite reads this template for both, and
+           measures every default the application ships from the minimum it
+           finds here. -->
       <label class="control-label">
         <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
         <input type="range" min="0" max="1" step=${String(MIX_STEP)} value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
@@ -909,52 +918,54 @@ function RhythmSettings({ rhythm }) {
   `;
 }
 
-// Steps are grouped a beat at a time so a narrow screen can only ever break
-// between beats. `steps.length` is always `signature.count * subdivision`, so
-// every group is full and no row is left ragged.
+// Controls are grouped a signature unit at a time so a narrow screen can only
+// ever break between units. Which unit a control falls in is the control's own,
+// from `grid.js`, so nothing here strides the pattern to work it out; every
+// group is full and no row is left ragged, because a run never crosses a unit.
 //
-// Where a beat starts is marked by a dot the stylesheet draws on `.beat`
+// Where a signature unit starts is marked by a dot the stylesheet draws on `.beat`
 // itself, so nothing here emits it. The steps are evenly spaced and say
 // nothing about grouping, and the first step of a bar cannot say it either:
 // its voice is the listener's to change, and a downbeat switched off is the
 // dimmest circle in the row. A pseudo-element keeps the mark out of the
 // accessibility tree without an `aria-hidden` element to carry it, which is
 // what a purely decorative mark inside a named group should be.
-function Beats({ rhythm }) {
-  const beats = [];
-  for (let start = 0; start < rhythm.steps.length; start += rhythm.subdivision) {
-    beats.push(
-      rhythm.displayMode === "beat"
-        ? [{ step: rhythm.steps[start], index: start, beat: start / rhythm.subdivision }]
-        : rhythm.steps
-            .slice(start, start + rhythm.subdivision)
-            .map((step, offset) => ({ step, index: start + offset, beat: null })),
+function SignatureUnits({ rhythm }) {
+  const noun = controlNoun(rhythm);
+  const signatureUnits = [];
+  for (const [control, { voice, signatureUnit }] of controls(rhythm).entries()) {
+    if (!signatureUnits[signatureUnit]) signatureUnits[signatureUnit] = [];
+    signatureUnits[signatureUnit].push(
+      html`<${GridControl} voice=${voice} control=${control} noun=${noun} />`,
     );
   }
-  return html`${beats.map(
-    (group) => html`
-    <div class="beat">
-      ${group.map(
-        ({ step, index, beat }) => html`<${Step} step=${step} index=${index} beat=${beat} />`,
-      )}
-    </div>
-  `,
-  )}`;
+  return html`${signatureUnits.map((group) => html`<div class="beat">${group}</div>`)}`;
 }
 
-function Step({ step, index, beat }) {
-  const beatMode = beat !== null;
-  const number = beatMode ? beat + 1 : index + 1;
-  const kind = beatMode ? "Beat" : "Step";
+/**
+ * What a Grid control is called for a listener. Beat Mode says "Beat" because a
+ * listener counts a bar in beats and has no use for the written unit's name —
+ * `CONTEXT.md`'s Beat control entry is where that is recorded, and this is the
+ * one place Polynome says it. Subdivision Mode addresses a pattern position and
+ * says "Step", which is the interface's word for it rather than the glossary's.
+ *
+ * Presentation, so it lives here: `grid.js` is read by `configuration.js` and
+ * has no business holding a string neither of them will ever show.
+ */
+function controlNoun(rhythm) {
+  return rhythm.displayMode === "beat" ? "Beat" : "Step";
+}
+
+function GridControl({ voice, control, noun }) {
+  const name = `${noun} ${control + 1}`;
   return html`
     <button
       type="button"
-      class="step step-${step}"
-      data-action=${beatMode ? "beat" : "step"}
-      data-step-index=${index}
-      data-beat-index=${beatMode ? beat : null}
-      aria-label=${`${kind} ${number}: ${step} voice`}
-      title=${`${kind} ${number}: ${step}`}
+      class="step step-${voice}"
+      data-action="control"
+      data-control=${control}
+      aria-label=${`${name}: ${voice} voice`}
+      title=${`${name}: ${voice}`}
     ></button>
   `;
 }
@@ -1071,15 +1082,11 @@ function updateActiveSteps() {
       const drawn = `${rhythm.displayMode}:${activeIndex}`;
       if (!steps || steps.getAttribute("data-active-step") === drawn) continue;
       steps.setAttribute("data-active-step", drawn);
-      const controls = steps.querySelectorAll(".step");
-      controls.forEach((element) => {
+      const stepElements = steps.querySelectorAll(".step");
+      stepElements.forEach((element) => {
         element.classList.remove("is-current");
       });
-      const visibleIndex =
-        rhythm.displayMode === "beat" && activeIndex !== null
-          ? Math.floor(activeIndex / rhythm.subdivision)
-          : activeIndex;
-      const current = controls[visibleIndex];
+      const current = stepElements[controlIndexAt(rhythm, activeIndex)];
       if (!current) continue;
       current.classList.add("is-current");
       // A Beat control stays current for every pulse in its beat, so the class
@@ -1188,10 +1195,12 @@ elements.bpm.addEventListener("change", (event) =>
 );
 /**
  * The slider reports whatever tempo the pointer is over and the Configuration
- * takes it as it comes. Nothing here rounds it toward the tick row's tenths: the
- * slider's own step is five BPM, which is finer than the two either side of a
- * mark such a snap could catch, so it would move no value the control is able to
- * produce. The row below the slider is a scale rather than a set of stops.
+ * takes it as it comes. Nothing here rounds it toward the tempos the tick row
+ * draws: the slider's own step is five BPM, which is coarser than the two either
+ * side of a mark such a snap could catch, so every tempo it would have moved is
+ * one this control cannot produce in the first place — a drag lands exactly on a
+ * mark or a full five from one, and never in between. The row below the slider
+ * is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
   const dragged = /** @type {HTMLInputElement} */ (event.target).value;
@@ -1647,24 +1656,15 @@ elements.cycles.addEventListener("click", (event) => {
           displayMode: actionElement.dataset.displayMode,
         });
       break;
-    case "beat": {
+    // One action for both Display modes: the listener pressed a control, and
+    // which pattern positions that control runs across is the layer's to say.
+    case "control": {
       if (!rhythm) return;
       applyEdit({
-        type: "advance-beat-voice",
+        type: "advance-control-voice",
         cycleId: cycle.id,
         rhythmId: rhythm.id,
-        beat: Number(actionElement.dataset.beatIndex),
-      });
-      break;
-    }
-    case "step": {
-      if (!rhythm) return;
-      const index = Number(actionElement.dataset.stepIndex);
-      applyEdit({
-        type: "advance-step-voice",
-        cycleId: cycle.id,
-        rhythmId: rhythm.id,
-        position: index,
+        control: Number(actionElement.dataset.control),
       });
       break;
     }

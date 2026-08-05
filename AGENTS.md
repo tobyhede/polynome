@@ -22,6 +22,7 @@ The core promise is:
 ## Architecture
 
 - `configuration.js`: browser-independent editable Configuration, including Sequence transitions, Presets, edit availability, and transport consequences.
+- `grid.js`: a rhythm layer's meter-relative grid — the canonical pattern, repair, and the Grid controls a Display mode lays out over it. It imports `model.js` and nothing else, so `configuration.js` and `app.js` both read it, and it must remain browser- and DOM-independent.
 - `model.js`: pure musical-time and value maths. It must remain browser- and DOM-independent.
 - `metronome.js`: Web Audio nodes, transport, look-ahead scheduler, and the routing from an edit's transport consequence to the narrowest engine method that satisfies it.
 - `persistence.js`: deferred writes and storage-key retirement, both free of any host environment so they can be driven by tests. Retirement discards an old key; it never carries its value into the new one, which is the migration the rule below rules out.
@@ -51,7 +52,7 @@ Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup dest
 
 `model.js` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`) and the increments its stepped controls move in (`TEMPO_STEP`, `MIX_STEP`). `configuration.js` imports it rather than restating the literals, so a bound or a name is only ever changed in one place. A step belongs there for the same reason a bound does, and for one more: it decides which values a control can hold at all, so every default is held against it — see [ADR-0014](docs/adr/0014-snap-only-the-balance-and-hold-defaults-to-the-step.md).
 
-Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each beat into Pattern positions.
+Both Meter components are selects. Numerators range from 1 through 16 and denominators are the conventional written units `1`, `2`, `4`, and `8`; `4/4` is the default, at 120 BPM. BPM sets the shared primary-beat rate: a Meter lasts `numerator × 60 / BPM` seconds, regardless of denominator, and Subdivision alone divides each signature unit into Pattern positions.
 
 An edit's consequence names the narrowest engine response that satisfies it. `restart-transport-run` begins a new run; `update-step-voices` and `update-mix` patch a run in progress; `update-configuration` records a change the engine must hold but nothing audible depends on, which is what a denominator edit is; `none` reports an edit that changed nothing.
 
@@ -97,6 +98,8 @@ npm run check
 
 `npm test` is the fast loop. `npm run check` is what CI runs, and adds, in order: `npm run lint` (Biome), `npm run types` (TypeScript), the coverage thresholds, the browser tests, and the site build. `npm run format` writes the fixes Biome can apply itself.
 
+The browser tests take port 4174 and do not attach to a server already on it, so two checkouts running them at once will find the second one refused. `POLYNOME_TEST_PORT=4591 npm run check` moves one of them out of the way. Read the exit code rather than the last lines of output, and do not pipe: the browser reporter is long enough to invite `| tail`, and the status of `a | b` is `b`'s, so a red suite reads as a green one. Redirect to a file and echo `$?`, or set `pipefail` first.
+
 Two ratchets guard against drift, and both are set where the code already stands rather than where it might ideally be. Raise either when the real figure rises; do not lower one to make a change fit.
 
 Coverage is enforced at 95% lines, 87% branches, and 94% functions, measured over the source modules only — `test/` and `e2e/` are excluded because coverage of a test file measures nothing.
@@ -105,7 +108,7 @@ TypeScript runs with `noImplicitAny` and `strictNullChecks` off. That is the rat
 
 `test/syntax.test.js` parses every JavaScript file git tracks. It replaced a hand-written list of `node --check` calls that named seven files and silently omitted `server.mjs`, `playwright.config.js`, and three build scripts. Nothing needs adding when a new source file appears — committing it is what enrols it.
 
-Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
+Any change to Configuration transitions, signatures, pulse generation, or step semantics must include or update tests in `test/configuration.test.js`. Grid controls, the canonical pattern, and pattern repair are tested in `test/grid.test.js`, which drives the module directly rather than through `createConfiguration` — it sits beneath the module that repairs and has to be testable without it. Timing-maths changes must include or update tests in `test/model.test.js`. Audio context lifecycle and scheduler behaviour is tested in `test/metronome-audio.test.js`.
 
 Browser interaction changes must update `e2e/` when the behavior is observable there. Click voicing is asserted against the exported `SOUND_PROFILES` and `CLICK_ENVELOPE` values, so retuning a sound must never require editing frame numbers in `e2e/audio-graph.spec.js`.
 
@@ -115,7 +118,7 @@ Workflows are linted by actionlint, in CI only, since the binary does not come f
 
 Also manually verify the audio-specific behavior Playwright cannot assess:
 
-1. Presets `4/4 8ths` and `4/4 Triplets` sound as configured. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
+1. Presets `4/4 8ths` and `4/4 Triplets` each sound as one 4/4 Beat Mode rhythm at 120 BPM, with Subdivision two and three respectively. Seeding writes them on a first run, so a profile they have been renamed or deleted in needs its preset key cleared before this check has anything to listen to.
 2. Headphone separation at hard left and hard right through physical output.
 3. Primary, secondary, and tertiary Step voices are perceptually distinguishable at equal gain, and `off` is silent. Check this on a `low` layer, not the default `high`: `low` is the worst case, because its voices land lowest and the ear is least sensitive there.
 4. Numerator and Subdivision edits restart cleanly while playing; denominator edits preserve the Transport run.

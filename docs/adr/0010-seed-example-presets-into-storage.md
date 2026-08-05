@@ -1,5 +1,10 @@
 # Seed the example Presets into storage
 
+The two example names and Configurations below, and references to their v2
+storage key, are superseded by
+[ADR-0015](0015-refine-defaults-and-sliders.md). The seeding predicate and the
+ordinary-Preset behaviour this decision establishes remain in force.
+
 Polynome writes its two examples, `4/4` and `4/4 + 3/4`, into `localStorage` the first time it runs, as ordinary Presets. From that write on they are renameable, replaceable and deletable like any other, and "built-in" stops being a kind of Preset. Where Presets are kept does not change, and neither does anything ADR-0006 decided about reads treating storage as untrusted input; this decides what the store holds on a first run, not where the store is.
 
 The two examples are `4/4 8ths` and `4/4 Triplets` since [PR #22](https://github.com/tobyhede/polynome/pull/22), and the key they are written under is `polynome-presets-v3`. Every consequence below reads the same with those two names substituted for `4/4` and `4/4 + 3/4` and `polynome-presets-v3` for `polynome-presets-v2`, with one exception that does not survive the substitution and is corrected where it stands. Which Presets are seeded was never what this decision settled — the seeding predicate is, and it is unchanged: `null` seeds, a written key never does. Why the key moved is corrected in [ADR-0006](0006-store-presets-in-browser-local-storage.md), where the retirement rule it contradicts is recorded.
