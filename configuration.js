@@ -584,10 +584,12 @@ function envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm) {
 export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
   const cycles = createSequenceTempoCurves(valid.bpm, valid.sequence.cycles).map(
-    ({ id, active, incomingBpm, targetBpm, outgoingBpm }) => {
-      const cycle = valid.sequence.cycles.find((candidate) => candidate.id === id);
-      const { shape, amount } = cycle.envelope;
-      const repetitions = cycle.repetitions;
+    ({ id, active, incomingBpm, targetBpm, outgoingBpm }, index) => {
+      // The fold walks these same Cycles in this same order, so the position is
+      // the Cycle — searching for the id it was just handed would be a second
+      // answer to a question already settled.
+      const { envelope, repetitions } = valid.sequence.cycles[index];
+      const { shape, amount } = envelope;
       const span = ` over ${repetitions} ${repetitions === 1 ? "repetition" : "repetitions"}`;
       return {
         id,

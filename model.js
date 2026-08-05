@@ -94,7 +94,14 @@ export const ENVELOPE = Object.freeze({
   PEAK: "peak",
 });
 
-export const ENVELOPE_LIMIT = Object.freeze({
+/**
+ * Reached with a shape a stored Configuration supplies, so it is a `lookup` for
+ * the reason that helper exists: `ENVELOPE_LIMIT.toString` on a plain object
+ * answers with a function, which survives the truthiness check that decides a
+ * shape is known and then destructures to an undefined range. The amount is
+ * clamped against that range, and `NaN` is what a Cycle ends up storing.
+ */
+export const ENVELOPE_LIMIT = lookup({
   flat: Object.freeze({ minimum: -120, maximum: 120 }),
   up: Object.freeze({ minimum: 1, maximum: 120 }),
   down: Object.freeze({ minimum: 1, maximum: 120 }),

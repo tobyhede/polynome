@@ -343,6 +343,21 @@ function renderTransport() {
     String(playing || state.bpm <= TEMPO_LIMIT.minimum),
   );
   elements.bpmUp.setAttribute("aria-disabled", String(playing || state.bpm >= TEMPO_LIMIT.maximum));
+  renderDisplayedTempo(displayedBpm);
+  updatePlayButton();
+}
+
+/**
+ * Everything about the readout that follows the number rather than the state
+ * behind it: the size of the glyphs, the gap above them, the glitch at the top
+ * of the range, and how much of the tick row has been passed.
+ *
+ * It is separate because a playing transport writes a new number every frame
+ * without going through `renderTransport` — a full render per frame would redraw
+ * the whole panel — and a number that changed while none of this followed left
+ * the digits at one tempo's size with the ticks marking another.
+ */
+function renderDisplayedTempo(displayedBpm) {
   const progress = (displayedBpm - 30) / 270;
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
@@ -402,7 +417,6 @@ function renderTransport() {
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
     tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= displayedBpm);
   });
-  updatePlayButton();
 }
 
 function PresetList({ presets, pendingDeleteId }) {
@@ -1236,10 +1250,11 @@ function updateActiveSteps() {
     return;
   }
 
-  const liveBpm = Math.round(engine.activeBpm() ?? state.bpm);
-  if (elements.bpm.value !== String(liveBpm)) {
-    elements.bpm.value = String(liveBpm);
-    elements.bpmSlider.value = String(liveBpm);
+  const liveBpm = String(Math.round(engine.activeBpm() ?? state.bpm));
+  if (elements.bpm.value !== liveBpm) {
+    elements.bpm.value = liveBpm;
+    elements.bpmSlider.value = liveBpm;
+    renderDisplayedTempo(Number(liveBpm));
   }
 
   const position = engine.activePosition();
@@ -1340,10 +1355,23 @@ function toggleRhythmSettings(rhythmId) {
   renderCycles();
 }
 
-function toggleCycleSettings(cycleId) {
+/**
+ * The pencil survives the redraw and can hold focus across it, which is why it
+ * needs nothing said about it here. The envelope mark does not: it is only
+ * drawn while the drawer is closed, so opening the drawer from it removes the
+ * control that was pressed and drops focus to the document, and the next Tab
+ * restarts from the top of the page. Focus goes to the pencil, which is the
+ * other control for the drawer that was just opened.
+ */
+function toggleCycleSettings(cycleId, { refocus = false } = {}) {
   if (openCycles.has(cycleId)) openCycles.delete(cycleId);
   else openCycles.add(cycleId);
   renderCycles();
+  if (!refocus) return;
+  focusWithin(
+    elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycleId)}"]`),
+    '[data-action="toggle-cycle-settings"]',
+  );
 }
 
 /**
@@ -1786,7 +1814,9 @@ elements.cycles.addEventListener("click", (event) => {
       break;
     }
     case "toggle-cycle-settings":
-      toggleCycleSettings(cycle.id);
+      toggleCycleSettings(cycle.id, {
+        refocus: actionElement.classList.contains("envelope-mark"),
+      });
       break;
     // The magnitude survives a change of shape, and which magnitude that is
     // belongs to the vocabulary rather than to this listener: the edit carries

@@ -87,6 +87,11 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
       cycles: [
         { rhythms: [{}] },
         { envelope: { shape: "unknown", amount: 40 }, rhythms: [{}] },
+        // An inherited name is the shape a stored Configuration is most likely
+        // to arrive carrying by accident, and the one a table with a prototype
+        // answers for: it has to repair like any other name nobody wrote.
+        { envelope: { shape: "toString", amount: 40 }, rhythms: [{}] },
+        { envelope: { shape: "constructor", amount: 40 }, rhythms: [{}] },
         { envelope: { shape: "flat", amount: 0 }, rhythms: [{}] },
         { envelope: { shape: "up", amount: 35 }, rhythms: [{}] },
       ],
@@ -97,6 +102,8 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
     configuration.sequence.cycles.map(({ envelope }) => envelope),
     [
       { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 40 },
+      { shape: "flat", amount: 40 },
       { shape: "flat", amount: 40 },
       { shape: "flat", amount: 0 },
       { shape: "up", amount: 35 },
@@ -1697,6 +1704,8 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "curve", amount: 20 },
+    { type: "set-cycle-envelope", cycleId: cycle.id, shape: "toString", amount: 20 },
+    { type: "set-cycle-envelope", cycleId: cycle.id, shape: "constructor", amount: 20 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "flat", amount: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },

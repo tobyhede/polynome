@@ -1531,6 +1531,15 @@ h1.is-glitching {
     height: 34px;
   }
 
+  /* The mark is an icon button by class and takes that shrink with the rest of
+     them, but it holds a 26px glyph rather than a centred glyph of its own, and
+     it should not change shape at a breakpoint. Restated at the size it is
+     drawn at everywhere else. */
+  .envelope-mark {
+    width: 44px;
+    height: 36px;
+  }
+
   .steps {
     --step-size: 52px;
 

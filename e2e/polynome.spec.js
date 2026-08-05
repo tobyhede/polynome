@@ -188,9 +188,13 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
   const dots = page.locator(".repeat-dot").last();
   expect((await mark.boundingBox()).x).toBeGreaterThan((await dots.boundingBox()).x);
 
+  // Opening the drawer removes the control that was pressed, so focus has to go
+  // somewhere deliberate rather than to the document — the pencil, which is the
+  // other control for the drawer it just opened.
   await mark.click();
   await expect(cycleDrawer(page)).toBeVisible();
   await expect(mark).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit Cycle envelope" })).toBeFocused();
 });
 
 /**
@@ -273,7 +277,11 @@ test("Cycle envelope shapes preserve useful magnitude and direction", async ({ p
   await expect(amount).toHaveValue("20");
   await expect(tempo).toHaveText("96 → 116");
 
+  // Blurred explicitly: the field commits on `change`, and leaving that to the
+  // click on the next control makes the commit a side effect of where the
+  // pointer went rather than something this test asked for.
   await amount.fill("40");
+  await amount.blur();
   await drawer.getByRole("button", { name: "Down" }).click();
   await expect(amount).toHaveValue("40");
   await expect(tempo).toHaveText("96 → 56");
@@ -342,10 +350,14 @@ test("the envelope amount accepts either minus, clamps, and refuses a fraction",
   await amount.blur();
   await expect(amount).toHaveValue("−45");
 
+  // 120 is the far end of every shape's range in ENVELOPE_LIMIT, which is what
+  // an amount past it is clamped to.
   await amount.fill("400");
   await amount.blur();
   await expect(amount).toHaveValue("120");
 
+  // A fraction is refused outright rather than clamped, so the field is left
+  // reading the amount the envelope kept.
   await amount.fill("12.5");
   await amount.blur();
   await expect(amount).toHaveValue("120");

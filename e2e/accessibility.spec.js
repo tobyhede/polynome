@@ -129,6 +129,15 @@ test("active and inactive Cycle envelope drawers have no accessibility violation
   await expectNoViolations(page);
 });
 
+test("the closed Cycle's envelope mark has no accessibility violations", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await page.locator(".cycle-settings").getByRole("button", { name: "Up" }).click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+
+  await expect(page.locator(".envelope-mark")).toBeVisible();
+  await expectNoViolations(page);
+});
+
 test("Subdivision Mode has no accessibility violations", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.getByRole("button", { name: "4/4 subdivision" }).click();
