@@ -1328,6 +1328,47 @@ test("a Cycle envelope clamped at the tempo ceiling keeps the amount it stores",
  * nothing — while the envelope it was given survives for the day its
  * repetitions come back.
  */
+/**
+ * The stretch of the tempo control a run actually moves through, which the
+ * transport draws its band from. A ramp passes through every tempo between the
+ * two it joins, so the endpoints are the whole of what has to be collected, and
+ * a Cycle that is switched off contributes nothing but the tempo it passes on.
+ */
+test("the described tempo range spans every tempo a traversal visits", () => {
+  const ranged = createConfiguration({
+    bpm: 100,
+    sequence: {
+      cycles: [
+        { envelope: { shape: "up", amount: 40 }, repetitions: 1, rhythms: [{}] },
+        { envelope: { shape: "down", amount: 60 }, repetitions: 1, rhythms: [{}] },
+        { envelope: { shape: "peak", amount: 30 }, repetitions: 1, rhythms: [{}] },
+      ],
+    },
+  });
+
+  // 100 up to 140, down to 80, and a Peak reaching 110 before returning.
+  assert.deepEqual(describeConfiguration(ranged).tempoRange, { minimum: 80, maximum: 140 });
+
+  const flat = createConfiguration({
+    bpm: 96,
+    sequence: { cycles: [{ repetitions: 1, rhythms: [{}] }] },
+  });
+  // Nothing moves, so the range is the one tempo it holds — which is what tells
+  // the transport there is no band worth drawing.
+  assert.deepEqual(describeConfiguration(flat).tempoRange, { minimum: 96, maximum: 96 });
+
+  const inactive = createConfiguration({
+    bpm: 96,
+    sequence: {
+      cycles: [
+        { envelope: { shape: "up", amount: 24 }, repetitions: 1, rhythms: [{}] },
+        { envelope: { shape: "up", amount: 90 }, repetitions: 0, rhythms: [{}] },
+      ],
+    },
+  });
+  assert.deepEqual(describeConfiguration(inactive).tempoRange, { minimum: 96, maximum: 120 });
+});
+
 test("an inactive Cycle passes its tempo through and keeps its envelope", () => {
   const configuration = createConfiguration({
     bpm: 100,

@@ -92,7 +92,7 @@ const types = {
   ".png": "image/png",
 };
 
-createServer(async (request, response) => {
+const listener = createServer(async (request, response) => {
   try {
     const requestedPath = decodeURIComponent(
       new URL(request.url, `http://${request.headers.host}`).pathname,
@@ -133,7 +133,13 @@ createServer(async (request, response) => {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found");
   }
-}).listen(port, "0.0.0.0", () => {
-  console.log(`Polynome running at http://localhost:${port}`);
+});
+
+// The port that was actually bound rather than the one that was asked for. They
+// are the same for every number, and different for zero — which is how a caller
+// asks the operating system to pick a free one, and the only way to find out
+// what it picked.
+listener.listen(port, "0.0.0.0", () => {
+  console.log(`Polynome running at http://localhost:${listener.address().port}`);
   if (reloading) startWatching();
 });

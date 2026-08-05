@@ -609,8 +609,22 @@ export function describeConfiguration(configuration) {
     },
   );
 
+  /*
+   * The span of tempos a complete traversal actually visits, which is narrower
+   * than the range the tempo control offers and is what the transport draws its
+   * band from. A ramp passes through every tempo between the two it joins, so
+   * the endpoints are the whole of what has to be collected; the starting tempo
+   * is in there because a Sequence whose first Cycle steps away from it still
+   * began by sounding it.
+   */
+  const visited = cycles
+    .filter(({ active }) => active)
+    .flatMap(({ incomingBpm, targetBpm, outgoingBpm }) => [incomingBpm, targetBpm, outgoingBpm])
+    .concat(valid.bpm);
+
   return {
     cycles,
+    tempoRange: { minimum: Math.min(...visited), maximum: Math.max(...visited) },
     choices: {
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],

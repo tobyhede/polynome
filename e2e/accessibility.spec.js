@@ -44,7 +44,29 @@ function describeViolations(results) {
     .join("\n");
 }
 
+/**
+ * Colour is a property of a resting page. A panel part way through its opening
+ * fade is showing a fraction of its own contrast — a card caught mid-`pop-in`
+ * measures near 1:1 against the surface it is fading in over — and reporting
+ * that as a violation blames the palette for a frame nobody sees. Being visible
+ * is not the same as having arrived, which is why waiting on the element is not
+ * enough.
+ *
+ * Only what finishes is waited for. The tempo glitch at the top of the range
+ * repeats for as long as the tempo stays there, so waiting on it would never
+ * return.
+ */
+async function settleAnimations(page) {
+  await page.evaluate(async () => {
+    const finite = document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY);
+    await Promise.all(finite.map((animation) => animation.finished.catch(() => {})));
+  });
+}
+
 async function expectNoViolations(page) {
+  await settleAnimations(page);
   const results = await scan(page);
   expect(results.violations, `\n${describeViolations(results)}\n`).toEqual([]);
 }

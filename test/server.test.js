@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { spawn } from "node:child_process";
-import { createServer } from "node:net";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,49 +40,46 @@ async function temporaryRoot() {
 }
 
 /**
- * A port nothing is listening on, taken by opening and closing a socket. Two
- * runs could in principle be handed the same one, which is why the port is
- * asked for immediately before it is used rather than at the top of the file.
- */
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
-/**
- * Started and waited on by the line it prints, so the test proceeds when the
- * server says it is listening rather than after a guessed interval.
+ * Started on whatever port the operating system has free, and waited on by the
+ * line the server prints once it is listening — which is also where the port it
+ * was given comes from. Choosing one here instead would mean checking a port was
+ * free and then binding it a moment later, and under a loaded machine that gap
+ * is long enough for something else to take it.
  */
 async function startServer({ root, reload }) {
-  const port = await freePort();
   const child = spawn("node", [join(root, "server.mjs"), ...(reload ? ["--reload"] : [])], {
     cwd: root,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, PORT: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  await new Promise((resolve, reject) => {
-    const failed = setTimeout(
-      () => reject(new Error("server did not print that it was listening")),
-      START_TIMEOUT_MS,
-    );
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      if (!chunk.includes("Polynome running")) return;
-      clearTimeout(failed);
-      resolve();
-    });
-    child.once("error", reject);
-    child.once("exit", (code) => reject(new Error(`server exited with ${code}`)));
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
   });
 
-  return { child, origin: `http://127.0.0.1:${port}` };
+  const origin = await new Promise((resolve, reject) => {
+    const failed = setTimeout(
+      () => reject(new Error(`server did not print that it was listening. stderr: ${stderr}`)),
+      START_TIMEOUT_MS,
+    );
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const listening = /Polynome running at (http:\/\/localhost:(\d+))/.exec(stdout);
+      if (!listening) return;
+      clearTimeout(failed);
+      resolve(`http://127.0.0.1:${listening[2]}`);
+    });
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      reject(new Error(`server exited with ${code}. stderr: ${stderr}`)),
+    );
+  });
+
+  return { child, origin };
 }
 
 async function stopServer(running, root) {

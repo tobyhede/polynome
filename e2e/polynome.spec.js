@@ -512,6 +512,52 @@ test("playback shows live rounded BPM without changing the saved Configuration",
 });
 
 /**
+ * Stopped, the track fills from the bottom of the range to the thumb, which is
+ * what a control someone is about to drag should say. Under an envelope nobody
+ * is dragging it, and the useful thing to draw is the stretch of the range the
+ * run moves through with the thumb travelling inside it.
+ *
+ * The stops are fractions of the thumb's own travel rather than of the track's
+ * width, so they are asserted as the fractions the transport writes rather than
+ * by measuring pixels the browser rounds.
+ */
+test("the tempo track bands the range an envelope moves through", async ({ page }) => {
+  const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
+  const stops = () =>
+    slider.evaluate((element) => ({
+      banded: element.classList.contains("is-banded"),
+      start: element.style.getPropertyValue("--band-start"),
+      end: element.style.getPropertyValue("--band-end"),
+    }));
+
+  await slider.fill("96");
+  await expect.poll(async () => (await stops()).banded).toBe(false);
+
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page).fill("54");
+  await envelopeAmount(page).blur();
+
+  // Still no band: the range is only drawn once it is being travelled.
+  expect((await stops()).banded).toBe(false);
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  const banded = await stops();
+  expect(banded.banded).toBe(true);
+  // 96 through 150 of the 30-to-300 the control offers.
+  expect(Number(banded.start)).toBeCloseTo((96 - 30) / 270, 5);
+  expect(Number(banded.end)).toBeCloseTo((150 - 30) / 270, 5);
+
+  // The thumb travels inside what the band drew, never past it.
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(96);
+  const live = Number(await slider.inputValue());
+  expect(live).toBeLessThanOrEqual(150);
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  expect((await stops()).banded).toBe(false);
+});
+
+/**
  * A Sequence with every Cycle at Flat zero plays one tempo from beginning to
  * end, so the large number is already showing the tempo the run started from.
  * The label has nothing to add there and says what it always said.
@@ -543,18 +589,18 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
 
 /**
  * The size of the glyphs and the reach of the tick row are read off the number
- * in the readout, not off the Configuration behind it — so while an envelope is
- * moving the tempo they have to move with it. A playing transport writes a new
- * number every frame without a full render, which is where they were once left
- * behind: the digits sat at the size the last stopped render gave them while the
- * ticks went on marking a tempo that was no longer showing.
+ * in the readout, not off the number showing in it — and under an envelope those
+ * are not the same tempo. Sizing the glyphs from a number that changes every
+ * frame turns the one thing a listener is trying to read into the one thing that
+ * will not sit still, and a tick row creeping along behind the digits says less
+ * than the stretch the whole run travels. Both are held: the digits change and
+ * nothing around them does.
  *
  * The three are read in one evaluation so they come from a single frame. Read
- * one at a time the number would always be the newer of them, and a tick row
- * that had stopped following altogether would be indistinguishable from one a
- * frame behind.
+ * one at a time, a size that had drifted between two reads would be
+ * indistinguishable from one that never moved.
  */
-test("the readout's size and tick row follow the tempo an envelope is playing", async ({
+test("the readout holds its size and its marks while an envelope moves the tempo", async ({
   page,
 }) => {
   await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("60");
@@ -592,8 +638,12 @@ test("the readout's size and tick row follow the tempo an envelope is playing", 
     )
     .toBeGreaterThan(start.bpm + 30);
 
-  expect(climbing.passed).toBeGreaterThan(start.passed);
-  expect(climbing.size).not.toBe(start.size);
+  // The number moved and the readout around it did not.
+  expect(climbing.size).toBe(start.size);
+  expect(climbing.passed).toBe(start.passed);
+  // What the marks are lit to is the run's whole span rather than the tempo of
+  // the moment: 60 through 180 of a row that marks every ten from 30.
+  expect(start.passed).toBe(13);
 });
 
 test("the heading shares the high-tempo BPM glitch", async ({ page }) => {

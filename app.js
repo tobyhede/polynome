@@ -109,6 +109,14 @@ function focusWithin(root, selector) {
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
 const openCycles = new Set();
+/**
+ * The stretch of the tempo range the current run travels, while it is travelling
+ * it, and null whenever the tempo is holding still. It is remembered rather than
+ * passed because the readout is drawn from two places — a full render, and the
+ * per-frame write that follows a live tempo — and both have to agree on whether
+ * the number is moving under an envelope.
+ */
+let tempoBand = null;
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
@@ -327,9 +335,28 @@ function renderTransport() {
   // every Cycle at Flat zero the tempo never leaves where it started, so the
   // live number and the starting one are the same number, and printing it twice
   // would say nothing while looking like it said something.
-  const envelopedRun = playing && state.sequence.cycles.some((cycle) => cycle.envelope.amount);
+  // Whether the tempo actually moves during this run, rather than whether an
+  // envelope is written down anywhere: a Cycle switched off keeps the envelope
+  // it was given and contributes none of it, so asking the Cycles directly would
+  // band the track to a range of no width and freeze the readout for a run that
+  // holds one tempo throughout.
+  const { minimum, maximum } = description.tempoRange;
+  const envelopedRun = playing && minimum !== maximum;
   elements.bpmLabel.textContent = envelopedRun ? String(state.bpm) : "BPM";
   elements.bpmLabel.classList.toggle("is-starting-tempo", envelopedRun);
+  // The same condition marks the track. Stopped, or on a Sequence that holds one
+  // tempo throughout, the fill reads from the bottom of the range to where the
+  // thumb is, which is what a control someone is about to drag should say. Under
+  // an envelope nobody is dragging it and there is a better thing to say: the
+  // stretch of the range this run moves through, with the thumb inside it.
+  elements.bpmSlider.classList.toggle("is-banded", envelopedRun);
+  elements.bpmTicks.classList.toggle("is-banded", envelopedRun);
+  tempoBand = envelopedRun ? description.tempoRange : null;
+  // Collapsed to nothing when there is no band, so a stale pair of stops cannot
+  // be left behind the class that stopped drawing them.
+  const band = tempoBand ?? { minimum: 0, maximum: 0 };
+  elements.bpmSlider.style.setProperty("--band-start", String(tempoFraction(band.minimum)));
+  elements.bpmSlider.style.setProperty("--band-end", String(tempoFraction(band.maximum)));
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;
@@ -354,20 +381,35 @@ function renderTransport() {
 }
 
 /**
- * Everything about the readout that follows the number rather than the state
- * behind it: the size of the glyphs, the gap above them, the glitch at the top
- * of the range, and how much of the tick row has been passed.
+ * Where a tempo sits in the range the control offers, as a fraction. The track
+ * and the glyph sizing both count from the same two ends, so they count them
+ * once.
+ */
+function tempoFraction(bpm) {
+  const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
+  return Math.min(1, Math.max(0, (bpm - TEMPO_LIMIT.minimum) / span));
+}
+
+/**
+ * Everything the readout draws from a tempo rather than from the state behind
+ * it: the size of the glyphs, the gap above them, the glitch at the top of the
+ * range, how far the track is filled, and how much of the tick row is lit.
  *
- * It is separate because a playing transport writes a new number every frame
- * without going through `renderTransport` — a full render per frame would redraw
- * the whole panel — and a number that changed while none of this followed left
- * the digits at one tempo's size with the ticks marking another.
+ * Which tempo, though, is not always the one on screen. Under an envelope the
+ * number changes every frame, and letting the glyphs swell and shrink with it
+ * turns a reading into an animation — the one thing on the panel a listener is
+ * trying to read becomes the one thing that will not sit still. So the run's
+ * own starting tempo sizes the number for as long as an envelope is moving it,
+ * and the tick row lights the stretch the run travels rather than creeping
+ * along behind the digits. The digits change; nothing around them does.
  */
 function renderDisplayedTempo(displayedBpm) {
-  const progress = (displayedBpm - 30) / 270;
+  const shapedBy = tempoBand ? state.bpm : displayedBpm;
+  const progress = tempoFraction(shapedBy);
+  elements.bpmSlider.style.setProperty("--tempo-fill", String(tempoFraction(displayedBpm)));
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
-  const glitchIntensity = Math.min(1, Math.max(0, (displayedBpm - 250) / 50));
+  const glitchIntensity = Math.min(1, Math.max(0, (shapedBy - 250) / 50));
   // Every length the readout uses is offered twice: the design value, and the
   // same value as a share of the transport card. The card is the size container,
   // and 1cqw is 5px at the 500px column this was drawn against, so taking the
@@ -421,7 +463,11 @@ function renderDisplayedTempo(displayedBpm) {
     });
   }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
-    tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= displayedBpm);
+    const bpm = Number(tick.dataset.bpm);
+    const lit = tempoBand
+      ? bpm >= tempoBand.minimum && bpm <= tempoBand.maximum
+      : bpm <= displayedBpm;
+    tick.classList.toggle("is-passed", lit);
   });
 }
 
