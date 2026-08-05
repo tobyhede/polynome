@@ -16,8 +16,19 @@ const port = Number(process.env.PORT || 4173);
  */
 const reloading = process.argv.includes("--reload");
 
-// Everything a change here could not usefully redraw, plus the directory whose
-// size would make a recursive watch worth avoiding.
+/*
+ * Everything a change here could not usefully redraw, plus the directory whose
+ * size would make a recursive watch worth avoiding.
+ *
+ * Filtered when an event arrives rather than excluded when the watch is set up,
+ * because Node 22 — what `.nvmrc` and `engines` ask for — has no way to exclude
+ * a subtree from a recursive watch. `fs.watch` grew an `ignore` option in 24.14
+ * and 25.5, and the installed `@types/node` is new enough to typecheck a call
+ * that passes one, so a future reader has every reason to think this could be
+ * tidied up: on the Node this project runs, that option is accepted in silence
+ * and does nothing. The cost of filtering late is nil here — darwin takes the
+ * native FSEvents path and watches the root as one stream.
+ */
 const UNWATCHED = [
   ".git",
   ".serena",

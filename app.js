@@ -461,13 +461,17 @@ function renderPresetCount() {
 }
 
 /**
- * Tempo and master level changes re-render on every pointer move, and describing
- * this list costs a repair pass over every stored Configuration — on the same
- * thread as the scheduler. Reconciliation makes the DOM half cheap; it cannot
- * make the describing half free. The panel is closed for almost all of that, so
- * the toggle renders it on the way open and nothing here runs for a panel nobody
- * can see. That decision is about not doing the work at all, which is the one
- * thing no renderer can take over.
+ * A level or balance drag re-renders on every pointer move, and describing this
+ * list costs a repair pass over every stored Configuration — on the same thread
+ * as the scheduler. Reconciliation makes the DOM half cheap; it cannot make the
+ * describing half free. The panel is closed for almost all of that, so the
+ * toggle renders it on the way open and nothing here runs for a panel nobody can
+ * see. That decision is about not doing the work at all, which is the one thing
+ * no renderer can take over.
+ *
+ * The tempo drag used to be the other half of this, and is no longer: the
+ * starting tempo cannot be moved while a run is playing, so that gesture never
+ * meets the scheduler at all. A mix drag still can, which is what this is for.
  */
 function renderPresetPanel() {
   if (!presetsOpen) return;
@@ -498,6 +502,15 @@ function dismissPendingDelete() {
   renderPresetPanel();
 }
 
+/**
+ * The Configuration here has already been through repair — every door into
+ * stored Presets goes through `createConfiguration` first — so it has the same
+ * Cycles in the same order as the description below, and the position is the
+ * Cycle. Reading by id would be the fragile choice rather than the careful one:
+ * repair replaces a duplicate identifier, so two Cycles that arrived sharing one
+ * would both find the first description and the second would report the first's
+ * envelope as its own.
+ */
 function PresetNotation({ configuration }) {
   const tempoDescriptions = describeConfiguration(configuration).cycles;
   const accessible = configuration.sequence.cycles

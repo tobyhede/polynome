@@ -733,6 +733,61 @@ test("a sequence with no active cycles schedules nothing and reports no position
   assert.deepEqual(transport.plan(10.5, 12), []);
   assert.equal(transport.position(10.5), null);
   assert.equal(transport.patternPosition("first", 10.5), null);
+  // No timing means no tempo to report either, which is the reading `app.js`
+  // falls back to the stored tempo on.
+  assert.equal(transport.currentBpm(10.5), null);
+});
+
+/**
+ * The readout asks for the tempo at whatever instant the frame lands on, and a
+ * frame can land before the origin: a run is anchored a little ahead of the
+ * clock so the first click has time to be committed, and the interface is
+ * already drawing during that gap. What it should read there is the tempo the
+ * run is about to start at, not a position extrapolated backwards off the front
+ * of the first Cycle.
+ */
+test("a tempo read before the origin is the tempo the run will start at", () => {
+  const transport = new SharedTransport();
+
+  transport.start(
+    {
+      bpm: 90,
+      sequence: {
+        cycles: [
+          {
+            id: "rising",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "pulse", signature: { count: 4, unit: 4 } })],
+          },
+        ],
+      },
+    },
+    10,
+  );
+
+  assert.equal(transport.currentBpm(9.5), 90);
+  assert.equal(transport.currentBpm(10), 90);
+  // A Flat Cycle starts at its own stepped tempo rather than the one it
+  // inherited, so the reading before the origin follows the curve, not the bpm.
+  const stepped = new SharedTransport();
+  stepped.start(
+    {
+      bpm: 90,
+      sequence: {
+        cycles: [
+          {
+            id: "flat",
+            envelope: { shape: "flat", amount: -30 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "pulse" })],
+          },
+        ],
+      },
+    },
+    10,
+  );
+  assert.equal(stepped.currentBpm(9.5), 60);
 });
 
 test("starting a new transport run resets origin and scheduling position together", () => {

@@ -233,6 +233,38 @@ test("repetition dots break into two rows of four on a narrow viewport", async (
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 });
 
+/**
+ * The mark takes its frame from `icon-button`, and the narrow-viewport rules
+ * shrink every icon button to a 34px square. The mark cannot follow them there:
+ * it holds a 26px glyph rather than a centred glyph of its own, and a control
+ * that changes shape at a breakpoint reads as a different control from the one
+ * the drawer's segments show.
+ *
+ * Rounded, because a box laid out at 44px is measured back as 43.99997 and the
+ * fraction is the reading rather than the target.
+ */
+test("the envelope mark holds one size across the mobile breakpoint", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  // The mark stands in for the drawer, so it is only drawn once the drawer is
+  // shut and the envelope it describes is worth describing.
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await expect(page.locator(".envelope-mark")).toBeVisible();
+
+  const sizeAt = async (width) => {
+    await page.setViewportSize({ width, height: 812 });
+    await settleLayout(page);
+    const box = await page.locator(".envelope-mark").boundingBox();
+    return { width: Math.round(box.width), height: Math.round(box.height) };
+  };
+
+  const wide = await sizeAt(900);
+  const narrow = await sizeAt(375);
+
+  expect(narrow).toEqual({ width: 44, height: 36 });
+  expect(narrow).toEqual(wide);
+});
+
 test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
   const repetitions = page.getByRole("group", { name: "Cycle repetitions" });
   const eight = repetitions.getByRole("button", { name: "Set Cycle to 8 repetitions" });
@@ -474,6 +506,61 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   await expect(label).toHaveText("BPM");
   await expect(number).toHaveValue("96");
   await saveNotOffered(page);
+});
+
+/**
+ * The size of the glyphs and the reach of the tick row are read off the number
+ * in the readout, not off the Configuration behind it — so while an envelope is
+ * moving the tempo they have to move with it. A playing transport writes a new
+ * number every frame without a full render, which is where they were once left
+ * behind: the digits sat at the size the last stopped render gave them while the
+ * ticks went on marking a tempo that was no longer showing.
+ *
+ * The three are read in one evaluation so they come from a single frame. Read
+ * one at a time the number would always be the newer of them, and a tick row
+ * that had stopped following altogether would be indistinguishable from one a
+ * frame behind.
+ */
+test("the readout's size and tick row follow the tempo an envelope is playing", async ({
+  page,
+}) => {
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  // Blurred explicitly: the field commits on `change`, so until focus leaves it
+  // the amount is typed rather than set.
+  await envelopeAmount(page).fill("120");
+  await envelopeAmount(page).blur();
+
+  // The custom property is written straight onto the element, so the inline
+  // declaration is the whole of what the readout has been told about its size.
+  const reading = () =>
+    page.evaluate(() => ({
+      bpm: Number(document.querySelector("#bpm-input").value),
+      passed: document.querySelectorAll("#bpm-ticks span.is-passed").length,
+      size: document.querySelector("#bpm-readout").style.getPropertyValue("--bpm-size"),
+    }));
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  const start = await reading();
+
+  // The climb from 60 to 180 takes a couple of seconds and then begins again
+  // from 60, so the sample is taken often enough to land inside a rise rather
+  // than on the return. The reading that satisfies the poll is the one the rest
+  // of the test asserts on, because a later one might be from the next rise.
+  let climbing = start;
+  await expect
+    .poll(
+      async () => {
+        climbing = await reading();
+        return climbing.bpm;
+      },
+      { intervals: [50] },
+    )
+    .toBeGreaterThan(start.bpm + 30);
+
+  expect(climbing.passed).toBeGreaterThan(start.passed);
+  expect(climbing.size).not.toBe(start.size);
 });
 
 test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
