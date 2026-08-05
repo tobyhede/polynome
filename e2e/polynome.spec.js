@@ -21,6 +21,20 @@ function presetCard(page, name) {
 }
 
 /**
+ * The envelope pane has no heading of its own — it is three controls under the
+ * pencil that opened it — so it is reached by position, while the controls
+ * inside it are reached by the accessible names that say which Cycle they
+ * belong to.
+ */
+function cycleDrawer(page, index = 0) {
+  return page.locator(".cycle-group").nth(index).locator(".cycle-settings");
+}
+
+function envelopeAmount(page, title = "Cycle") {
+  return page.getByLabel(`${title} tempo change in beats per minute`);
+}
+
+/**
  * Whether + Save is being offered. It is marked unavailable rather than
  * disabled — it stays in the tab order to say why it will not act — so the
  * attribute is what carries the state, and asserting on it names the mechanism
@@ -52,7 +66,7 @@ function saveNotOffered(page) {
 async function savePreset(page, name) {
   const open = page.getByRole("button", { name: "+ Save" });
   if ((await open.getAttribute("aria-disabled")) === "true") {
-    const bpm = page.getByRole("spinbutton", { name: "BPM" });
+    const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
     await bpm.fill(String(Number(await bpm.inputValue()) + 1));
     await bpm.blur();
   }
@@ -61,7 +75,9 @@ async function savePreset(page, name) {
   const panel = page.getByRole("region", { name: /^Save preset/ });
   await panel.getByRole("textbox", { name: "Preset name" }).fill(name);
   await panel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
-  await expect(page.getByRole("status")).toHaveText(`${name} preset saved`);
+  // Addressed by id rather than by role: an open drawer's level, balance and
+  // tempo outputs carry that role too, and this helper is called with one open.
+  await expect(page.locator("#status")).toHaveText(`${name} preset saved`);
 }
 
 // Deletion arms on the first press and runs on the second; see the test that
@@ -72,7 +88,7 @@ async function deletePreset(page, name) {
 }
 
 async function typeTempo(page, bpm) {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await readout.fill(String(bpm));
   await readout.blur();
 }
@@ -106,26 +122,33 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+/**
+ * The Cycle card is visible even when there is only one Cycle, so its envelope
+ * and its repetitions are reachable in the simplest Sequence there is. The sole
+ * active Cycle's first dot stays locked, because a Sequence with nothing active
+ * plays nothing.
+ */
 test("the lone Cycle exposes repetitions and an accessible envelope drawer", async ({ page }) => {
   const cycle = page.locator(".cycle-card").first();
   await expect(cycle).toBeVisible();
-  await expect(
-    page.getByRole("group", { name: "Cycle repetitions" }).getByRole("button"),
-  ).toHaveCount(8);
+  const repetitions = page.getByRole("group", { name: "Cycle repetitions" });
+  await expect(repetitions.getByRole("button")).toHaveCount(8);
+  await expect(repetitions.getByRole("button").first()).toBeDisabled();
 
-  const edit = page.getByRole("button", { name: "Edit Cycle tempo envelope" });
+  const edit = page.getByRole("button", { name: "Edit Cycle envelope" });
   await expect(edit).toHaveAttribute("aria-expanded", "false");
   await edit.click();
 
   await expect(edit).toHaveAttribute("aria-expanded", "true");
-  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+  const drawer = cycleDrawer(page);
   await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("group", { name: "BPM Envelope" })).toBeVisible();
   await expect(drawer.getByRole("button", { name: "Flat" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(drawer.getByLabel("Change")).toHaveValue("0");
-  await expect(drawer).toContainText("96 BPM · Flat");
+  await expect(envelopeAmount(page)).toHaveValue("0");
+  await expect(drawer.locator("output")).toHaveText("steady 96");
 });
 
 test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
@@ -144,68 +167,186 @@ test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
 test("a newly added Cycle starts at Flat zero with its drawer closed", async ({ page }) => {
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
 
-  const edit = page.getByRole("button", { name: "Edit Cycle 2 tempo envelope" });
+  const edit = page.getByRole("button", { name: "Edit Cycle 2 envelope" });
   await expect(edit).toHaveAttribute("aria-expanded", "false");
   await edit.click();
-  const drawer = page.getByRole("region", { name: "Cycle 2 tempo envelope" });
+  const drawer = cycleDrawer(page, 1);
   await expect(drawer.getByRole("button", { name: "Flat" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(drawer.getByLabel("Change")).toHaveValue("0");
+  await expect(envelopeAmount(page, "Cycle 2")).toHaveValue("0");
 });
 
+/**
+ * The magnitude survives every change of shape, in both directions, and only
+ * Flat spends it on a sign. Selecting the shape already selected does nothing,
+ * because there is no press-again-to-clear: Flat zero is where clearing goes.
+ */
 test("Cycle envelope shapes preserve useful magnitude and direction", async ({ page }) => {
-  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
-  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
-  const change = drawer.getByLabel("Change");
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const drawer = cycleDrawer(page);
+  const amount = envelopeAmount(page);
+  const tempo = drawer.locator("output");
 
   const up = drawer.getByRole("button", { name: "Up" });
   await up.click();
   await expect(up).toBeFocused();
-  await expect(change).toHaveValue("20");
-  await expect(drawer).toContainText("96 → 116 BPM · Up +20");
+  await expect(amount).toHaveValue("20");
+  await expect(tempo).toHaveText("96 → 116");
 
-  await change.fill("40");
+  await amount.fill("40");
   await drawer.getByRole("button", { name: "Down" }).click();
-  await expect(change).toHaveValue("40");
-  await expect(drawer).toContainText("96 → 56 BPM · Down −40");
+  await expect(amount).toHaveValue("40");
+  await expect(tempo).toHaveText("96 → 56");
 
+  // Down carries its direction in its name, so becoming a Flat is where that
+  // direction turns back into a sign — written with a real minus.
   await drawer.getByRole("button", { name: "Flat" }).click();
-  await expect(change).toHaveValue("-40");
+  await expect(amount).toHaveValue("−40");
+  await expect(tempo).toHaveText("96 ⇒ 56");
+
   const peak = drawer.getByRole("button", { name: "Peak" });
   await peak.click();
   await expect(peak).toBeFocused();
-  await expect(change).toHaveValue("40");
-  await expect(drawer).toContainText("96 → 136 → 96 BPM · Peak +40");
+  await expect(amount).toHaveValue("40");
+  await expect(tempo).toHaveText("96 → 136 → 96");
+
   await peak.click();
   await expect(peak).toBeFocused();
-  await expect(change).toHaveValue("40");
+  await expect(amount).toHaveValue("40");
   await expect(peak).toHaveAttribute("aria-pressed", "true");
 });
 
-test("Preset notation describes a Cycle envelope as a relative change", async ({ page }) => {
-  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
-  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
+/**
+ * A step and a ramp of the same amount state the same pair of tempos, so the
+ * arrow is what tells them apart: doubled for the instantaneous change, single
+ * for the one spent across the Cycle.
+ */
+test("a Flat step and an Up ramp are distinguished by their arrow", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const drawer = cycleDrawer(page);
+  const amount = envelopeAmount(page);
+
   await drawer.getByRole("button", { name: "Up" }).click();
-  await drawer.getByLabel("Change").fill("40");
+  await amount.fill("20");
+  await expect(drawer.locator("output")).toHaveText("96 → 116");
+
+  await drawer.getByRole("button", { name: "Flat" }).click();
+  await expect(drawer.locator("output")).toHaveText("96 ⇒ 116");
+});
+
+/**
+ * The field writes a minus sign and has to read one back, but a hyphen is what
+ * most keyboards offer first, so both are accepted. An amount past the shape's
+ * range is clamped and a fraction is refused, and in either case the field is
+ * left reading what the envelope actually holds.
+ */
+test("the envelope amount accepts either minus, clamps, and refuses a fraction", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const amount = envelopeAmount(page);
+  const tempo = cycleDrawer(page).locator("output");
+
+  await amount.fill("-30");
+  await amount.blur();
+  await expect(amount).toHaveValue("−30");
+  await expect(tempo).toHaveText("96 ⇒ 66");
+
+  await amount.fill("−45");
+  await amount.blur();
+  await expect(amount).toHaveValue("−45");
+
+  await amount.fill("400");
+  await amount.blur();
+  await expect(amount).toHaveValue("120");
+
+  await amount.fill("12.5");
+  await amount.blur();
+  await expect(amount).toHaveValue("120");
+});
+
+/**
+ * A later Cycle reads against the tempo every active Cycle before it hands on,
+ * so an edit to the first moves what the third says without either of them
+ * being touched. An inactive Cycle in between is skipped and keeps its own.
+ */
+test("Cycle envelopes fold forward and skip an inactive Cycle", async ({ page }) => {
+  const add = page.getByRole("button", { name: "+ Cycle", exact: true });
+  await add.click();
+  await add.click();
+
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole("button", { name: `Edit Cycle ${index + 1} envelope` }).click();
+  }
+  const first = envelopeAmount(page, "Cycle 1");
+  await cycleDrawer(page, 0).getByRole("button", { name: "Up" }).click();
+  await first.fill("20");
+  await first.blur();
+  await cycleDrawer(page, 1).getByRole("button", { name: "Flat" }).click();
+  const second = envelopeAmount(page, "Cycle 2");
+  await second.fill("−20");
+  await second.blur();
+  await cycleDrawer(page, 2).getByRole("button", { name: "Peak" }).click();
+  await envelopeAmount(page, "Cycle 3").fill("20");
+  await envelopeAmount(page, "Cycle 3").blur();
+
+  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 116");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("116 ⇒ 96");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("96 → 116 → 96");
+
+  // One edit to the first Cycle, and both readings after it move with it.
+  await first.fill("40");
+  await first.blur();
+  await expect(cycleDrawer(page, 0).locator("output")).toHaveText("96 → 136");
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("136 ⇒ 116");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("116 → 136 → 116");
+
+  // Switched off, the middle Cycle stops affecting the tempo and keeps its
+  // envelope, so the third now reads against the first's endpoint.
+  await page.getByRole("button", { name: "Disable Cycle 2" }).click();
+  await expect(cycleDrawer(page, 1).locator("output")).toHaveText("steady 136");
+  await expect(envelopeAmount(page, "Cycle 2")).toHaveValue("−20");
+  await expect(cycleDrawer(page, 2).locator("output")).toHaveText("136 → 156 → 136");
+});
+
+/**
+ * A Preset carries the change a Cycle makes rather than the tempo that change
+ * produced, so neither its notation nor its spoken form names a tempo at all.
+ */
+test("Preset notation describes a Cycle envelope as a relative change", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page).fill("40");
+  await envelopeAmount(page).blur();
   await savePreset(page, "Journey");
 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   const card = presetCard(page, "Journey");
   await expect(card.locator(".preset-notation")).toContainText("↑40");
-  await expect(card.locator(".preset-button")).toHaveAccessibleName(/Up 40 BPM change/);
+  await expect(card.locator(".preset-button")).toHaveAccessibleName(
+    /rising 40 bpm over 1 repetition/,
+  );
+  await expect(card.locator(".preset-button")).not.toHaveAccessibleName(/136/);
 });
 
+/**
+ * Playing, the readout stops being an editor and becomes an indicator: the
+ * number is read-only while the slider and both keys are genuinely disabled,
+ * and the starting tempo moves into the label slot as a badge because the large
+ * number no longer shows it. None of it is a Configuration change, so nothing
+ * here offers a save.
+ */
 test("playback shows live rounded BPM without changing the saved Configuration", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await presetCard(page, "4/4").locator(".preset-button").click();
-  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
-  const drawer = page.getByRole("region", { name: "Cycle tempo envelope" });
-  await drawer.getByRole("button", { name: "Up" }).click();
-  await drawer.getByLabel("Change").fill("120");
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page).fill("120");
+  await envelopeAmount(page).blur();
 
   await page.getByRole("button", { name: "+ Save" }).click();
   await page
@@ -214,33 +355,54 @@ test("playback shows live rounded BPM without changing the saved Configuration",
     .click();
   await saveNotOffered(page);
 
-  const bpm = page.getByLabel("Tempo in beats per minute");
+  const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
+  const number = page.getByLabel("Starting tempo in beats per minute");
+  const label = page.locator("#bpm-readout label");
+  await expect(label).toHaveText("BPM");
+
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(bpm).toBeDisabled();
-  await expect.poll(async () => Number(await bpm.inputValue())).toBeGreaterThan(96);
+  const live = page.getByLabel("Current tempo in beats per minute");
+  await expect(live).toHaveAttribute("readonly", "");
+  await expect(slider).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Increase tempo" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Decrease tempo" })).toBeDisabled();
+  await expect(label).toHaveText("BPM 96");
+  // The live number is the playback indicator and stays at full strength.
+  await expect(live).toHaveCSS("opacity", "1");
+  await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(96);
   await saveNotOffered(page);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
-  await expect(bpm).toBeEnabled();
-  await expect(bpm).toHaveValue("96");
+  await expect(number).not.toHaveAttribute("readonly", "");
+  await expect(slider).toBeEnabled();
+  await expect(label).toHaveText("BPM");
+  await expect(number).toHaveValue("96");
   await saveNotOffered(page);
 });
 
 test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
-  const bpm = page.getByLabel("Tempo in beats per minute");
+  const bpm = page.getByLabel("Tempo in beats per minute", { exact: true });
   const heading = page.getByRole("heading", { name: "Polynome" });
 
   await bpm.fill("255");
   await expect(heading).toHaveClass(/is-glitching/);
-  await expect(page.getByLabel("BPM")).toHaveClass(/is-glitching/);
+  await expect(page.getByLabel("Starting tempo in beats per minute")).toHaveClass(/is-glitching/);
   await expect(heading).toHaveCSS("animation-name", "bpm-glitch");
-  await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "bpm-glitch");
+  await expect(page.getByLabel("Starting tempo in beats per minute")).toHaveCSS(
+    "animation-name",
+    "bpm-glitch",
+  );
 
   await bpm.fill("250");
   await expect(heading).not.toHaveClass(/is-glitching/);
-  await expect(page.getByLabel("BPM")).not.toHaveClass(/is-glitching/);
+  await expect(page.getByLabel("Starting tempo in beats per minute")).not.toHaveClass(
+    /is-glitching/,
+  );
   await expect(heading).toHaveCSS("animation-name", "none");
-  await expect(page.getByLabel("BPM")).toHaveCSS("animation-name", "none");
+  await expect(page.getByLabel("Starting tempo in beats per minute")).toHaveCSS(
+    "animation-name",
+    "none",
+  );
 });
 
 /**
@@ -309,7 +471,7 @@ test("a tempo drag reaches every tempo the slider steps to", async ({ page }) =>
  */
 test("the tempo slider increments by five BPM", async ({ page }) => {
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
 
   await readout.fill("100");
   await readout.blur();
@@ -364,7 +526,7 @@ test("storage from the wider meter domain is retired instead of repaired", async
 
   await page.reload();
 
-  await expect(page.getByLabel("Tempo in beats per minute")).toHaveValue("120");
+  await expect(page.getByLabel("Tempo in beats per minute", { exact: true })).toHaveValue("120");
   await expect
     .poll(() =>
       page.evaluate(() => ({
@@ -793,7 +955,7 @@ test("changing Steps mode resets edited voices in either direction", async ({ pa
 });
 
 test("a Beat control visibly pulses at every Subdivision onset", async ({ page }) => {
-  await page.getByLabel("Tempo in beats per minute").fill("300");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("300");
   await setSubdivision(page, 3);
   const firstBeat = page.getByRole("button", { name: "Beat 1: primary voice" });
   await firstBeat.evaluate((element) => {
@@ -816,7 +978,7 @@ test("a Beat control visibly pulses at every Subdivision onset", async ({ page }
  * have to pick up the playhead even when the same absolute step is still active.
  */
 test("the current control follows a display mode change during playback", async ({ page }) => {
-  await page.getByLabel("Tempo in beats per minute").fill("60");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("60");
   await setSubdivision(page, 3);
   const card = page.locator(".rhythm-card").first();
   const secondBeat = card.getByRole("button", { name: /^Beat 2:/ });
@@ -850,7 +1012,7 @@ test("the current control follows a display mode change during playback", async 
  * metronome that has stopped following itself.
  */
 test("the playhead redraws where a display mode change moved it", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await readout.fill("30");
   await readout.blur();
   await setSubdivision(page, 2);
@@ -895,7 +1057,7 @@ for (const [mode, control] of [
   ["Subdivision Mode", "Step 1"],
 ]) {
   test(`editing the current control in ${mode} keeps the playhead on it`, async ({ page }) => {
-    await page.getByLabel("Tempo in beats per minute").fill("30");
+    await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("30");
     if (mode === "Subdivision Mode") await showSubdivisionMode(page);
     const card = page.locator(".rhythm-card").first();
 
@@ -1009,7 +1171,7 @@ test("Alt+Shift+P restores factory Presets outside form controls", async ({ page
       JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "[]").map(({ name }) => name),
     );
 
-  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await bpm.focus();
   await page.keyboard.press("Alt+Shift+P");
   await expect.poll(storedNames).toContain("Custom");
@@ -1272,7 +1434,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   await slider.focus();
   for (let press = 0; press < 10; press += 1) await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("spinbutton", { name: "BPM" })).toHaveValue("150");
+  await expect(page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" })).toHaveValue("150");
 
   expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
 
@@ -1897,7 +2059,7 @@ test("the BPM label closes on the number as the tempo enlarges it", async ({ pag
   await page.setViewportSize({ width: 900, height: 900 });
 
   const gapAt = async (bpm) => {
-    await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
+    await page.getByLabel("Tempo in beats per minute", { exact: true }).fill(String(bpm));
     await settleLayout(page);
     return page.evaluate(async () => {
       // measureText answers against whatever face is loaded when it runs, and
@@ -1941,10 +2103,19 @@ test("core controls fit a 375px mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
 
   await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
-  await expect(page.getByRole("spinbutton", { name: "BPM" })).toBeVisible();
+  await expect(
+    page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Cycle", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
-  await expect(page.getByRole("region", { name: "Cycle tempo envelope" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const drawer = cycleDrawer(page);
+  await expect(drawer).toBeVisible();
+  // Four segments do not fit one line at this width, so they wrap two by two
+  // rather than shrinking below a tap target.
+  for (const shape of ["Flat", "Up", "Down", "Peak"]) {
+    const box = await drawer.getByRole("button", { name: shape }).boundingBox();
+    expect(box.height, `${shape} is under 44px at 375px`).toBeGreaterThanOrEqual(44);
+  }
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "4/4 meter denominator" })).toBeVisible();
 
@@ -1976,7 +2147,7 @@ async function settleLayout(page) {
 test("the tempo readout fits its digits at an enlarged root text size", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.addStyleTag({ content: "html { font-size: 24px }" });
-  await page.getByLabel("Tempo in beats per minute").fill("300");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("300");
   await settleLayout(page);
 
   const readout = await page.locator("#bpm-readout").evaluate((element) => ({
@@ -2039,7 +2210,7 @@ test("the tempo readout grows in place rather than travelling", async ({ page })
     let sliderTop = null;
 
     for (const bpm of [30, 95, 300]) {
-      await page.getByLabel("Tempo in beats per minute").fill(String(bpm));
+      await page.getByLabel("Tempo in beats per minute", { exact: true }).fill(String(bpm));
       await settleLayout(page);
 
       const measured = await page.evaluate(() => {
@@ -2101,7 +2272,7 @@ test("the tempo readout grows in place rather than travelling", async ({ page })
  * cannot act rather than one that silently does nothing.
  */
 test("a tap on a tempo key is one bpm and the ends of the range disable one", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const up = page.getByRole("button", { name: "Increase tempo" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
 
@@ -2132,7 +2303,7 @@ test("a tap on a tempo key is one bpm and the ends of the range disable one", as
 });
 
 test("non-primary mouse presses do not change or repeat the tempo", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const up = page.getByRole("button", { name: "Increase tempo" });
   await readout.fill("112");
   await readout.blur();
@@ -2160,7 +2331,7 @@ test("non-primary mouse presses do not change or repeat the tempo", async ({ pag
  * has to be declined by what handles it.
  */
 test("a tempo key held to the end of its range keeps its place", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
 
   await readout.fill("31");
@@ -2190,7 +2361,7 @@ test("a tempo key held to the end of its range keeps its place", async ({ page }
  * that reaches the tempo a user typed and has not yet stepped away from.
  */
 test("a tempo typed into the readout is stepped from, not discarded", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const up = page.getByRole("button", { name: "Increase tempo" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
 
@@ -2228,7 +2399,7 @@ test("a tempo typed into the readout is stepped from, not discarded", async ({ p
  * nothing here to assert.
  */
 test("holding a tempo key accelerates and stops at the end of the range", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
 
   await readout.fill("60");
@@ -2262,7 +2433,7 @@ test("holding a tempo key accelerates and stops at the end of the range", async 
  * a tempo than a right one does.
  */
 test("a non-primary button press does not start a tempo hold", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
 
   await readout.fill("112");
@@ -2281,8 +2452,14 @@ test("a non-primary button press does not start a tempo hold", async ({ page }) 
   await expect(readout).toHaveValue("112");
 });
 
+/**
+ * Playing, the number is the live reading rather than an editor, so it is
+ * `readonly` — present, focusable and at full strength — while the slider and
+ * both keys are genuinely disabled. Neither pointer nor keyboard can move the
+ * starting tempo, which is what stopping restores.
+ */
 test("starting-BPM controls are unavailable throughout playback", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "BPM" });
+  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
   const up = page.getByRole("button", { name: "Increase tempo" });
@@ -2290,13 +2467,21 @@ test("starting-BPM controls are unavailable throughout playback", async ({ page 
   await readout.fill("240");
   await readout.blur();
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(readout).toBeDisabled();
+
+  const live = page.getByRole("spinbutton", { name: "Current tempo in beats per minute" });
+  await expect(live).toHaveAttribute("readonly", "");
   await expect(slider).toBeDisabled();
   await expect(down).toBeDisabled();
   await expect(up).toBeDisabled();
 
+  // Typing at the read-only number and pressing either key leave the starting
+  // tempo where it was, so stopping comes back to it.
+  await live.press("ArrowUp");
+  await down.click({ force: true });
+  await up.click({ force: true });
+
   await page.getByRole("button", { name: "Stop metronome" }).click();
-  await expect(readout).toBeEnabled();
+  await expect(readout).not.toHaveAttribute("readonly", "");
   await expect(readout).toHaveValue("240");
 });
 
@@ -2340,8 +2525,8 @@ test("the tempo keys are the play bar's height and stay a tap target", async ({ 
 test("saving is offered only while the setup differs from the preset it came from", async ({
   page,
 }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
-  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const tempo = page.getByLabel("Tempo in beats per minute", { exact: true });
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
 
   await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
@@ -2436,7 +2621,7 @@ test("deleting another preset leaves the name the save field opens on", async ({
  * submit says which of the two it is about to do before it is pressed.
  */
 test("the save field opens on the preset the setup came from", async ({ page }) => {
-  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
   const heading = page.getByRole("heading", { name: /^Presets/ });
@@ -2466,8 +2651,8 @@ test("the save field opens on the preset the setup came from", async ({ page }) 
  * Preset has to be untouched by it.
  */
 test("closing the save panel abandons what was typed", async ({ page }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
-  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const tempo = page.getByLabel("Tempo in beats per minute", { exact: true });
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const openSave = page.getByRole("button", { name: "+ Save" });
 
@@ -2528,7 +2713,7 @@ test("editing an example preset opens the save field on its name", async ({ page
  */
 test("the save chip reads as live for as long as there is something to save", async ({ page }) => {
   const openSave = page.getByRole("button", { name: "+ Save" });
-  const tempo = page.getByLabel("Tempo in beats per minute");
+  const tempo = page.getByLabel("Tempo in beats per minute", { exact: true });
 
   await applyStoredPreset(page, "4/4 8ths");
   await saveNotOffered(page);
@@ -2575,7 +2760,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
   await expect(panel).toBeHidden();
   await expect(openSave).toHaveAttribute("aria-expanded", "false");
 
-  await page.getByLabel("Tempo in beats per minute").fill("125");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("125");
   await saveOffered(page);
   await expect(reason).toHaveText("Save this setup as a preset");
   await openSave.click();
@@ -2592,7 +2777,7 @@ test("the inert save chip is reachable, says why, and does not act", async ({ pa
 test("the submit shows in a glyph and in its name which of the two acts it will perform", async ({
   page,
 }) => {
-  const tempo = page.getByLabel("Tempo in beats per minute");
+  const tempo = page.getByLabel("Tempo in beats per minute", { exact: true });
   const panel = page.getByRole("region", { name: /^Save preset/ });
   const name = panel.getByRole("textbox", { name: "Preset name" });
   const check = panel.locator("#preset-save-icon-save");
@@ -2627,7 +2812,7 @@ test("the save row is a bounded field and a square icon clear of the close contr
   page,
 }) => {
   const panel = page.getByRole("region", { name: /^Save preset/ });
-  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("120");
   await page.getByRole("button", { name: "+ Save" }).click();
 
   const field = await panel.getByRole("textbox", { name: "Preset name" }).boundingBox();
@@ -2681,7 +2866,7 @@ test("help replaces the preset and save panels, which sit together", async ({ pa
   const savePanel = page.locator("#save-panel");
   const helpPanel = page.locator("#help-panel");
 
-  await page.getByLabel("Tempo in beats per minute").fill("120");
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("120");
   await presets.click();
   await openSave.click();
   await expect(presetPanel).toBeVisible();

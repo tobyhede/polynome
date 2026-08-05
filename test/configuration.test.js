@@ -14,6 +14,7 @@ import {
   sameConfiguration,
   savePreset,
 } from "../configuration.js";
+import { convertedEnvelopeAmount } from "../model.js";
 
 /**
  * Key insertion order carries no domain meaning, so a stored Configuration may
@@ -74,6 +75,12 @@ test("the default Configuration contains one active 4/4 Rhythm layer", () => {
   );
 });
 
+/**
+ * Every Configuration written before envelopes existed carries no `envelope` at
+ * all, and each one has to arrive at Flat zero — the state that plays exactly as
+ * that Configuration always did. That is what makes this addition storage
+ * compatible without retiring a key.
+ */
 test("Cycle envelopes repair additively to canonical Flat zero", () => {
   const configuration = createConfiguration({
     sequence: {
@@ -88,7 +95,42 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
 
   assert.deepEqual(
     configuration.sequence.cycles.map(({ envelope }) => envelope),
-    [null, null, null, { shape: "up", amount: 35 }],
+    [
+      { shape: "flat", amount: 0 },
+      { shape: "flat", amount: 40 },
+      { shape: "flat", amount: 0 },
+      { shape: "up", amount: 35 },
+    ],
+  );
+});
+
+/**
+ * An amount is rounded and then clamped into whichever range its own shape
+ * offers, which is the only place Flat's reach below zero is decided. A ramp
+ * cannot hold a zero, so a stored one lands on the smallest change it can.
+ */
+test("a Cycle envelope amount is rounded and clamped into its own shape's range", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        { envelope: { shape: "up", amount: 0.5 }, rhythms: [{}] },
+        { envelope: { shape: "up", amount: 500 }, rhythms: [{}] },
+        { envelope: { shape: "flat", amount: -20.4 }, rhythms: [{}] },
+        { envelope: { shape: "down", amount: -30 }, rhythms: [{}] },
+        { envelope: { shape: "peak", amount: "nonsense" }, rhythms: [{}] },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    configuration.sequence.cycles.map(({ envelope }) => envelope),
+    [
+      { shape: "up", amount: 1 },
+      { shape: "up", amount: 120 },
+      { shape: "flat", amount: -20 },
+      { shape: "down", amount: 1 },
+      { shape: "peak", amount: 20 },
+    ],
   );
 });
 
@@ -580,9 +622,10 @@ test("selecting Up from Flat zero starts a useful Cycle envelope", () => {
   const cycle = configuration.sequence.cycles[0];
 
   const result = changeConfiguration(configuration, {
-    type: "set-cycle-envelope-shape",
+    type: "set-cycle-envelope",
     cycleId: cycle.id,
     shape: "up",
+    amount: convertedEnvelopeAmount(cycle.envelope, "up"),
   });
 
   assert.deepEqual(result.configuration.sequence.cycles[0].envelope, {
@@ -593,29 +636,93 @@ test("selecting Up from Flat zero starts a useful Cycle envelope", () => {
   assert.equal(result.reason, null);
 });
 
-test("setting a Flat Cycle change to zero clears its envelope", () => {
+/**
+ * Flat zero is a state to arrive at rather than an absence to fall back to, so
+ * the edit reaching it is the same edit every other envelope change is.
+ */
+test("setting a Flat Cycle change to zero returns it to the no-envelope state", () => {
   const configuration = createConfiguration({
     sequence: { cycles: [{ envelope: { shape: "flat", amount: -30 }, rhythms: [{}] }] },
   });
   const cycle = configuration.sequence.cycles[0];
 
   const result = changeConfiguration(configuration, {
-    type: "set-cycle-envelope-amount",
+    type: "set-cycle-envelope",
     cycleId: cycle.id,
+    shape: "flat",
     amount: 0,
   });
 
-  assert.equal(result.configuration.sequence.cycles[0].envelope, null);
+  assert.deepEqual(result.configuration.sequence.cycles[0].envelope, {
+    shape: "flat",
+    amount: 0,
+  });
   assert.equal(result.consequence, "restart-transport-run");
+});
+
+/**
+ * An amount past the shape's limit is clamped the way a Meter count out of range
+ * is; a fraction is a tempo change nobody can play and is refused outright.
+ */
+test("a Cycle envelope amount edit clamps out of range and refuses a fraction", () => {
+  const configuration = createConfiguration({
+    sequence: { cycles: [{ envelope: { shape: "up", amount: 20 }, rhythms: [{}] }] },
+  });
+  const cycleId = configuration.sequence.cycles[0].id;
+
+  const clamped = changeConfiguration(configuration, {
+    type: "set-cycle-envelope",
+    cycleId,
+    shape: "up",
+    amount: "500",
+  });
+  assert.deepEqual(clamped.configuration.sequence.cycles[0].envelope, {
+    shape: "up",
+    amount: 120,
+  });
+
+  const fraction = changeConfiguration(configuration, {
+    type: "set-cycle-envelope",
+    cycleId,
+    shape: "up",
+    amount: "20.5",
+  });
+  assert.equal(fraction.consequence, "none");
+  assert.equal(fraction.reason, "invalid-value");
+  assert.deepEqual(fraction.configuration.sequence.cycles[0].envelope, {
+    shape: "up",
+    amount: 20,
+  });
+});
+
+/**
+ * An amount the normaliser clamps back onto the value already stored is not a
+ * change, so it must not restart a run that is playing correctly.
+ */
+test("a Cycle envelope amount clamped onto the stored value is an unchanged edit", () => {
+  const configuration = createConfiguration({
+    sequence: { cycles: [{ envelope: { shape: "up", amount: 120 }, rhythms: [{}] }] },
+  });
+
+  const result = changeConfiguration(configuration, {
+    type: "set-cycle-envelope",
+    cycleId: configuration.sequence.cycles[0].id,
+    shape: "up",
+    amount: "400",
+  });
+
+  assert.equal(result.consequence, "none");
+  assert.equal(result.reason, null);
 });
 
 test("a Cycle envelope edit reports a missing target even when selecting Flat", () => {
   const configuration = createConfiguration();
 
   const result = changeConfiguration(configuration, {
-    type: "set-cycle-envelope-shape",
+    type: "set-cycle-envelope",
     cycleId: "cycle-missing-1",
     shape: "flat",
+    amount: 0,
   });
 
   assert.equal(result.consequence, "none");
@@ -1108,18 +1215,34 @@ test("Configuration description exposes domain choices and unavailable final rem
   });
 });
 
-test("Configuration description exposes inherited previews and relative envelope notation", () => {
+/**
+ * The three readings a Cycle offers, and what separates them: the Tempo output
+ * is the only one that names a tempo at all, and it is the calculated incoming
+ * one folded through every active Cycle before it. Both notations are relative,
+ * so a Preset saved at any starting tempo restores the same musical shape.
+ */
+test("Configuration description exposes tempo readings and relative envelope notation", () => {
   const configuration = createConfiguration({
     bpm: 100,
     sequence: {
       cycles: [
         {
           envelope: { shape: "up", amount: 20 },
-          repetitions: 2,
+          repetitions: 4,
+          rhythms: [{ signature: { count: 1, unit: 4 } }],
+        },
+        {
+          envelope: { shape: "flat", amount: -20 },
+          repetitions: 1,
           rhythms: [{ signature: { count: 1, unit: 4 } }],
         },
         {
           envelope: { shape: "peak", amount: 30 },
+          repetitions: 3,
+          rhythms: [{ signature: { count: 1, unit: 4 } }],
+        },
+        {
+          envelope: { shape: "flat", amount: 0 },
           repetitions: 1,
           rhythms: [{ signature: { count: 1, unit: 4 } }],
         },
@@ -1129,11 +1252,11 @@ test("Configuration description exposes inherited previews and relative envelope
 
   assert.deepEqual(
     describeConfiguration(configuration).cycles.map(
-      ({ incomingBpm, targetBpm, outgoingBpm, preview, notation, accessibleNotation }) => ({
+      ({ incomingBpm, targetBpm, outgoingBpm, tempo, notation, accessibleNotation }) => ({
         incomingBpm,
         targetBpm,
         outgoingBpm,
-        preview,
+        tempo,
         notation,
         accessibleNotation,
       }),
@@ -1143,20 +1266,86 @@ test("Configuration description exposes inherited previews and relative envelope
         incomingBpm: 100,
         targetBpm: 120,
         outgoingBpm: 120,
-        preview: "100 → 120 BPM · Up +20",
+        tempo: "100 → 120",
         notation: "↑20",
-        accessibleNotation: "Up 20 BPM change",
+        accessibleNotation: "rising 20 bpm over 4 repetitions",
       },
       {
         incomingBpm: 120,
-        targetBpm: 150,
-        outgoingBpm: 120,
-        preview: "120 → 150 → 120 BPM · Peak +30",
-        notation: "◇30",
-        accessibleNotation: "Peak 30 BPM change",
+        targetBpm: 100,
+        outgoingBpm: 100,
+        tempo: "120 ⇒ 100",
+        notation: "Flat −20",
+        accessibleNotation: "stepping down 20 bpm over 1 repetition",
+      },
+      {
+        incomingBpm: 100,
+        targetBpm: 130,
+        outgoingBpm: 100,
+        tempo: "100 → 130 → 100",
+        notation: "Peak 30",
+        accessibleNotation: "rising 30 bpm and back over 3 repetitions",
+      },
+      {
+        incomingBpm: 100,
+        targetBpm: 100,
+        outgoingBpm: 100,
+        tempo: "steady 100",
+        notation: "",
+        accessibleNotation: "",
       },
     ],
   );
+});
+
+/**
+ * Clamping is per evaluation and never per edit, so a Cycle pressed against the
+ * tempo ceiling reads the tempo it reaches while storing the change it was
+ * given. A Preset that baked in the absolute would sound different the moment
+ * its starting tempo moved.
+ */
+test("a Cycle envelope clamped at the tempo ceiling keeps the amount it stores", () => {
+  const configuration = createConfiguration({
+    bpm: 290,
+    sequence: { cycles: [{ envelope: { shape: "up", amount: 20 }, rhythms: [{}] }] },
+  });
+
+  const [described] = describeConfiguration(configuration).cycles;
+  assert.equal(described.tempo, "290 → 300");
+  assert.equal(described.notation, "↑20");
+  assert.equal(configuration.sequence.cycles[0].envelope.amount, 20);
+});
+
+/**
+ * An inactive Cycle is skipped by the fold, so what it does to the tempo is
+ * nothing — while the envelope it was given survives for the day its
+ * repetitions come back.
+ */
+test("an inactive Cycle passes its tempo through and keeps its envelope", () => {
+  const configuration = createConfiguration({
+    bpm: 100,
+    sequence: {
+      cycles: [
+        { envelope: { shape: "up", amount: 20 }, repetitions: 1, rhythms: [{}] },
+        { envelope: { shape: "down", amount: 40 }, repetitions: 0, rhythms: [{}] },
+        { envelope: { shape: "flat", amount: 10 }, repetitions: 1, rhythms: [{}] },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    describeConfiguration(configuration).cycles.map(({ active, outgoingBpm, tempo }) => ({
+      active,
+      outgoingBpm,
+      tempo,
+    })),
+    [
+      { active: true, outgoingBpm: 120, tempo: "100 → 120" },
+      { active: false, outgoingBpm: 120, tempo: "steady 120" },
+      { active: true, outgoingBpm: 130, tempo: "120 ⇒ 130" },
+    ],
+  );
+  assert.deepEqual(configuration.sequence.cycles[1].envelope, { shape: "down", amount: 40 });
 });
 
 test("structural edit availability agrees with final Cycle and Rhythm enforcement", () => {
@@ -1473,8 +1662,9 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
-    { type: "set-cycle-envelope-shape", cycleId: cycle.id },
-    { type: "set-cycle-envelope-amount", cycleId: cycle.id },
+    { type: "set-cycle-envelope", cycleId: cycle.id },
+    { type: "set-cycle-envelope", cycleId: cycle.id, shape: "up" },
+    { type: "set-cycle-envelope", cycleId: cycle.id, amount: 20 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: [] },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id },
@@ -1506,8 +1696,8 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: "not-a-number" },
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
-    { type: "set-cycle-envelope-shape", cycleId: cycle.id, shape: "curve" },
-    { type: "set-cycle-envelope-amount", cycleId: cycle.id, amount: 121 },
+    { type: "set-cycle-envelope", cycleId: cycle.id, shape: "curve", amount: 20 },
+    { type: "set-cycle-envelope", cycleId: cycle.id, shape: "flat", amount: 1.5 },
     { type: "set-meter-count", cycleId: cycle.id, rhythmId: rhythm.id, count: 0 },
     { type: "set-meter-unit", cycleId: cycle.id, rhythmId: rhythm.id, unit: 16 },
     { type: "set-subdivision", cycleId: cycle.id, rhythmId: rhythm.id, subdivision: 6 },

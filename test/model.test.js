@@ -13,10 +13,14 @@ import {
   TEMPO_STEP,
   TEMPO_TICK_INTERVAL,
   beatAtSeconds,
+  convertedEnvelopeAmount,
   createSequenceTempoCurves,
   createTempoCurve,
   cycleSpanBeats,
   cycleSpanSeconds,
+  envelopeTarget,
+  envelopeTempoAt,
+  outgoingTempo,
   panLabel,
   secondsAtBeat,
   snapBalance,
@@ -131,6 +135,106 @@ test("active Cycles inherit audible endpoints while inactive Cycles are skipped"
       { id: "flat", active: true, incomingBpm: 150, targetBpm: 30, outgoingBpm: 30, beatLength: 1 },
     ],
   );
+});
+
+test("each envelope shape reaches its own target and hands on its own tempo", () => {
+  const shapes = [
+    { envelope: { shape: "flat", amount: 20 }, target: 120, outgoing: 120 },
+    { envelope: { shape: "flat", amount: -20 }, target: 80, outgoing: 80 },
+    { envelope: { shape: "flat", amount: 0 }, target: 100, outgoing: 100 },
+    { envelope: { shape: "up", amount: 20 }, target: 120, outgoing: 120 },
+    { envelope: { shape: "down", amount: 20 }, target: 80, outgoing: 80 },
+    { envelope: { shape: "peak", amount: 20 }, target: 120, outgoing: 100 },
+  ];
+
+  for (const { envelope, target, outgoing } of shapes) {
+    assert.equal(envelopeTarget(100, envelope), target, `${envelope.shape} target`);
+    assert.equal(outgoingTempo(100, envelope), outgoing, `${envelope.shape} outgoing`);
+  }
+});
+
+/**
+ * Flat holds its target for the whole Cycle because it is a step; the ramps
+ * spend the Cycle arriving at theirs. Peak is 0 at both ends and 1 at exactly
+ * one half, which is what puts its target on the musical midpoint.
+ */
+test("envelope tempo at a progress fraction distinguishes a step from a ramp", () => {
+  const flat = { shape: "flat", amount: 20 };
+  const up = { shape: "up", amount: 20 };
+  const peak = { shape: "peak", amount: 20 };
+
+  assert.deepEqual(
+    [0, 0.25, 0.5, 1].map((progress) => envelopeTempoAt(100, flat, progress)),
+    [120, 120, 120, 120],
+  );
+  assert.deepEqual(
+    [0, 0.25, 0.5, 1].map((progress) => envelopeTempoAt(100, up, progress)),
+    [100, 105, 110, 120],
+  );
+  assert.deepEqual(
+    [0, 0.25, 0.5, 0.75, 1].map((progress) => envelopeTempoAt(100, peak, progress)),
+    [100, 110, 120, 110, 100],
+  );
+});
+
+/**
+ * The magnitude survives every shape change, in both directions. Down and Flat
+ * are the pair that has to round-trip, because only one of them carries a sign
+ * and the other spends it on its name.
+ */
+test("a change of envelope shape carries the magnitude across", () => {
+  const cases = [
+    [{ shape: "flat", amount: 0 }, "up", 20],
+    [{ shape: "flat", amount: 0 }, "peak", 20],
+    [{ shape: "flat", amount: -35 }, "up", 35],
+    [{ shape: "flat", amount: 35 }, "down", 35],
+    [{ shape: "up", amount: 40 }, "flat", 40],
+    [{ shape: "down", amount: 20 }, "flat", -20],
+    [{ shape: "flat", amount: -20 }, "down", 20],
+    [{ shape: "peak", amount: 40 }, "flat", 40],
+    [{ shape: "up", amount: 40 }, "down", 40],
+    [{ shape: "down", amount: 40 }, "peak", 40],
+    [{ shape: "peak", amount: 40 }, "up", 40],
+    [{ shape: "up", amount: 40 }, "up", 40],
+  ];
+
+  for (const [envelope, shape, expected] of cases) {
+    assert.equal(
+      convertedEnvelopeAmount(envelope, shape),
+      expected,
+      `${envelope.shape} ${envelope.amount} to ${shape}`,
+    );
+  }
+});
+
+/**
+ * A repetition count sets the envelope's musical duration and nothing else, so
+ * the target lands at the end of the last repetition rather than at the start of
+ * it, and every repetition before that is still on the way there.
+ */
+test("a ramp reaches its target at the end of the final repetition", () => {
+  const curve = createTempoCurve(100, { shape: "up", amount: 20 }, 16);
+
+  assert.deepEqual(
+    [0, 4, 8, 12, 16].map((beat) => tempoAtBeat(curve, beat)),
+    [100, 105, 110, 115, 120],
+  );
+});
+
+/**
+ * The midpoint is musical, not structural: at three repetitions it falls halfway
+ * through the second one, where no repetition boundary is.
+ */
+test("a Peak over an odd repetition count turns at the musical midpoint", () => {
+  const curve = createTempoCurve(100, { shape: "peak", amount: 20 }, 12);
+
+  assert.equal(tempoAtBeat(curve, 6), 120);
+  // Exactly symmetric in arithmetic, a bit apart in binary: the two halves are
+  // shaped by `progress * 2` and `(1 - progress) * 2`, which are different
+  // roundings of the same fraction.
+  closeTo(tempoAtBeat(curve, 4), tempoAtBeat(curve, 8));
+  assert.ok(tempoAtBeat(curve, 4) < 120);
+  closeTo(secondsAtBeat(curve, 6), secondsAtBeat(curve, 12) / 2);
 });
 
 test("a clamped target is spread across the whole continuous envelope", () => {

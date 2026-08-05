@@ -142,8 +142,7 @@ h1 {
 }
 
 .header-actions,
-.rhythm-actions,
-.cycle-actions {
+.rhythm-actions {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -571,6 +570,17 @@ h1 {
   white-space: nowrap;
 }
 
+/* While playing, the label slot carries the number the large readout no longer
+   shows: the starting tempo, outlined in the accent so it reads as a fixed
+   value beside a live one rather than as a second reading of the same thing. */
+.bpm-readout label.is-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  color: var(--accent);
+  letter-spacing: 0.16em;
+}
+
 .bpm-readout input {
   display: block;
   width: 100%;
@@ -812,6 +822,13 @@ h1.is-glitching {
   opacity: 0.45;
 }
 
+/* An inactive Cycle is marked rather than dimmed. Dimming the card with
+   `opacity` reads well and is what this used to do, but it composites the whole
+   subtree — including the envelope pane's own labels, which stand about seven
+   percent above the AA contrast floor at full strength and fall under it at any
+   dimming worth the name. Opacity is not restorable by a descendant, so a
+   dimmed card cannot hold a legible pane inside it. The dash says the same
+   thing, and leaves every control the card contains readable and usable. */
 .cycle-group.is-inactive > .cycle-card,
 .cycle-group.is-inactive .rhythm-card {
   border-style: dashed;
@@ -855,10 +872,6 @@ h1.is-glitching {
   margin-left: auto;
 }
 
-.cycle-actions {
-  margin-left: auto;
-}
-
 .rhythm-actions .icon-button,
 .cycle-heading .icon-button {
   width: 36px;
@@ -868,8 +881,7 @@ h1.is-glitching {
   font-weight: 760;
 }
 
-.rhythm-actions .icon-button.is-active,
-.cycle-actions .icon-button.is-active {
+.rhythm-actions .icon-button.is-active {
   border-color: var(--accent);
   background: var(--accent);
   color: #0c0c0d;
@@ -1080,7 +1092,8 @@ h1.is-glitching {
 /* The rule is on the edge the pane meets the steps at. The pane opens under the
    card heading, which has no rule of its own, so a rule above would divide the
    heading from a pane its own background already sets apart. */
-.rhythm-settings {
+.rhythm-settings,
+.cycle-settings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 216px;
   gap: 22px 30px;
@@ -1091,55 +1104,12 @@ h1.is-glitching {
   animation: drawer-in 140ms ease;
 }
 
-.cycle-envelope {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px;
-  gap: 18px 24px;
-  align-items: end;
-  padding: 16px 18px 18px;
-  border-bottom: 1px solid var(--line);
-  background: var(--soft);
-  animation: drawer-in 140ms ease;
-}
-
-.envelope-shapes {
-  display: grid;
-  gap: 9px;
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
-.envelope-shapes > div {
-  display: flex;
-  gap: 5px;
-  min-height: 44px;
-  align-items: center;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--card);
-}
-
-.envelope-change input {
-  width: 100%;
-  height: 44px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--card);
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.9rem;
-}
-
-.envelope-preview {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
+/* The envelope pane has one column of controls, not a settings/mix pair, so it
+   overrides only the grid the rhythm pane sets and inherits the surface, rule,
+   padding, and drawer-in animation from it. */
+.cycle-settings {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px 30px;
 }
 
 .timing-settings {
@@ -1176,6 +1146,22 @@ h1.is-glitching {
   text-transform: none;
 }
 
+/* The envelope's result is a reading rather than an annotation, so it takes the
+   display face the tempo readout uses and sits at the row's own control height,
+   which is what puts it on one baseline with the shapes and the amount beside
+   it. */
+.envelope-tempo output {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  color: var(--ink);
+  font-family: var(--display-font);
+  font-size: 1.3rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
 .signature-input {
   display: grid;
   grid-template-columns: 56px 10px 56px;
@@ -1189,6 +1175,7 @@ h1.is-glitching {
 }
 
 .signature-input select,
+.envelope-amount input,
 .notation-select {
   height: 44px;
   border: 1px solid var(--line);
@@ -1197,12 +1184,22 @@ h1.is-glitching {
   color: var(--ink);
 }
 
-.signature-input select {
+/* The envelope amount is set the way a Meter number is, because it is the same
+   kind of thing: one small whole number, read at a glance against the control
+   beside it. It joins the selector rather than restating the rule. */
+.signature-input select,
+.envelope-amount input {
   min-width: 0;
   padding: 7px;
   font-size: 1rem;
   font-weight: 620;
   text-align: center;
+}
+
+.envelope-amount input {
+  width: 84px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
 }
 
 .notation-picker {
@@ -1294,8 +1291,19 @@ h1.is-glitching {
   color: #0c0c0d;
 }
 
-.envelope-shapes .segment-button {
+/* The glyph sits beside its word, and as a block rather than inline content, so
+   it is centred against the letters instead of hung from their baseline. */
+.segment-glyph {
+  display: block;
+}
+
+.cycle-settings .segment-button {
+  display: flex;
   flex: 1;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
 }
 
 .mix-settings {
@@ -1511,8 +1519,7 @@ h1.is-glitching {
     padding-inline: 12px;
   }
 
-  .cycle-envelope {
-    grid-template-columns: 1fr;
+  .cycle-settings {
     padding-inline: 12px;
   }
 
@@ -1530,6 +1537,22 @@ h1.is-glitching {
 
   .segment-button {
     flex: 1;
+    padding-inline: 6px;
+  }
+
+  /* Four segments no longer fit one line here, and shrinking them would take
+     each below a 44px target, so the envelope wraps 2×2 instead. The row grows
+     to hold two lines rather than the buttons shrinking to fit one. */
+  .cycle-settings .segmented-control > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+    gap: 5px;
+    padding: 4px;
+  }
+
+  .cycle-settings .segment-button {
+    height: 44px;
     padding-inline: 6px;
   }
 

@@ -55,9 +55,10 @@ test("a structural consequence restarts a running transport", async () => {
 test("a Cycle envelope edit restarts one running transport", async () => {
   const configuration = createConfiguration();
   const result = changeConfiguration(configuration, {
-    type: "set-cycle-envelope-shape",
+    type: "set-cycle-envelope",
     cycleId: configuration.sequence.cycles[0].id,
     shape: "up",
+    amount: 20,
   });
   const engine = new RoutingEngine(true);
 

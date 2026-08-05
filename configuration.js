@@ -1,5 +1,8 @@
 import {
   createSequenceTempoCurves,
+  ENVELOPE,
+  ENVELOPE_DEFAULT_AMOUNT,
+  ENVELOPE_LIMIT,
   lookup,
   METER_COUNT_LIMIT,
   METER_UNITS,
@@ -8,8 +11,6 @@ import {
   SOUND,
   STEP,
   SUBDIVISION_LIMIT,
-  TEMPO_ENVELOPE_CHANGE_LIMIT,
-  TEMPO_ENVELOPE_SHAPE,
   TEMPO_LIMIT,
 } from "./model.js";
 
@@ -115,25 +116,25 @@ function createRhythm(overrides = {}) {
   };
 }
 
+/**
+ * Every Cycle carries an envelope, and a Cycle carrying nothing carries Flat 0.
+ * That is what makes this addition storage-compatible without retiring a key:
+ * a Configuration written before envelopes existed has no `envelope` at all,
+ * and normalises to the state that plays exactly as it always did.
+ *
+ * An unknown shape is Flat rather than refused, because the amount beside it is
+ * still a number a listener chose; the amount is rounded and then clamped into
+ * whichever range that shape offers, which is the only place Flat's reach below
+ * zero is decided.
+ */
 function normaliseEnvelope(candidate) {
-  if (!candidate || typeof candidate !== "object") return null;
-  const shapes = Object.values(TEMPO_ENVELOPE_SHAPE);
-  if (!shapes.includes(candidate.shape)) return null;
-  const amount = Number(candidate.amount);
-  if (candidate.shape === TEMPO_ENVELOPE_SHAPE.FLAT) {
-    return Number.isInteger(amount) &&
-      Math.abs(amount) <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum &&
-      amount
-      ? { shape: candidate.shape, amount }
-      : null;
-  }
-  const magnitude =
-    Number.isInteger(amount) &&
-    amount >= TEMPO_ENVELOPE_CHANGE_LIMIT.minimum &&
-    amount <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum
-      ? amount
-      : 20;
-  return { shape: candidate.shape, amount: magnitude };
+  const shape = ENVELOPE_LIMIT[candidate?.shape] ? candidate.shape : ENVELOPE.FLAT;
+  const { minimum, maximum } = ENVELOPE_LIMIT[shape];
+  const fallback = shape === ENVELOPE.FLAT ? 0 : ENVELOPE_DEFAULT_AMOUNT;
+  return {
+    shape,
+    amount: Math.round(normaliseNumber(candidate?.amount, fallback, minimum, maximum)),
+  };
 }
 
 function createCycle(overrides = {}) {
@@ -294,12 +295,12 @@ function sameRhythm(rhythm, candidate) {
 }
 
 function sameCycle(cycle, candidate) {
+  // Both sides have been through `createCycle`, so both carry an envelope and
+  // neither can be missing one. Without this comparison `+ Save` would not
+  // notice an envelope edit at all.
   const sameEnvelope =
-    cycle.envelope === null
-      ? candidate.envelope === null
-      : candidate.envelope !== null &&
-        cycle.envelope.shape === candidate.envelope.shape &&
-        cycle.envelope.amount === candidate.envelope.amount;
+    cycle.envelope.shape === candidate.envelope?.shape &&
+    cycle.envelope.amount === candidate.envelope?.amount;
   return (
     sameFields(cycle, candidate) &&
     cycle.repetitions === candidate.repetitions &&
@@ -537,44 +538,66 @@ function removeRhythmPolicy(cycle) {
   return availability(cycle.rhythms.length > 1, "cycle-requires-rhythm");
 }
 
+/**
+ * Preset notation is relative and never absolute: a Preset carries the change a
+ * Cycle makes, not the tempo that change happened to produce when it was saved.
+ * Flat 0 is the no-envelope state, so it gets no suffix at all.
+ *
+ * The spoken form spells the shape as a direction, which is what carries the
+ * sign, and states the span in repetitions so a listener knows how long the
+ * change takes. It names no tempo, for the same reason the written form does
+ * not: neither is a reading of what is playing.
+ */
+const ENVELOPE_NOTATION = lookup({
+  flat: (amount) => `Flat ${amount > 0 ? "+" : "−"}${Math.abs(amount)}`,
+  up: (amount) => `↑${amount}`,
+  down: (amount) => `↓${amount}`,
+  peak: (amount) => `Peak ${amount}`,
+});
+
+const ENVELOPE_PHRASE = lookup({
+  flat: (amount) => `stepping ${amount > 0 ? "up" : "down"} ${Math.abs(amount)} bpm`,
+  up: (amount) => `rising ${amount} bpm`,
+  down: (amount) => `falling ${amount} bpm`,
+  peak: (amount) => `rising ${amount} bpm and back`,
+});
+
+// Flat lands its whole change on the Cycle's first beat while a ramp spends the
+// Cycle reaching it, and at the same amount the two state the same pair of
+// tempos. The arrow is what separates them: doubled for the step, single for
+// the ramp. A trailing word was tried and cut — it read as clutter beside a
+// number that is already the widest thing in the row.
+function envelopeTempoText(shape, amount, incomingBpm, targetBpm, outgoingBpm) {
+  const from = Math.round(incomingBpm);
+  if (!amount) return `steady ${from}`;
+  const to = Math.round(targetBpm);
+  if (shape === ENVELOPE.FLAT) return `${from} ⇒ ${to}`;
+  if (shape === ENVELOPE.PEAK) return `${from} → ${to} → ${Math.round(outgoingBpm)}`;
+  return `${from} → ${to}`;
+}
+
 export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
   const cycles = createSequenceTempoCurves(valid.bpm, valid.sequence.cycles).map(
     ({ id, active, incomingBpm, targetBpm, outgoingBpm }) => {
       const cycle = valid.sequence.cycles.find((candidate) => candidate.id === id);
-      const envelope = cycle.envelope;
-      const shape = envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT;
-      const amount = envelope?.amount || 0;
-      const name = `${shape[0].toUpperCase()}${shape.slice(1)}`;
-      const signedAmount = amount > 0 ? `+${amount}` : String(amount);
-      const displayedAmount = shape === TEMPO_ENVELOPE_SHAPE.DOWN ? `−${amount}` : signedAmount;
-      let journey = `${targetBpm} BPM`;
-      let notation = amount ? signedAmount : "";
-      if (shape === TEMPO_ENVELOPE_SHAPE.UP) {
-        journey = `${incomingBpm} → ${targetBpm} BPM`;
-        notation = `↑${amount}`;
-      } else if (shape === TEMPO_ENVELOPE_SHAPE.DOWN) {
-        journey = `${incomingBpm} → ${targetBpm} BPM`;
-        notation = `↓${amount}`;
-      } else if (shape === TEMPO_ENVELOPE_SHAPE.PEAK) {
-        journey = `${incomingBpm} → ${targetBpm} → ${outgoingBpm} BPM`;
-        notation = `◇${amount}`;
-      }
+      const { shape, amount } = cycle.envelope;
+      const repetitions = cycle.repetitions;
+      const span = ` over ${repetitions} ${repetitions === 1 ? "repetition" : "repetitions"}`;
       return {
         id,
         active,
         incomingBpm,
         targetBpm,
         outgoingBpm,
-        preview: active
-          ? `${journey} · ${name}${amount ? ` ${displayedAmount}` : ""}`
-          : `Inactive · inherits ${incomingBpm} BPM · ${name}${amount ? ` ${displayedAmount} retained` : ""}`,
-        notation,
-        accessibleNotation: amount
-          ? shape === TEMPO_ENVELOPE_SHAPE.FLAT
-            ? `Flat ${amount > 0 ? "plus" : "minus"} ${Math.abs(amount)} BPM change`
-            : `${name} ${Math.abs(amount)} BPM change`
-          : "",
+        // An inactive Cycle is skipped by the fold, so what it does to the tempo
+        // is nothing at all — whatever envelope it is still holding for the day
+        // its repetitions come back.
+        tempo: active
+          ? envelopeTempoText(shape, amount, incomingBpm, targetBpm, outgoingBpm)
+          : `steady ${Math.round(incomingBpm)}`,
+        notation: amount ? ENVELOPE_NOTATION[shape](amount) : "",
+        accessibleNotation: amount ? `${ENVELOPE_PHRASE[shape](amount)}${active ? span : ""}` : "",
       };
     },
   );
@@ -900,58 +923,33 @@ const COMMANDS = Object.freeze({
       );
     },
   },
-  "set-cycle-envelope-shape": {
-    validPayload: (edit) => targetsCycle(edit) && hasString(edit, "shape"),
-    validValue: (edit) => Object.values(TEMPO_ENVELOPE_SHAPE).includes(edit.shape),
+  /*
+   * The shape and the amount are one edit because they are one value: choosing
+   * a shape carries the magnitude across with it, and choosing an amount is
+   * choosing it for the shape already selected. Splitting them would let a
+   * caller write an amount no shape's range admits.
+   *
+   * Its consequence is a timing one, the same `set-tempo` produces, so a change
+   * made while playing restarts the run once. Opening or closing the drawer is
+   * not an edit and never reaches here.
+   */
+  "set-cycle-envelope": {
+    validPayload: (edit) =>
+      targetsCycle(edit) && hasString(edit, "shape") && hasFormNumber(edit, "amount"),
+    // A whole number is required and a range is not: an amount past the shape's
+    // limit is a value the normaliser clamps, the way a Meter count out of range
+    // is, while a fraction is a tempo change nobody can play and is refused.
+    validValue: (edit) =>
+      Boolean(ENVELOPE_LIMIT[edit.shape]) && Number.isInteger(formNumber(edit.amount)),
     leavesUnchanged: (current, edit) => {
-      const cycle = findCycle(current, edit.cycleId);
-      return Boolean(cycle) && (cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT) === edit.shape;
+      const envelope = findCycle(current, edit.cycleId)?.envelope;
+      const next = normaliseEnvelope({ shape: edit.shape, amount: formNumber(edit.amount) });
+      return envelope?.shape === next.shape && envelope.amount === next.amount;
     },
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       if (!cycle) return unchanged(current, "cycle-not-found");
-      const previous = cycle.envelope;
-      let amount = previous ? Math.abs(previous.amount) : 20;
-      if (edit.shape === TEMPO_ENVELOPE_SHAPE.FLAT) {
-        if (previous?.shape === TEMPO_ENVELOPE_SHAPE.DOWN) amount = -amount;
-        if (!previous) amount = 0;
-      }
-      const envelope = normaliseEnvelope({ shape: edit.shape, amount });
-      return changed(
-        {
-          ...current,
-          sequence: {
-            cycles: current.sequence.cycles.map((candidate) =>
-              candidate.id === edit.cycleId ? { ...candidate, envelope } : candidate,
-            ),
-          },
-        },
-        "restart-transport-run",
-      );
-    },
-  },
-  "set-cycle-envelope-amount": {
-    validPayload: (edit) => targetsCycle(edit) && hasFormNumber(edit, "amount"),
-    apply(current, edit) {
-      const cycle = findCycle(current, edit.cycleId);
-      if (!cycle) return unchanged(current, "cycle-not-found");
-      const shape = cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT;
-      const amount = formNumber(edit.amount);
-      const valid =
-        Number.isInteger(amount) &&
-        (shape === TEMPO_ENVELOPE_SHAPE.FLAT
-          ? Math.abs(amount) <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum
-          : amount >= TEMPO_ENVELOPE_CHANGE_LIMIT.minimum &&
-            amount <= TEMPO_ENVELOPE_CHANGE_LIMIT.maximum);
-      if (!valid) return unchanged(current, "invalid-value");
-      const envelope = normaliseEnvelope({ shape, amount });
-      const previous = cycle.envelope;
-      if (
-        (previous === null && envelope === null) ||
-        (previous?.shape === envelope?.shape && previous?.amount === envelope?.amount)
-      ) {
-        return unchanged(current);
-      }
+      const envelope = normaliseEnvelope({ shape: edit.shape, amount: formNumber(edit.amount) });
       return changed(
         {
           ...current,

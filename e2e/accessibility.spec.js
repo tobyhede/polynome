@@ -69,7 +69,7 @@ test("the preset panel has no accessibility violations, populated and empty", as
   // + Save is live only while the Configuration differs from the Preset it came
   // from, so the tempo moves first. The save panel is scanned open, since it is
   // the only state in which its field and submit are in the document at all.
-  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await bpm.fill(String(Number(await bpm.inputValue()) + 1));
   await bpm.blur();
   const openSave = page.getByRole("button", { name: "+ Save" });
@@ -115,17 +115,17 @@ test("open rhythm settings have no accessibility violations", async ({ page }) =
 test("active and inactive Cycle envelope drawers have no accessibility violations", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Edit Cycle tempo envelope" }).click();
-  await expect(page.getByRole("region", { name: "Cycle tempo envelope" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await expect(page.locator(".cycle-settings").first()).toBeVisible();
   await expectNoViolations(page);
 
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
-  await page.getByRole("button", { name: "Edit Cycle 2 tempo envelope" }).click();
+  await page.getByRole("button", { name: "Edit Cycle 2 envelope" }).click();
   await page
     .getByRole("group", { name: "Cycle 2 repetitions" })
     .getByRole("button", { name: "Disable Cycle 2" })
     .click();
-  await expect(page.getByRole("region", { name: "Cycle 2 tempo envelope" })).toBeVisible();
+  await expect(page.locator(".cycle-settings").nth(1)).toBeVisible();
   await expectNoViolations(page);
 });
 

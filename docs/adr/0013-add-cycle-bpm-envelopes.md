@@ -18,7 +18,12 @@ BPM is displayed.
 ## Consequences
 
 - Flat applies a signed change at its Cycle boundary and holds the clamped
-  result. Flat zero is represented canonically as `null`.
+  result. Flat zero is the canonical no-envelope state and the default for a new
+  Cycle: every Cycle carries a `{ shape, amount }`, and there is no separate off
+  state, no absent envelope, and no press-again-to-clear.
+- Only Flat's amount reaches zero and below. Up, Down, and Peak range from 1 to
+  120, because a ramp of nothing is a Flat and the vocabulary spells that one
+  way.
 - Up and Down interpolate linearly over primary-beat progress from the inherited
   BPM to a clamped target. Peak reaches its clamped target at the exact musical
   midpoint and returns to its inherited BPM at the end.
@@ -35,9 +40,11 @@ BPM is displayed.
   persistence, Preset selection, or Save availability.
 - A Cycle-envelope edit has the `restart-transport-run` consequence. Existing
   Step-voice, sound, mix, and denominator consequences remain narrow.
-- Missing or unrecognised stored envelope data repairs to `null`. This is
-  additive repair, not a migration, schema version, compatibility shim, or
-  storage-key change.
+- Missing or unrecognised stored envelope data repairs to Flat zero, and an
+  amount is rounded and then clamped into its own shape's range. Every
+  Configuration written before this record normalises to Flat zero and plays as
+  it always did. This is additive repair, not a migration, schema version,
+  compatibility shim, or storage-key change.
 - Presets store envelope data with the complete Configuration and describe it as
   a relative change, so notation does not change when an earlier Cycle changes
   the inherited BPM.

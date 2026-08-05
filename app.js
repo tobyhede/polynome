@@ -16,8 +16,9 @@ import {
   panLabel,
   snapBalance,
   subdivisionLabel,
+  convertedEnvelopeAmount,
+  ENVELOPE,
   MIX_STEP,
-  TEMPO_ENVELOPE_SHAPE,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
 } from "./model.js";
@@ -60,6 +61,7 @@ const elements = {
   bpmDown: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-down")),
   bpmUp: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-up")),
   bpmReadout: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-readout")),
+  bpmLabel: /** @type {HTMLLabelElement} */ (document.querySelector("#bpm-readout label")),
   bpmTicks: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-ticks")),
   presetsToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-toggle")),
   presetPanel: /** @type {HTMLElement} */ (document.querySelector("#preset-panel")),
@@ -106,7 +108,7 @@ function focusWithin(root, selector) {
 
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
-const openCycleEnvelopes = new Set();
+const openCycles = new Set();
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
@@ -292,12 +294,36 @@ function renderPanels() {
   elements.presetSaveReason.textContent = saveReason;
 }
 
+/**
+ * The large readout changes mode with playback rather than moving: stopped it
+ * displays and edits the Preset's starting tempo, playing it displays the tempo
+ * the envelopes are producing right now.
+ *
+ * The live number stays at full strength — it is the playback indicator, and
+ * dimming the one thing a listener is watching would be backwards. What has to
+ * be unmistakable is that it cannot be typed into, so the number is `readonly`
+ * while the slider and both keys are genuinely `disabled`, which is the
+ * treatment `button:disabled` already carries. The setters refuse as well, so
+ * an event arriving from somewhere none of that covers still cannot edit the
+ * starting tempo out from under a run.
+ *
+ * The starting tempo has nowhere to be shown once the number is live, so the
+ * label slot carries it: `BPM` becomes a badge reading `BPM 100`. No
+ * `aria-live` anywhere near it — the tempo changes continuously, and announcing
+ * it would flood the buffer. `#status` still announces starting and stopping.
+ */
 function renderTransport() {
   const playing = engine.playing;
   const displayedBpm = playing ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
   elements.bpm.value = String(displayedBpm);
   elements.bpmSlider.value = String(displayedBpm);
-  elements.bpm.disabled = playing;
+  elements.bpm.readOnly = playing;
+  elements.bpm.setAttribute(
+    "aria-label",
+    `${playing ? "Current" : "Starting"} tempo in beats per minute`,
+  );
+  elements.bpmLabel.textContent = playing ? `BPM ${state.bpm}` : "BPM";
+  elements.bpmLabel.classList.toggle("is-badge", playing);
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;
@@ -651,8 +677,8 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
-  const envelopeOpen = openCycleEnvelopes.has(cycle.id);
-  const envelopeDrawerId = `cycle-${cycle.id}-envelope`;
+  const open = openCycles.has(cycle.id);
+  const drawerId = `cycle-${cycle.id}-settings`;
   const tempoDescription = description.cycles.find(({ id }) => id === cycle.id);
   return html`
     <section
@@ -663,14 +689,18 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
       <article class="cycle-card">
         <div class="card-heading cycle-heading">
           <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span>${cycle.repetitions === 0 ? html`<span class="sr-only"> inactive</span>` : null}</h2>
-          <div class="cycle-actions">
+          <!-- The same wrapper the rhythm heading uses, because it means the
+               same thing: the controls at the end of a card heading. It carries
+               their 36px sizing and pushes the pair to the right, which is what
+               the lone remove button used to do for itself. -->
+          <div class="rhythm-actions">
             <button
               type="button"
-              class="icon-button edit-button${envelopeOpen ? " is-active" : ""}"
-              data-action="toggle-envelope"
-              aria-expanded=${String(envelopeOpen)}
-              aria-controls=${envelopeDrawerId}
-              aria-label=${`Edit ${cycleTitle} tempo envelope`}
+              class="icon-button edit-button${open ? " is-active" : ""}"
+              data-action="toggle-cycle-settings"
+              aria-expanded=${String(open)}
+              aria-controls=${drawerId}
+              aria-label=${`Edit ${cycleTitle} envelope`}
             ><${PencilIcon} /></button>
             <button
               type="button"
@@ -681,43 +711,12 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
             >×</button>
           </div>
         </div>
-        <div
-          id=${envelopeDrawerId}
-          class="cycle-envelope"
-          role="region"
-          aria-labelledby=${`${envelopeDrawerId}-label`}
-          hidden=${!envelopeOpen}
-        >
-          <span id=${`${envelopeDrawerId}-label`} class="sr-only">${cycleTitle} tempo envelope</span>
-          <div
-            class="envelope-shapes"
-            role="group"
-            aria-labelledby=${`${envelopeDrawerId}-shape-label`}
-          >
-            <span id=${`${envelopeDrawerId}-shape-label`}>Shape</span>
-            <div>${Object.values(TEMPO_ENVELOPE_SHAPE).map((shape) => {
-              const selected = (cycle.envelope?.shape || TEMPO_ENVELOPE_SHAPE.FLAT) === shape;
-              return html`<button
-                type="button"
-                class="segment-button${selected ? " is-selected" : ""}"
-                data-action="envelope-shape"
-                data-envelope-shape=${shape}
-                aria-pressed=${String(selected)}
-              >${shape[0].toUpperCase()}${shape.slice(1)}</button>`;
-            })}</div>
-          </div>
-          <label class="control-label envelope-change">
-            <span>Change</span>
-            <input
-              type="number"
-              step="1"
-              min=${cycle.envelope?.shape === TEMPO_ENVELOPE_SHAPE.FLAT || !cycle.envelope ? "-120" : "1"}
-              max="120"
-              value=${String(cycle.envelope?.amount || 0)}
-              data-field="envelope-amount"
-            />
-          </label>
-          <p class="envelope-preview">${tempoDescription?.preview}</p>
+
+        <!-- Between the heading and the dots, for the reason the rhythm
+             settings pane sits between its heading and its steps: it opens
+             directly under the control that was activated. -->
+        <div id=${drawerId} class="cycle-settings" hidden=${!open}>
+          <${CycleSettings} cycle=${cycle} cycleTitle=${cycleTitle} tempo=${tempoDescription?.tempo} />
         </div>
         <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
           ${REPETITIONS.slice(1).map((value, index) => {
@@ -760,6 +759,95 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
         disabled=${!cycleAvailability.addRhythm.available}
       >+ Rhythm</button>
     </section>
+  `;
+}
+
+/**
+ * Each shape's line drawn in one 34×18 box, so the four sit on a common
+ * baseline and read as one set: a level line, a rise, a fall, and a rise that
+ * comes back. The word beside each glyph is the accessible name, which is why
+ * the drawing itself is hidden from the tree rather than labelled.
+ */
+const ENVELOPE_GLYPH_POINTS = {
+  [ENVELOPE.FLAT]: "2,9 32,9",
+  [ENVELOPE.UP]: "2,15 32,4",
+  [ENVELOPE.DOWN]: "2,4 32,15",
+  [ENVELOPE.PEAK]: "2,15 17,3 32,15",
+};
+
+function EnvelopeGlyph({ shape }) {
+  return html`<svg
+    class="segment-glyph"
+    viewBox="0 0 34 18"
+    width="26"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  ><polyline points=${ENVELOPE_GLYPH_POINTS[shape]}></polyline></svg>`;
+}
+
+/**
+ * A negative amount is written with U+2212 MINUS SIGN, as the tempo keys are,
+ * so the field reads as typography rather than as a hyphenated word. What it
+ * writes it must also read, and a hyphen is what most keyboards offer first, so
+ * both are accepted going the other way.
+ */
+function envelopeAmountText(amount) {
+  return amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+}
+
+function envelopeAmountValue(text) {
+  return String(text).replace(/−/g, "-").trim();
+}
+
+/**
+ * Three controls and nothing else. The unit is stated once, in the group label,
+ * which is why neither control after it repeats it — and why there is no range
+ * hint, no badge and no prose: the shape, the number and the result are the
+ * whole of what an envelope is.
+ */
+function CycleSettings({ cycle, cycleTitle, tempo }) {
+  const shapeLabelId = `cycle-${cycle.id}-envelope-label`;
+  const { shape, amount } = cycle.envelope;
+  return html`
+    <div class="timing-settings">
+      <div class="segmented-control" role="group" aria-labelledby=${shapeLabelId}>
+        <span id=${shapeLabelId}>BPM Envelope</span>
+        <div>${Object.values(ENVELOPE).map(
+          (candidate) => html`
+          <button
+            type="button"
+            class="segment-button${candidate === shape ? " is-selected" : ""}"
+            data-action="envelope-shape"
+            data-envelope-shape=${candidate}
+            aria-pressed=${String(candidate === shape)}
+          ><${EnvelopeGlyph} shape=${candidate} />${candidate[0].toUpperCase()}${candidate.slice(1)}</button>
+        `,
+        )}</div>
+      </div>
+
+      <label class="control-label envelope-amount">
+        <span>Amount</span>
+        <input
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          value=${envelopeAmountText(amount)}
+          data-field="envelope-amount"
+          aria-label=${`${cycleTitle} tempo change in beats per minute`}
+        />
+      </label>
+
+      <label class="control-label envelope-tempo">
+        <span>Tempo</span>
+        <output>${tempo}</output>
+      </label>
+    </div>
   `;
 }
 
@@ -1219,9 +1307,9 @@ function toggleRhythmSettings(rhythmId) {
   renderCycles();
 }
 
-function toggleCycleEnvelope(cycleId) {
-  if (openCycleEnvelopes.has(cycleId)) openCycleEnvelopes.delete(cycleId);
-  else openCycleEnvelopes.add(cycleId);
+function toggleCycleSettings(cycleId) {
+  if (openCycles.has(cycleId)) openCycles.delete(cycleId);
+  else openCycles.add(cycleId);
   renderCycles();
 }
 
@@ -1276,6 +1364,10 @@ elements.bpm.addEventListener("change", (event) =>
  * produce. The row below the slider is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
+  // While playing the slider tracks the live tempo rather than setting one, so
+  // an input event here is the render's own write coming back, or a gesture the
+  // `disabled` attribute did not catch. Either way it is not an edit.
+  if (engine.playing) return;
   const dragged = /** @type {HTMLInputElement} */ (event.target).value;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
@@ -1323,6 +1415,7 @@ let tempoHolding = false;
  * the end of the range, which the edit declines rather than clamps.
  */
 function stepTempo(delta) {
+  if (engine.playing) return false;
   const result = applyEdit(
     { type: "set-tempo", bpm: state.bpm + delta },
     { deferConsequence: true, render: false },
@@ -1655,16 +1748,23 @@ elements.cycles.addEventListener("click", (event) => {
       applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
       break;
     }
-    case "toggle-envelope":
-      toggleCycleEnvelope(cycle.id);
+    case "toggle-cycle-settings":
+      toggleCycleSettings(cycle.id);
       break;
-    case "envelope-shape":
+    // The magnitude survives a change of shape, and which magnitude that is
+    // belongs to the vocabulary rather than to this listener: the edit carries
+    // both halves of the envelope, so the converted amount is asked for by name
+    // rather than worked out again here.
+    case "envelope-shape": {
+      const shape = actionElement.dataset.envelopeShape;
       applyEdit({
-        type: "set-cycle-envelope-shape",
+        type: "set-cycle-envelope",
         cycleId: cycle.id,
-        shape: actionElement.dataset.envelopeShape,
+        shape,
+        amount: convertedEnvelopeAmount(cycle.envelope, shape),
       });
       break;
+    }
     case "remove-cycle": {
       const result = applyEdit({ type: "remove-cycle", cycleId: cycle.id });
       if (result.reason !== null) return;
@@ -1954,12 +2054,22 @@ elements.cycles.addEventListener("change", (event) => {
   if (!field || ["volume", "pan"].includes(field)) return;
   const context = findContext(target);
   if (!context) return;
+  // The field is text rather than a number input, because a number input will
+  // not hold a U+2212 at all — and the sign is the one thing a Flat has to be
+  // able to say. What the field accepts and what it is left showing are
+  // therefore both this listener's: the committed amount is written back, so a
+  // refused entry and one clamped into range each end up reading as what the
+  // envelope actually holds rather than as what was typed at it.
   if (field === "envelope-amount") {
+    const { cycle } = context;
     applyEdit({
-      type: "set-cycle-envelope-amount",
-      cycleId: context.cycle.id,
-      amount: target.value,
+      type: "set-cycle-envelope",
+      cycleId: cycle.id,
+      shape: cycle.envelope.shape,
+      amount: envelopeAmountValue(target.value),
     });
+    const committed = state.sequence.cycles.find(({ id }) => id === cycle.id);
+    if (committed) target.value = envelopeAmountText(committed.envelope.amount);
     return;
   }
   if (!context.rhythm) return;
