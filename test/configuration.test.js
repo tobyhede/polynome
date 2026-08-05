@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   changeConfiguration,
   createConfiguration,
+  createFactoryPresets,
   createSavedPresets,
   createStoredPresets,
   describeConfiguration,
@@ -333,6 +334,21 @@ test("a Preset key that was never written seeds the example Presets", () => {
       { bpm: 120, subdivision: 2, displayMode: "beat" },
       { bpm: 120, subdivision: 3, displayMode: "beat" },
     ],
+  );
+});
+
+test("factory Presets are fresh repaired copies of the seeded definitions", () => {
+  const first = createFactoryPresets();
+  const second = createFactoryPresets();
+
+  assert.deepEqual(
+    first.map(({ name, configuration }) => ({ name, configuration: withoutIds(configuration) })),
+    second.map(({ name, configuration }) => ({ name, configuration: withoutIds(configuration) })),
+  );
+  assert.notEqual(first[0].id, second[0].id);
+  assert.notEqual(
+    first[0].configuration.sequence.cycles[0].id,
+    second[0].configuration.sequence.cycles[0].id,
   );
 });
 

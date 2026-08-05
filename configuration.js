@@ -365,13 +365,22 @@ export function createSavedPresets(input) {
 }
 
 /**
+ * Fresh copies of the Presets a first run receives. This is also the explicit
+ * factory reset boundary: callers get repaired Configurations and newly issued
+ * identifiers, never the frozen definitions above or a stored listener value.
+ */
+export function createFactoryPresets() {
+  return createSavedPresets(SEED_PRESETS);
+}
+
+/**
  * The one door in from storage, taking the raw stored value so that a key this
  * browser has never written stays distinguishable from one deliberately emptied.
  * Only the first is a first run, and only a first run is seeded with the
  * examples; an empty list is a listener who deleted the last Preset.
  */
 export function createStoredPresets(stored) {
-  if (stored === null) return createSavedPresets(SEED_PRESETS);
+  if (stored === null) return createFactoryPresets();
   if (typeof stored !== "string") {
     throw new TypeError("Stored Presets must be the stored string or null");
   }

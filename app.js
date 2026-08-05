@@ -2,6 +2,7 @@ import { MetronomeEngine } from "./metronome.js";
 import {
   changeConfiguration,
   createConfiguration,
+  createFactoryPresets,
   createSavedPresets,
   createStoredPresets,
   describeConfiguration,
@@ -200,6 +201,15 @@ function writeSavedPresets(presets) {
   } catch {
     return false;
   }
+}
+
+function restoreFactoryPresets() {
+  pendingDeletePresetId = null;
+  adoptSavedPresets(createFactoryPresets());
+  const persisted = writeSavedPresets(savedPresets);
+  elements.status.textContent = persisted
+    ? "Factory presets restored"
+    : "Factory presets could not be restored in this browser";
 }
 
 const persistence = createPersistence({
@@ -1888,6 +1898,20 @@ engine.addEventListener("audioerror", (event) =>
   showError(/** @type {CustomEvent} */ (event).detail),
 );
 document.addEventListener("keydown", (event) => {
+  if (
+    event.code === "KeyP" &&
+    event.altKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.repeat
+  ) {
+    const tag = document.activeElement?.tagName;
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
+    event.preventDefault();
+    restoreFactoryPresets();
+    return;
+  }
   if (event.code !== "Space" || event.repeat) return;
   const tag = document.activeElement?.tagName;
   if (["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;

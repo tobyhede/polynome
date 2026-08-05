@@ -882,6 +882,35 @@ test("a first load seeds the example Presets into storage", async ({ page }) => 
     .toEqual(["4/4 8ths", "4/4 Triplets"]);
 });
 
+test("Alt+Shift+P restores factory Presets outside form controls", async ({ page }) => {
+  await savePreset(page, "Custom");
+  const storedNames = () =>
+    page.evaluate(() =>
+      JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "[]").map(({ name }) => name),
+    );
+
+  const bpm = page.getByRole("spinbutton", { name: "BPM" });
+  await bpm.focus();
+  await page.keyboard.press("Alt+Shift+P");
+  await expect.poll(storedNames).toContain("Custom");
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await presetButton(page, "Custom").focus();
+  await page.keyboard.press("Alt+Shift+P");
+  await expect(page.getByRole("status")).toHaveText("Factory presets restored");
+  await expect.poll(storedNames).toEqual(["4/4 8ths", "4/4 Triplets"]);
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetButton(page, "Custom")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Close presets" })).toBeFocused();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await expect(presetCard(page, "4/4 8ths")).toBeVisible();
+  await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetButton(page, "Custom")).toHaveCount(0);
+});
+
 /**
  * Deleting the last Preset leaves an empty list, which is a written key. Seeding
  * an empty list rather than an absent one would put the examples back the moment
@@ -1178,6 +1207,12 @@ test("saving into refused storage is reported and keeps earlier saves", async ({
     await expect(status).toHaveText("Preset deletion could not be saved in this browser");
     await expect(presetButton(page, "First")).toHaveCount(0);
     await expect(presetButton(page, "Second")).toBeVisible();
+
+    await page.keyboard.press("Alt+Shift+P");
+    await expect(status).toHaveText("Factory presets could not be restored in this browser");
+    await expect(presetButton(page, "Second")).toHaveCount(0);
+    await expect(presetButton(page, "4/4 8ths")).toBeVisible();
+    await expect(presetButton(page, "4/4 Triplets")).toBeVisible();
   } finally {
     await denied.close();
   }
