@@ -74,8 +74,223 @@ export const TEMPO_STEP = 5;
 /** Level and Balance share one grid: a twentieth, five percent of either. */
 export const MIX_STEP = 0.05;
 
+/**
+ * A Cycle's tempo envelope: a shape and an amount, owned by the Cycle it spans.
+ *
+ * Flat is a step — the whole Cycle plays at `incoming + amount`, and the change
+ * lands on its first beat. The other three are continuous in musical position
+ * rather than stepped per repetition, so a repetition count sets the envelope's
+ * duration and nothing else: a one-repetition Up ramps across that repetition.
+ *
+ * Flat 0 is the canonical no-envelope state and the default for a new Cycle.
+ * There is no separate off switch, which is why only Flat's range reaches zero
+ * and below: a ramp of nothing is a Flat, and the vocabulary says so once here
+ * rather than leaving two spellings of the same silence.
+ */
+export const ENVELOPE = Object.freeze({
+  FLAT: "flat",
+  UP: "up",
+  DOWN: "down",
+  PEAK: "peak",
+});
+
+/**
+ * Reached with a shape a stored Configuration supplies, so it is a `lookup` for
+ * the reason that helper exists: `ENVELOPE_LIMIT.toString` on a plain object
+ * answers with a function, which survives the truthiness check that decides a
+ * shape is known and then destructures to an undefined range. The amount is
+ * clamped against that range, and `NaN` is what a Cycle ends up storing.
+ */
+export const ENVELOPE_LIMIT = lookup({
+  flat: Object.freeze({ minimum: -120, maximum: 120 }),
+  up: Object.freeze({ minimum: 1, maximum: 120 }),
+  down: Object.freeze({ minimum: 1, maximum: 120 }),
+  peak: Object.freeze({ minimum: 1, maximum: 120 }),
+});
+
+/**
+ * What a shape's amount is worth against the incoming tempo. Only Down counts
+ * downward: Flat carries its own sign, and Up and Peak are named for the
+ * direction they take.
+ */
+const ENVELOPE_DIRECTION = lookup({ flat: 1, up: 1, down: -1, peak: 1 });
+
+/** The amount a ramp starts at when it is chosen from Flat 0, which has none. */
+export const ENVELOPE_DEFAULT_AMOUNT = 20;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampTempo(bpm) {
+  return clamp(bpm, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum);
+}
+
+/**
+ * Reads an envelope the way every function below needs it: a shape this module
+ * has a direction for and a finite amount. Anything else is Flat 0, so a Cycle
+ * carrying nothing and a Cycle carrying a shape nobody wrote both evaluate as
+ * the no-envelope state rather than turning the arithmetic into `NaN`.
+ */
+function readEnvelope(envelope) {
+  const shape = ENVELOPE_DIRECTION[envelope?.shape] === undefined ? ENVELOPE.FLAT : envelope.shape;
+  const amount = Number(envelope?.amount);
+  return { shape, amount: Number.isFinite(amount) ? amount : 0 };
+}
+
+/**
+ * The tempo the shape reaches — at the Cycle's start for Flat, at its end for
+ * Up and Down, at its musical midpoint for Peak.
+ *
+ * Clamping is per evaluation and never per edit: at incoming 290 an Up 20
+ * reaches 300 while the stored amount stays 20, so a Preset carries a relative
+ * change rather than baking in the absolute tempo it happened to produce.
+ */
+export function envelopeTarget(incomingBpm, envelope) {
+  const { shape, amount } = readEnvelope(envelope);
+  return clampTempo(clampTempo(incomingBpm) + ENVELOPE_DIRECTION[shape] * amount);
+}
+
+/**
+ * The tempo a fraction `0…1` of the way through the Cycle. Peak is shaped by
+ * `1 − |1 − 2·progress|`, which is 0 at both ends and 1 at exactly 0.5, so the
+ * target lands on the musical midpoint rather than on a repetition boundary.
+ */
+export function envelopeTempoAt(incomingBpm, envelope, progress) {
+  const { shape } = readEnvelope(envelope);
+  const target = envelopeTarget(incomingBpm, envelope);
+  if (shape === ENVELOPE.FLAT) return target;
+  const startBpm = clampTempo(incomingBpm);
+  const bounded = clamp(progress, 0, 1);
+  const fraction = shape === ENVELOPE.PEAK ? 1 - Math.abs(1 - 2 * bounded) : bounded;
+  return startBpm + (target - startBpm) * fraction;
+}
+
+/**
+ * What the Cycle hands to the next one. Peak returns to where it started, so it
+ * passes its incoming tempo through; every other shape ends on its target.
+ */
+export function outgoingTempo(incomingBpm, envelope) {
+  const { shape } = readEnvelope(envelope);
+  return shape === ENVELOPE.PEAK ? clampTempo(incomingBpm) : envelopeTarget(incomingBpm, envelope);
+}
+
+/**
+ * The amount an envelope keeps when its shape changes. The magnitude always
+ * survives, because the amount is the thing the listener chose and the shape is
+ * how it is spent: only the sign is the shape's to decide, and only Flat has
+ * one to carry. A Flat at rest has no magnitude to survive, so a ramp chosen
+ * from it starts at the default rather than at a zero no ramp can hold.
+ */
+export function convertedEnvelopeAmount(envelope, shape) {
+  const current = readEnvelope(envelope);
+  if (shape === current.shape) return current.amount;
+  if (shape === ENVELOPE.FLAT) {
+    return current.shape === ENVELOPE.DOWN ? -current.amount : current.amount;
+  }
+  if (current.shape !== ENVELOPE.FLAT) return current.amount;
+  return current.amount === 0 ? ENVELOPE_DEFAULT_AMOUNT : Math.abs(current.amount);
+}
+
+/**
+ * The scheduler's form of an envelope: the two tempos a Cycle interpolates
+ * between and the musical length it takes to do it. Flat starts where it ends,
+ * which is what makes it a step — every function below reads one pair of tempos
+ * and a length, and none of them needs to know which shape produced them.
+ */
+export function createTempoCurve(incomingBpm, envelope, beatLength) {
+  const inheritedBpm = clampTempo(incomingBpm);
+  const { shape } = readEnvelope(envelope);
+  const targetBpm = envelopeTarget(inheritedBpm, envelope);
+  const startBpm = shape === ENVELOPE.FLAT ? targetBpm : inheritedBpm;
+
+  return Object.freeze({
+    shape,
+    inheritedBpm,
+    startBpm,
+    targetBpm,
+    beatLength: Math.max(0, beatLength),
+  });
+}
+
+export function tempoAtBeat(curve, beat) {
+  if (curve.beatLength === 0) return curve.targetBpm;
+  let progress = clamp(beat, 0, curve.beatLength) / curve.beatLength;
+  if (curve.shape === "peak") progress = progress <= 0.5 ? progress * 2 : (1 - progress) * 2;
+  return curve.startBpm + (curve.targetBpm - curve.startBpm) * progress;
+}
+
+export function secondsAtBeat(curve, beat) {
+  const boundedBeat = clamp(beat, 0, curve.beatLength);
+  if (curve.shape === "peak") {
+    const midpoint = curve.beatLength / 2;
+    const rise = createTempoCurve(
+      curve.startBpm,
+      { shape: "up", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    if (boundedBeat <= midpoint) return secondsAtBeat(rise, boundedBeat);
+    const fall = createTempoCurve(
+      curve.targetBpm,
+      { shape: "down", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    return secondsAtBeat(rise, midpoint) + secondsAtBeat(fall, boundedBeat - midpoint);
+  }
+  const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;
+  if (!Number.isFinite(slope) || slope === 0) return (60 * boundedBeat) / curve.startBpm;
+  return (60 / slope) * Math.log1p((slope * boundedBeat) / curve.startBpm);
+}
+
+export function beatAtSeconds(curve, seconds) {
+  const duration = secondsAtBeat(curve, curve.beatLength);
+  const boundedSeconds = clamp(seconds, 0, duration);
+  if (curve.shape === "peak") {
+    const midpoint = curve.beatLength / 2;
+    const rise = createTempoCurve(
+      curve.startBpm,
+      { shape: "up", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    const riseDuration = secondsAtBeat(rise, midpoint);
+    if (boundedSeconds <= riseDuration) return beatAtSeconds(rise, boundedSeconds);
+    const fall = createTempoCurve(
+      curve.targetBpm,
+      { shape: "down", amount: curve.targetBpm - curve.startBpm },
+      midpoint,
+    );
+    return midpoint + beatAtSeconds(fall, boundedSeconds - riseDuration);
+  }
+  const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;
+  if (!Number.isFinite(slope) || slope === 0) return (boundedSeconds * curve.startBpm) / 60;
+  return (curve.startBpm * Math.expm1((boundedSeconds * slope) / 60)) / slope;
+}
+
+/**
+ * A Cycle's incoming tempo is the starting BPM folded through every preceding
+ * *active* Cycle, so editing an earlier envelope moves the tempo every later
+ * one is read against. An inactive Cycle has no tempo effect and passes its
+ * incoming tempo through untouched, while keeping the envelope it was given.
+ */
+export function createSequenceTempoCurves(startingBpm, cycles) {
+  let incomingBpm = clampTempo(startingBpm);
+  return cycles.map((cycle) => {
+    const active = cycle.repetitions > 0;
+    const beatLength = active ? cycleSpanBeats(cycle) * cycle.repetitions : 0;
+    const curve = createTempoCurve(incomingBpm, active ? cycle.envelope : null, beatLength);
+    const outgoingBpm = active ? outgoingTempo(incomingBpm, cycle.envelope) : incomingBpm;
+    const description = {
+      id: cycle.id,
+      active,
+      incomingBpm,
+      targetBpm: active ? curve.targetBpm : incomingBpm,
+      outgoingBpm,
+      beatLength,
+      curve,
+    };
+    incomingBpm = outgoingBpm;
+    return description;
+  });
 }
 
 /**
@@ -124,12 +339,12 @@ function leastCommonMultiple(left, right) {
   return Math.abs(left * right) / greatestCommonDivisor(left, right);
 }
 
-export function cycleSpanSeconds(bpm, cycle) {
+export function cycleSpanBeats(cycle) {
   const rhythms =
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  const spanInBeats = rhythms
+  return rhythms
     .map((rhythm) =>
       Math.round(
         normaliseNumber(
@@ -141,8 +356,11 @@ export function cycleSpanSeconds(bpm, cycle) {
       ),
     )
     .reduce(leastCommonMultiple);
+}
+
+export function cycleSpanSeconds(bpm, cycle) {
   const beatSeconds = 60 / normaliseNumber(bpm, 120, 1, 1000);
-  return spanInBeats * beatSeconds;
+  return cycleSpanBeats(cycle) * beatSeconds;
 }
 
 export function stepDurationSeconds(bpm, rhythm) {

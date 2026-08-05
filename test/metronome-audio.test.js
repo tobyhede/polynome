@@ -1240,3 +1240,85 @@ test("without a factory the engine still reports an unsupported Web Audio API", 
   await assert.rejects(() => engine.start(pulsePerSecond()), /does not support the Web Audio API/);
   assert.equal(schedulerRunning(), false);
 });
+
+/**
+ * What the interface reads off a run in progress: which Cycle and repetition it
+ * is in, which Pattern position each layer is on, and the tempo sounding right
+ * now. All three answer `null` unless a run is playing on a context that has
+ * actually been anchored to a start time, because `app.js` falls back to the
+ * stored tempo on exactly that reading — a run that has not sounded yet has no
+ * position to report, and reporting one would put the playhead on a beat
+ * nobody has heard.
+ */
+test("a run reports no position or tempo until it is anchored and sounding", async () => {
+  const { context, engine } = harness({ state: "suspended", resume: "hang" });
+  const configuration = pulsePerSecond();
+
+  assert.equal(engine.activeBpm(), null);
+  assert.equal(engine.activePosition(), null);
+
+  // Started, but on a context that never reaches `running`, so the transport is
+  // never given an origin and there is nothing yet to be positioned against.
+  await engine.start(configuration);
+  assert.equal(engine.activeBpm(), null);
+  assert.equal(engine.activePosition(), null);
+  assert.equal(engine.activeStep(configuration.sequence.cycles[0].rhythms[0]), null);
+
+  engine.stop();
+  assert.equal(engine.activeBpm(), null);
+  assert.equal(context.state, "suspended");
+});
+
+/**
+ * Anchored, the tempo is read from the Cycle's own curve rather than from the
+ * Configuration, which is what makes a BPM envelope audible to the readout: a
+ * Flat Cycle reports the one tempo it holds, and a rising one reports a
+ * different tempo at each instant it is asked about.
+ */
+test("an anchored run reports the tempo its envelope is sounding", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+  const configuration = pulsePerSecond();
+
+  await engine.start(configuration);
+  // The transport is anchored a START_DELAY_SECONDS beat ahead of the clock, so
+  // the origin itself is where the first tempo is read.
+  context.currentTime = 0.06;
+  assert.equal(engine.activeBpm(), 60);
+  assert.deepEqual(engine.activePosition().repetitionIndex, 0);
+  assert.equal(engine.activeStep(configuration.sequence.cycles[0].rhythms[0]), 0);
+
+  engine.stop();
+  assert.equal(engine.activeBpm(), null);
+});
+
+test("a rising envelope is reported as a different tempo at each instant", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+  const rising = createConfiguration({
+    bpm: 60,
+    sequence: {
+      cycles: [
+        {
+          repetitions: 1,
+          envelope: { shape: "up", amount: 60 },
+          rhythms: [{ signature: { count: 4, unit: 4 }, subdivision: 1 }],
+        },
+      ],
+    },
+  });
+
+  await engine.start(rising);
+  context.currentTime = 0.06;
+  const first = engine.activeBpm();
+
+  // Far enough along the four-beat ramp for the reading to have moved, and
+  // short of its end, so this is the curve being read rather than the Cycle
+  // having come round again at the tempo it started from.
+  context.currentTime = 0.06 + 1.2;
+  const later = engine.activeBpm();
+
+  assert.equal(first, 60);
+  assert.ok(later > first, `expected a tempo above ${first}, read ${later}`);
+  assert.ok(later < 120, `expected a tempo below the 120 target, read ${later}`);
+
+  engine.stop();
+});

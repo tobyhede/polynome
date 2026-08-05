@@ -13,9 +13,12 @@ import {
   savePreset,
 } from "./configuration.js";
 import {
+  lookup,
   panLabel,
   snapBalance,
   subdivisionLabel,
+  convertedEnvelopeAmount,
+  ENVELOPE,
   MIX_STEP,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
@@ -60,6 +63,7 @@ const elements = {
   bpmDown: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-down")),
   bpmUp: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-up")),
   bpmReadout: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-readout")),
+  bpmLabel: /** @type {HTMLLabelElement} */ (document.querySelector("#bpm-readout label")),
   bpmTicks: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-ticks")),
   presetsToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-toggle")),
   presetPanel: /** @type {HTMLElement} */ (document.querySelector("#preset-panel")),
@@ -106,6 +110,19 @@ function focusWithin(root, selector) {
 
 const engine = new MetronomeEngine();
 const openRhythms = new Set();
+const openCycles = new Set();
+/**
+ * The stretch of the tempo range the current run travels through, while it is
+ * travelling it, and null the rest of the time — including under a Flat, which
+ * changes tempo without passing through anything on the way.
+ *
+ * The tempo the readout is sized from while the number is moving, and null while
+ * it is not. Both are remembered rather than passed because the readout is drawn
+ * from two places — a full render, and the per-frame write that follows a live
+ * tempo — and the two have to agree.
+ */
+let tempoBand = null;
+let heldTempo = null;
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
 let description = describeConfiguration(state);
@@ -291,9 +308,68 @@ function renderPanels() {
   elements.presetSaveReason.textContent = saveReason;
 }
 
+/**
+ * The large readout changes mode with playback rather than moving: stopped it
+ * displays and edits the Preset's starting tempo, playing it displays the tempo
+ * the envelopes are producing right now.
+ *
+ * The live number stays at full strength — it is the playback indicator, and
+ * dimming the one thing a listener is watching would be backwards. What has to
+ * be unmistakable is that it cannot be typed into, so the number is `readonly`
+ * while the slider and both keys are genuinely `disabled`, which is the
+ * treatment `button:disabled` already carries. The setters refuse as well, so
+ * an event arriving from somewhere none of that covers still cannot edit the
+ * starting tempo out from under a run.
+ *
+ * The starting tempo has nowhere to be shown once the number is live, so the
+ * label slot carries it: `BPM` becomes a badge reading `BPM 100`. No
+ * `aria-live` anywhere near it — the tempo changes continuously, and announcing
+ * it would flood the buffer. `#status` still announces starting and stopping.
+ */
 function renderTransport() {
-  elements.bpm.value = String(state.bpm);
-  elements.bpmSlider.value = String(state.bpm);
+  const playing = engine.playing;
+  const displayedBpm = playing ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
+  elements.bpm.value = String(displayedBpm);
+  elements.bpmSlider.value = String(displayedBpm);
+  elements.bpm.readOnly = playing;
+  elements.bpm.setAttribute(
+    "aria-label",
+    `${playing ? "Current" : "Starting"} tempo in beats per minute`,
+  );
+  /*
+   * Two different questions, and they used to be one.
+   *
+   * Whether the tempo moves at all decides the label and the readout's size: a
+   * Sequence that holds one tempo throughout is already showing it in the large
+   * number, and a readout sized from a number nobody is watching change has
+   * nothing to hold still for. What is asked is whether the tempo moves, not
+   * whether an envelope is written down somewhere — a Cycle switched off keeps
+   * the envelope it was given and contributes none of it.
+   *
+   * Whether it *travels* decides the band, and that is a question about the
+   * tempos a run passes through rather than about the envelopes written down in
+   * it. A Flat jumps from one tempo to the next and sounds neither of the ones
+   * between; a ramp with nothing left to give — Up 20 already at 300 — carries
+   * its amount and moves nothing. Both are runs at a tempo that never travels,
+   * and the description answers for both by reporting the stretch rather than
+   * the intent, so there is nothing to work out again here.
+   */
+  const tempoMoves = playing && description.tempoRange.minimum !== description.tempoRange.maximum;
+  const travelled = playing ? description.travelledRange : null;
+
+  elements.bpmLabel.textContent = tempoMoves ? String(state.bpm) : "BPM";
+  elements.bpmLabel.classList.toggle("is-starting-tempo", tempoMoves);
+  // The tempo the run opens on, which is not always the one the Preset stores:
+  // a Flat spends its whole change on the first beat, so a Sequence starting on
+  // Flat +60 at 96 plays 156 from the outset and never sounds 96 at all. Sizing
+  // the glyphs from a tempo nobody hears is a smaller wrong than sizing them
+  // from one that keeps changing, but it is still one.
+  heldTempo = tempoMoves ? description.cycles.find(({ active }) => active).startBpm : null;
+  elements.bpmTicks.classList.toggle("is-banded", travelled !== null);
+  tempoBand = travelled;
+  elements.bpmSlider.disabled = playing;
+  elements.bpmDown.disabled = playing;
+  elements.bpmUp.disabled = playing;
   // A key at the end of the range says so rather than being left live and
   // silent — but marked unavailable rather than `disabled`, for the reason the
   // save chip is: `disabled` leaves the tab order. This key disables itself
@@ -305,12 +381,47 @@ function renderTransport() {
   // Marking states and does not enforce. Nothing extra declines the press,
   // because the hold already does: `stepTempo` reports a tempo that did not
   // move, which is what the edit returns at either bound.
-  elements.bpmDown.setAttribute("aria-disabled", String(state.bpm <= TEMPO_LIMIT.minimum));
-  elements.bpmUp.setAttribute("aria-disabled", String(state.bpm >= TEMPO_LIMIT.maximum));
-  const progress = (state.bpm - 30) / 270;
+  elements.bpmDown.setAttribute(
+    "aria-disabled",
+    String(playing || state.bpm <= TEMPO_LIMIT.minimum),
+  );
+  elements.bpmUp.setAttribute("aria-disabled", String(playing || state.bpm >= TEMPO_LIMIT.maximum));
+  renderDisplayedTempo(displayedBpm);
+  updatePlayButton();
+}
+
+/**
+ * Where a tempo sits in the range the control offers, as a fraction, counted
+ * from the limit rather than from a pair of numbers restated here.
+ */
+function tempoFraction(bpm) {
+  const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
+  return Math.min(1, Math.max(0, (bpm - TEMPO_LIMIT.minimum) / span));
+}
+
+/**
+ * Everything the readout draws from a tempo rather than from the state behind
+ * it: the size of the glyphs, the gap above them, the glitch at the top of the
+ * range, how far the track is filled, and how much of the tick row is lit.
+ *
+ * Which tempo, though, is not always the one on screen. While an envelope is
+ * moving the number, letting the glyphs swell and shrink with it turns a reading
+ * into an animation — the one thing on the panel a listener is trying to read
+ * becomes the one thing that will not sit still — so the run's own starting
+ * tempo sizes them instead.
+ *
+ * The marks answer the band rather than the size, by giving way to it: under a
+ * ramp the band is drawn over them from the tempos themselves, at a resolution
+ * a scale a tenth of the range apart cannot carry, and they stay the plain
+ * scale it is drawn against. Under a Flat, which travels nothing, there is no
+ * band and they go on marking where the tempo has reached.
+ */
+function renderDisplayedTempo(displayedBpm) {
+  const shapedBy = heldTempo ?? displayedBpm;
+  const progress = tempoFraction(shapedBy);
   const size = 2.1 + progress * 2.1;
   const pixelSize = size * 16;
-  const glitchIntensity = Math.min(1, Math.max(0, (state.bpm - 250) / 50));
+  const glitchIntensity = Math.min(1, Math.max(0, (shapedBy - 250) / 50));
   // Every length the readout uses is offered twice: the design value, and the
   // same value as a share of the transport card. The card is the size container,
   // and 1cqw is 5px at the 500px column this was drawn against, so taking the
@@ -363,10 +474,24 @@ function renderTransport() {
       target.style.removeProperty("--glitch-duration");
     });
   }
+  // The band is placed from the two tempos themselves rather than from the marks
+  // nearest them, which is the whole of why it is a bar: the ticks are a tenth
+  // of the range apart, and a ramp shorter than that either lands on one of them
+  // or on none.
+  const ticks = elements.bpmTicks.style;
+  if (tempoBand) {
+    ticks.setProperty("--band-start", `${tempoFraction(tempoBand.minimum) * 100}%`);
+    ticks.setProperty("--band-end", `${tempoFraction(tempoBand.maximum) * 100}%`);
+  } else {
+    ticks.removeProperty("--band-start");
+    ticks.removeProperty("--band-end");
+  }
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
-    tick.classList.toggle("is-passed", Number(tick.dataset.bpm) <= state.bpm);
+    // Nothing on the scale answers a band: the band draws its own ends, at the
+    // tempos rather than at the marks nearest them, and marking the scale as
+    // well would say the same thing a second time and less accurately.
+    tick.classList.toggle("is-passed", !tempoBand && Number(tick.dataset.bpm) <= displayedBpm);
   });
-  updatePlayButton();
 }
 
 function PresetList({ presets, pendingDeleteId }) {
@@ -411,13 +536,17 @@ function renderPresetCount() {
 }
 
 /**
- * Tempo and master level changes re-render on every pointer move, and describing
- * this list costs a repair pass over every stored Configuration — on the same
- * thread as the scheduler. Reconciliation makes the DOM half cheap; it cannot
- * make the describing half free. The panel is closed for almost all of that, so
- * the toggle renders it on the way open and nothing here runs for a panel nobody
- * can see. That decision is about not doing the work at all, which is the one
- * thing no renderer can take over.
+ * A level or balance drag re-renders on every pointer move, and describing this
+ * list costs a repair pass over every stored Configuration — on the same thread
+ * as the scheduler. Reconciliation makes the DOM half cheap; it cannot make the
+ * describing half free. The panel is closed for almost all of that, so the
+ * toggle renders it on the way open and nothing here runs for a panel nobody can
+ * see. That decision is about not doing the work at all, which is the one thing
+ * no renderer can take over.
+ *
+ * The tempo drag used to be the other half of this, and is no longer: the
+ * starting tempo cannot be moved while a run is playing, so that gesture never
+ * meets the scheduler at all. A mix drag still can, which is what this is for.
  */
 function renderPresetPanel() {
   if (!presetsOpen) return;
@@ -448,16 +577,27 @@ function dismissPendingDelete() {
   renderPresetPanel();
 }
 
+/**
+ * The Configuration here has already been through repair — every door into
+ * stored Presets goes through `createConfiguration` first — so it has the same
+ * Cycles in the same order as the description below, and the position is the
+ * Cycle. Reading by id would be the fragile choice rather than the careful one:
+ * repair replaces a duplicate identifier, so two Cycles that arrived sharing one
+ * would both find the first description and the second would report the first's
+ * envelope as its own.
+ */
 function PresetNotation({ configuration }) {
+  const tempoDescriptions = describeConfiguration(configuration).cycles;
   const accessible = configuration.sequence.cycles
-    .map((cycle) => {
+    .map((cycle, index) => {
       const rhythms = cycle.rhythms
         .map(
           (rhythm) =>
             `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`,
         )
         .join(" plus ");
-      return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}`;
+      const envelope = tempoDescriptions[index].accessibleNotation;
+      return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}${envelope ? `, ${envelope}` : ""}`;
     })
     .join(", then ");
   return html`
@@ -476,6 +616,11 @@ function PresetNotation({ configuration }) {
             </span>
           `,
           )}
+          ${
+            tempoDescriptions[index].notation
+              ? html`<span class="preset-envelope"> ${tempoDescriptions[index].notation}</span>`
+              : null
+          }
         </span>
       `,
       )}
@@ -631,50 +776,107 @@ function Cycles({ cycles }) {
   )}`;
 }
 
+/**
+ * What a repetition dot's press writes. A dot sets the count it stands for, and
+ * the dot at the current count switches the Cycle off instead — except where
+ * switching off would leave the Sequence with no active Cycle at all. There the
+ * press writes the count it stands for, which is the count already showing.
+ *
+ * The alternative was `disabled`, and it was worse than doing nothing: that dot
+ * is the selected one, so the global dimming for a disabled control took the
+ * only lit dot in the row down to the strength of an unlit one, and a Cycle
+ * playing its single repetition read as a Cycle switched off. The rule holds
+ * either way — `changeConfiguration` is what enforces it — so this is a choice
+ * about which press to offer, not about which to allow.
+ */
+function repetitionsForDot(cycle, value, cycleAvailability) {
+  const switchesOff = cycle.repetitions === value;
+  return switchesOff && cycleAvailability.repetitions[value - 1].available ? value - 1 : value;
+}
+
 function CycleGroup({ cycle, cycleIndex, cycleCount }) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
+  const open = openCycles.has(cycle.id);
+  const drawerId = `cycle-${cycle.id}-settings`;
+  const tempoDescription = description.cycles.find(({ id }) => id === cycle.id);
   return html`
     <section
       class="cycle-group${cycle.repetitions === 0 ? " is-inactive" : ""}"
       data-cycle-id=${cycle.id}
       aria-labelledby=${`cycle-${cycle.id}-heading`}
     >
-      <article class="cycle-card" hidden=${cycleCount === 1}>
+      <article class="cycle-card">
         <div class="card-heading cycle-heading">
-          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span></h2>
-          <button
-            type="button"
-            class="icon-button remove-button"
-            data-action="remove-cycle"
-            aria-label=${`Remove ${cycleTitle}`}
-            disabled=${!cycleAvailability.remove.available}
-          >×</button>
+          <h2 id=${`cycle-${cycle.id}-heading`}>${cycleTitle}<span class="cycle-divider" aria-hidden="true">/</span><span class="heading-count">${cycle.repetitions}</span>${cycle.repetitions === 0 ? html`<span class="sr-only"> inactive</span>` : null}</h2>
+          <!-- The same wrapper the rhythm heading uses, because it means the
+               same thing: the controls at the end of a card heading. It carries
+               their 36px sizing and pushes the pair to the right, which is what
+               the lone remove button used to do for itself. -->
+          <div class="rhythm-actions">
+            <button
+              type="button"
+              class="icon-button edit-button${open ? " is-active" : ""}"
+              data-action="toggle-cycle-settings"
+              aria-expanded=${String(open)}
+              aria-controls=${drawerId}
+              aria-label=${`Edit ${cycleTitle} envelope`}
+            ><${PencilIcon} /></button>
+            <button
+              type="button"
+              class="icon-button remove-button"
+              data-action="remove-cycle"
+              aria-label=${`Remove ${cycleTitle}`}
+              disabled=${!cycleAvailability.remove.available}
+            >×</button>
+          </div>
         </div>
-        <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
-          ${REPETITIONS.slice(1).map((value, index) => {
-            const selected = value <= cycle.repetitions;
-            const nextRepetitions = cycle.repetitions === value ? value - 1 : value;
-            const unavailable = !cycleAvailability.repetitions[nextRepetitions].available;
-            const actionLabel = unavailable
-              ? `${cycleTitle} must remain active at 1 repetition`
-              : nextRepetitions === 0
-                ? `Disable ${cycleTitle}`
-                : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
-            return html`
-              <button
-                type="button"
-                class="repeat-dot${selected ? " is-set" : ""}"
-                data-action="set-repetitions"
-                data-repetitions=${value}
-                data-repetition-index=${index}
-                aria-label=${actionLabel}
-                aria-pressed=${String(selected)}
-                disabled=${unavailable}
-              ></button>
-            `;
-          })}
+
+        <!-- Between the heading and the dots, for the reason the rhythm
+             settings pane sits between its heading and its steps: it opens
+             directly under the control that was activated. -->
+        <div id=${drawerId} class="cycle-settings" hidden=${!open}>
+          <${CycleSettings} cycle=${cycle} cycleTitle=${cycleTitle} tempo=${tempoDescription?.tempo} />
+        </div>
+        <!-- The Cycle's length and, once the drawer that sets it is closed, what
+             its tempo does across that length. The mark is a sibling of the
+             dots rather than one of them: it belongs to the row, not to the
+             group of repetition controls the row is mostly made of. -->
+        <div class="repeat-row">
+          <div class="repeat-dots" role="group" aria-label=${`${cycleTitle} repetitions`}>
+            ${REPETITIONS.slice(1).map((value, index) => {
+              const selected = value <= cycle.repetitions;
+              const nextRepetitions = repetitionsForDot(cycle, value, cycleAvailability);
+              const actionLabel =
+                nextRepetitions === 0
+                  ? `Disable ${cycleTitle}`
+                  : `Set ${cycleTitle} to ${nextRepetitions} ${nextRepetitions === 1 ? "repetition" : "repetitions"}`;
+              return html`
+                <button
+                  type="button"
+                  class="repeat-dot${selected ? " is-set" : ""}"
+                  data-action="set-repetitions"
+                  data-repetitions=${value}
+                  data-repetition-index=${index}
+                  aria-label=${actionLabel}
+                  aria-pressed=${String(selected)}
+                ></button>
+              `;
+            })}
+          </div>
+          ${
+            open || !tempoDescription?.notation
+              ? null
+              : html`<button
+                  type="button"
+                  class="icon-button envelope-mark"
+                  data-action="toggle-cycle-settings"
+                  aria-controls=${drawerId}
+                  aria-expanded="false"
+                  aria-label=${`Edit ${cycleTitle} envelope, ${tempoDescription.accessibleNotation}`}
+                ><${EnvelopeGlyph} shape=${cycle.envelope.shape} /></button>`
+          }
         </div>
       </article>
 
@@ -693,6 +895,95 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
         disabled=${!cycleAvailability.addRhythm.available}
       >+ Rhythm</button>
     </section>
+  `;
+}
+
+/**
+ * Each shape's line drawn in one 34×18 box, so the four sit on a common
+ * baseline and read as one set: a level line, a rise, a fall, and a rise that
+ * comes back. The word beside each glyph is the accessible name, which is why
+ * the drawing itself is hidden from the tree rather than labelled.
+ */
+const ENVELOPE_GLYPH_POINTS = lookup({
+  [ENVELOPE.FLAT]: "2,9 32,9",
+  [ENVELOPE.UP]: "2,15 32,4",
+  [ENVELOPE.DOWN]: "2,4 32,15",
+  [ENVELOPE.PEAK]: "2,15 17,3 32,15",
+});
+
+function EnvelopeGlyph({ shape }) {
+  return html`<svg
+    class="segment-glyph"
+    viewBox="0 0 34 18"
+    width="26"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  ><polyline points=${ENVELOPE_GLYPH_POINTS[shape]}></polyline></svg>`;
+}
+
+/**
+ * A negative amount is written with U+2212 MINUS SIGN, as the tempo keys are,
+ * so the field reads as typography rather than as a hyphenated word. What it
+ * writes it must also read, and a hyphen is what most keyboards offer first, so
+ * both are accepted going the other way.
+ */
+function envelopeAmountText(amount) {
+  return amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+}
+
+function envelopeAmountValue(text) {
+  return String(text).replace(/−/g, "-").trim();
+}
+
+/**
+ * Three controls and nothing else. The unit is stated once, in the group label,
+ * which is why neither control after it repeats it — and why there is no range
+ * hint, no badge and no prose: the shape, the number and the result are the
+ * whole of what an envelope is.
+ */
+function CycleSettings({ cycle, cycleTitle, tempo }) {
+  const shapeLabelId = `cycle-${cycle.id}-envelope-label`;
+  const { shape, amount } = cycle.envelope;
+  return html`
+    <div class="timing-settings">
+      <div class="segmented-control" role="group" aria-labelledby=${shapeLabelId}>
+        <span id=${shapeLabelId}>BPM Envelope</span>
+        <div>${Object.values(ENVELOPE).map(
+          (candidate) => html`
+          <button
+            type="button"
+            class="segment-button${candidate === shape ? " is-selected" : ""}"
+            data-action="envelope-shape"
+            data-envelope-shape=${candidate}
+            aria-pressed=${String(candidate === shape)}
+          ><${EnvelopeGlyph} shape=${candidate} />${candidate[0].toUpperCase()}${candidate.slice(1)}</button>
+        `,
+        )}</div>
+      </div>
+
+      <label class="control-label envelope-amount">
+        <span>Amount</span>
+        <input
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          value=${envelopeAmountText(amount)}
+          data-field="envelope-amount"
+          aria-label=${`${cycleTitle} tempo change in beats per minute`}
+        />
+      </label>
+
+      <label class="control-label envelope-tempo">
+        <span>Tempo</span>
+        <output>${tempo}</output>
+      </label>
+    </div>
   `;
 }
 
@@ -1057,6 +1348,13 @@ function updateActiveSteps() {
     return;
   }
 
+  const liveBpm = String(Math.round(engine.activeBpm() ?? state.bpm));
+  if (elements.bpm.value !== liveBpm) {
+    elements.bpm.value = liveBpm;
+    elements.bpmSlider.value = liveBpm;
+    renderDisplayedTempo(Number(liveBpm));
+  }
+
   const position = engine.activePosition();
   for (const cycle of state.sequence.cycles) {
     const cycleElement = elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"]`);
@@ -1125,6 +1423,7 @@ async function togglePlayback() {
 }
 
 function changeTempo(nextBpm) {
+  if (engine.playing) return;
   applyEdit({ type: "set-tempo", bpm: nextBpm });
 }
 
@@ -1148,6 +1447,25 @@ function toggleRhythmSettings(rhythmId) {
   if (openRhythms.has(rhythmId)) openRhythms.delete(rhythmId);
   else openRhythms.add(rhythmId);
   renderCycles();
+}
+
+/**
+ * The pencil survives the redraw and can hold focus across it, which is why it
+ * needs nothing said about it here. The envelope mark does not: it is only
+ * drawn while the drawer is closed, so opening the drawer from it removes the
+ * control that was pressed and drops focus to the document, and the next Tab
+ * restarts from the top of the page. Focus goes to the pencil, which is the
+ * other control for the drawer that was just opened.
+ */
+function toggleCycleSettings(cycleId, { refocus = false } = {}) {
+  if (openCycles.has(cycleId)) openCycles.delete(cycleId);
+  else openCycles.add(cycleId);
+  renderCycles();
+  if (!refocus) return;
+  focusWithin(
+    elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycleId)}"]`),
+    '[data-action="toggle-cycle-settings"]',
+  );
 }
 
 /**
@@ -1203,6 +1521,10 @@ elements.bpm.addEventListener("change", (event) =>
  * is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
+  // While playing the slider tracks the live tempo rather than setting one, so
+  // an input event here is the render's own write coming back, or a gesture the
+  // `disabled` attribute did not catch. Either way it is not an edit.
+  if (engine.playing) return;
   const dragged = /** @type {HTMLInputElement} */ (event.target).value;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
@@ -1250,6 +1572,7 @@ let tempoHolding = false;
  * the end of the range, which the edit declines rather than clamps.
  */
 function stepTempo(delta) {
+  if (engine.playing) return false;
   const result = applyEdit(
     { type: "set-tempo", bpm: state.bpm + delta },
     { deferConsequence: true, render: false },
@@ -1578,8 +1901,31 @@ elements.cycles.addEventListener("click", (event) => {
   switch (actionElement.dataset.action) {
     case "set-repetitions": {
       const value = Number(actionElement.dataset.repetitions);
-      const repetitions = cycle.repetitions === value ? value - 1 : value;
-      applyEdit({ type: "set-cycle-repetitions", cycleId: cycle.id, repetitions });
+      const availability = description.availability.cycles[cycle.id];
+      applyEdit({
+        type: "set-cycle-repetitions",
+        cycleId: cycle.id,
+        repetitions: repetitionsForDot(cycle, value, availability),
+      });
+      break;
+    }
+    case "toggle-cycle-settings":
+      toggleCycleSettings(cycle.id, {
+        refocus: actionElement.classList.contains("envelope-mark"),
+      });
+      break;
+    // The magnitude survives a change of shape, and which magnitude that is
+    // belongs to the vocabulary rather than to this listener: the edit carries
+    // both halves of the envelope, so the converted amount is asked for by name
+    // rather than worked out again here.
+    case "envelope-shape": {
+      const shape = actionElement.dataset.envelopeShape;
+      applyEdit({
+        type: "set-cycle-envelope",
+        cycleId: cycle.id,
+        shape,
+        amount: convertedEnvelopeAmount(cycle.envelope, shape),
+      });
       break;
     }
     case "remove-cycle": {
@@ -1861,7 +2207,27 @@ elements.cycles.addEventListener("change", (event) => {
   const field = target.dataset.field;
   if (!field || ["volume", "pan"].includes(field)) return;
   const context = findContext(target);
-  if (!context?.rhythm) return;
+  if (!context) return;
+  // The field is text rather than a number input, because a number input will
+  // not hold a U+2212 at all — and the sign is the one thing a Flat has to be
+  // able to say. What the field accepts and what it is left showing are
+  // therefore both this listener's: the committed amount is written back, so an
+  // entry the domain refuses — a fraction, or a number past the shape's range —
+  // is left reading as what the envelope actually holds rather than as what was
+  // typed at it.
+  if (field === "envelope-amount") {
+    const { cycle } = context;
+    applyEdit({
+      type: "set-cycle-envelope",
+      cycleId: cycle.id,
+      shape: cycle.envelope.shape,
+      amount: envelopeAmountValue(target.value),
+    });
+    const committed = state.sequence.cycles.find(({ id }) => id === cycle.id);
+    if (committed) target.value = envelopeAmountText(committed.envelope.amount);
+    return;
+  }
+  if (!context.rhythm) return;
   const { cycle, rhythm } = context;
   let result = null;
   if (field === "signature-count") {
@@ -1891,7 +2257,7 @@ engine.addEventListener("playstate", () => {
   // Every transport run starts here, so this is the one place that knows the
   // tempo the audible run is playing at.
   runBpm = engine.playing ? state.bpm : null;
-  updatePlayButton();
+  renderTransport();
   if (engine.playing) startAnimation();
 });
 engine.addEventListener("audioerror", (event) =>

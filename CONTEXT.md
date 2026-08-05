@@ -41,9 +41,34 @@ An independently repeating meter-relative grid and pattern that belongs to exact
 _Avoid_: Track, voice
 
 **Primary beat**:
-The shared pulse whose rate is the Configuration's BPM. Every Rhythm layer has
-one Signature unit per Primary beat before Subdivision adds pulses within it.
+The shared pulse whose instantaneous rate is the Current BPM and whose initial
+rate is the Configuration's Starting BPM. Every Rhythm layer has one Signature
+unit per Primary beat before Subdivision adds pulses within it.
 _Avoid_: Click, quarter-note clock
+
+**Starting BPM**:
+The Configuration BPM from which every complete Sequence traversal begins.
+_Avoid_: Base BPM, global BPM
+
+**Cycle BPM envelope**:
+A Flat, Up, Down, or Peak change in the Shared transport's tempo over one active Cycle and all its repetitions. Every Cycle carries one; Flat zero is the state that changes nothing.
+_Avoid_: Tempo automation lane, Cycle tempo, layer tempo
+
+**Incoming Cycle BPM**:
+The audible, clamped tempo an active Cycle inherits from the preceding active Cycle, or the Starting BPM when none precedes it.
+_Avoid_: Previous BPM, base BPM
+
+**Target BPM**:
+The clamped tempo a Cycle BPM envelope holds, approaches, or reaches at its midpoint.
+_Avoid_: Unclamped target, destination tempo
+
+**Outgoing Cycle BPM**:
+The audible, clamped tempo inherited by the next active Cycle.
+_Avoid_: Ending offset, accumulated BPM
+
+**Current BPM**:
+The exact tempo sounding at a musical position in the current Transport run.
+_Avoid_: Stored BPM, live setting
 
 **Meter**:
 A repeating span written as a numerator and denominator. The numerator counts

@@ -6,6 +6,7 @@
   "description": "A tiny polyrhythm and polymeter metronome for the browser.",
   "scripts": {
     "start": "node server.mjs",
+    "dev": "node server.mjs --reload",
     "lint": "biome check .",
     "format": "biome check --write .",
     "types": "tsc -p jsconfig.json",

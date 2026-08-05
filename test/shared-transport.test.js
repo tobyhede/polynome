@@ -80,6 +80,94 @@ test("cycles play sequentially after their complete repetitions and the sequence
   );
 });
 
+test("an Up envelope schedules Rhythm events from exact musical positions", () => {
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "up-cycle",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "ramp", signature: { count: 4, unit: 4 } })],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  assert.deepEqual(
+    transport.plan(0, 2.7).map(({ audioTime }) => audioTime),
+    [0, 0.8925742052568391, 1.6218604324326575, 2.2384631517416906],
+  );
+});
+
+test("a following Cycle inherits the audible endpoint and a Sequence loop resets it", () => {
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "rise",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "first", signature: { count: 1, unit: 4 } })],
+          },
+          {
+            id: "inherit",
+            envelope: null,
+            repetitions: 1,
+            rhythms: [createLayer({ id: "second", signature: { count: 1, unit: 4 } })],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  const events = transport.plan(0, 1.3);
+  assert.deepEqual(
+    events.map(({ layerId, audioTime }) => ({ layerId, audioTime })),
+    [
+      { layerId: "first", audioTime: 0 },
+      { layerId: "second", audioTime: Math.LN2 },
+      { layerId: "first", audioTime: Math.LN2 + 0.5 },
+    ],
+  );
+  assert.equal(transport.currentBpm(0.4054651081081644), 90);
+  assert.equal(transport.currentBpm(events[2].audioTime), 60);
+});
+
+test("Cycle repetitions lengthen one continuous envelope", () => {
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "long-rise",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 2,
+            rhythms: [createLayer({ id: "pulse", signature: { count: 1, unit: 4 } })],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  assert.deepEqual(
+    transport.plan(0, 1).map(({ audioTime }) => audioTime),
+    [0, 0.8109302162163288],
+  );
+});
+
 test("transport position identifies the active cycle and repetition", () => {
   const transport = new SharedTransport();
   transport.start(
@@ -198,6 +286,36 @@ test("a polymeter cycle does not advance until every rhythm returns to downbeat"
     events.filter((event) => event.layerId === "three").map((event) => event.audioTime),
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   );
+});
+
+test("polymeter Rhythm layers stay phase-locked throughout a continuous envelope", () => {
+  const four = createLayer({ id: "ramped-four", signature: { count: 4, unit: 4 } });
+  const three = createLayer({ id: "ramped-three", signature: { count: 3, unit: 4 } });
+  const next = createLayer({ id: "after-ramp", signature: { count: 1, unit: 4 } });
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "ramped-polymeter",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [four, three],
+          },
+          { id: "after", envelope: null, repetitions: 1, rhythms: [next] },
+        ],
+      },
+    },
+    0,
+  );
+
+  const events = transport.plan(0, 8.4);
+  const times = (layerId) =>
+    events.filter((event) => event.layerId === layerId).map((event) => event.audioTime);
+  assert.deepEqual(times("ramped-four"), times("ramped-three"));
+  assert.equal(times("after-ramp")[0], 12 * Math.LN2);
 });
 
 test("4/4 with one pulse per quarter plans four quarter-note events", () => {
@@ -615,6 +733,61 @@ test("a sequence with no active cycles schedules nothing and reports no position
   assert.deepEqual(transport.plan(10.5, 12), []);
   assert.equal(transport.position(10.5), null);
   assert.equal(transport.patternPosition("first", 10.5), null);
+  // No timing means no tempo to report either, which is the reading `app.js`
+  // falls back to the stored tempo on.
+  assert.equal(transport.currentBpm(10.5), null);
+});
+
+/**
+ * The readout asks for the tempo at whatever instant the frame lands on, and a
+ * frame can land before the origin: a run is anchored a little ahead of the
+ * clock so the first click has time to be committed, and the interface is
+ * already drawing during that gap. What it should read there is the tempo the
+ * run is about to start at, not a position extrapolated backwards off the front
+ * of the first Cycle.
+ */
+test("a tempo read before the origin is the tempo the run will start at", () => {
+  const transport = new SharedTransport();
+
+  transport.start(
+    {
+      bpm: 90,
+      sequence: {
+        cycles: [
+          {
+            id: "rising",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "pulse", signature: { count: 4, unit: 4 } })],
+          },
+        ],
+      },
+    },
+    10,
+  );
+
+  assert.equal(transport.currentBpm(9.5), 90);
+  assert.equal(transport.currentBpm(10), 90);
+  // A Flat Cycle starts at its own stepped tempo rather than the one it
+  // inherited, so the reading before the origin follows the curve, not the bpm.
+  const stepped = new SharedTransport();
+  stepped.start(
+    {
+      bpm: 90,
+      sequence: {
+        cycles: [
+          {
+            id: "flat",
+            envelope: { shape: "flat", amount: -30 },
+            repetitions: 1,
+            rhythms: [createLayer({ id: "pulse" })],
+          },
+        ],
+      },
+    },
+    10,
+  );
+  assert.equal(stepped.currentBpm(9.5), 60);
 });
 
 test("starting a new transport run resets origin and scheduling position together", () => {

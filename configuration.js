@@ -1,5 +1,9 @@
 import { canonicalPattern, controls, DISPLAY_MODES, repairPattern } from "./grid.js";
 import {
+  createSequenceTempoCurves,
+  ENVELOPE,
+  ENVELOPE_DEFAULT_AMOUNT,
+  ENVELOPE_LIMIT,
   lookup,
   METER_COUNT_LIMIT,
   METER_UNITS,
@@ -84,6 +88,33 @@ function createRhythm(overrides = {}) {
   };
 }
 
+/**
+ * Every Cycle carries an envelope, and a Cycle carrying nothing carries Flat 0.
+ * That is what makes this addition storage-compatible without retiring a key:
+ * a Configuration written before envelopes existed has no `envelope` at all,
+ * and normalises to the state that plays exactly as it always did.
+ *
+ * An unknown shape is Flat zero rather than refused, and zero rather than the
+ * amount stored beside it. The amount alone reads like a number a listener
+ * chose, but it was chosen for a shape that is not there, and a Flat spends its
+ * whole change on its Cycle's first beat: keeping it turns data nobody can read
+ * into a step nobody asked for, which is the one repair that is audible.
+ *
+ * Where the shape is one this vocabulary knows, the amount is rounded and then
+ * clamped into whichever range that shape offers, which is the only place Flat's
+ * reach below zero is decided.
+ */
+function normaliseEnvelope(candidate) {
+  const known = Boolean(ENVELOPE_LIMIT[candidate?.shape]);
+  const shape = known ? candidate.shape : ENVELOPE.FLAT;
+  const { minimum, maximum } = ENVELOPE_LIMIT[shape];
+  const fallback = shape === ENVELOPE.FLAT ? 0 : ENVELOPE_DEFAULT_AMOUNT;
+  return {
+    shape,
+    amount: known ? Math.round(normaliseNumber(candidate.amount, fallback, minimum, maximum)) : 0,
+  };
+}
+
 function createCycle(overrides = {}) {
   const rhythms = Array.isArray(overrides.rhythms)
     ? overrides.rhythms.map((rhythm) =>
@@ -92,6 +123,7 @@ function createCycle(overrides = {}) {
     : [];
   return {
     id: safeIdentifier(overrides.id, "cycle"),
+    envelope: normaliseEnvelope(overrides.envelope),
     repetitions: Math.round(
       normaliseNumber(overrides.repetitions, 1, REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum),
     ),
@@ -146,12 +178,9 @@ export function createConfiguration(input) {
     return [cycle];
   });
   const populated = uniqueIdentifiers(cycles.length ? cycles : [createCycle()]);
-  const validCycles =
-    populated.length === 1
-      ? [{ ...populated[0], repetitions: 1 }]
-      : populated.some((cycle) => cycle.repetitions > 0)
-        ? populated
-        : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
+  const validCycles = populated.some((cycle) => cycle.repetitions > 0)
+    ? populated
+    : populated.map((cycle, index) => (index === 0 ? { ...cycle, repetitions: 1 } : cycle));
 
   return {
     bpm: Math.round(normaliseNumber(source.bpm, 120, TEMPO_LIMIT.minimum, TEMPO_LIMIT.maximum)),
@@ -244,9 +273,16 @@ function sameRhythm(rhythm, candidate) {
 }
 
 function sameCycle(cycle, candidate) {
+  // Both sides have been through `createCycle`, so both carry an envelope and
+  // neither can be missing one. Without this comparison `+ Save` would not
+  // notice an envelope edit at all.
+  const sameEnvelope =
+    cycle.envelope.shape === candidate.envelope?.shape &&
+    cycle.envelope.amount === candidate.envelope?.amount;
   return (
     sameFields(cycle, candidate) &&
     cycle.repetitions === candidate.repetitions &&
+    sameEnvelope &&
     Array.isArray(candidate.rhythms) &&
     cycle.rhythms.length === candidate.rhythms.length &&
     cycle.rhythms.every((rhythm, index) => sameRhythm(rhythm, candidate.rhythms[index]))
@@ -467,9 +503,6 @@ function removeCyclePolicy(configuration, cycle) {
 }
 
 function cycleRepetitionsPolicy(configuration, cycle, repetitions) {
-  if (configuration.sequence.cycles.length === 1 && repetitions !== 1) {
-    return availability(false, "single-cycle-requires-one-repetition");
-  }
   const activeCycleCount = configuration.sequence.cycles.filter(
     (candidate) => candidate.repetitions > 0,
   ).length;
@@ -483,10 +516,129 @@ function removeRhythmPolicy(cycle) {
   return availability(cycle.rhythms.length > 1, "cycle-requires-rhythm");
 }
 
+/**
+ * Preset notation is relative and never absolute: a Preset carries the change a
+ * Cycle makes, not the tempo that change happened to produce when it was saved.
+ * Flat 0 is the no-envelope state, so it gets no suffix at all.
+ *
+ * The spoken form spells the shape as a direction, which is what carries the
+ * sign, and states the span in repetitions so a listener knows how long the
+ * change takes. It names no tempo, for the same reason the written form does
+ * not: neither is a reading of what is playing.
+ */
+const ENVELOPE_NOTATION = lookup({
+  flat: (amount) => `Flat ${amount > 0 ? "+" : "−"}${Math.abs(amount)}`,
+  up: (amount) => `↑${amount}`,
+  down: (amount) => `↓${amount}`,
+  peak: (amount) => `Peak ${amount}`,
+});
+
+const ENVELOPE_PHRASE = lookup({
+  flat: (amount) => `stepping ${amount > 0 ? "up" : "down"} ${Math.abs(amount)} bpm`,
+  up: (amount) => `rising ${amount} bpm`,
+  down: (amount) => `falling ${amount} bpm`,
+  peak: (amount) => `rising ${amount} bpm and back`,
+});
+
+/**
+ * A Flat is one number, because one tempo is all it plays: its whole change
+ * lands on the Cycle's first beat and the Cycle holds the result from there.
+ * Writing it as a journey said something untrue — that the Cycle travels — and
+ * no arrow fixes that, so a Flat has none. What it changed from is the previous
+ * Cycle's reading, which is on screen directly above it.
+ *
+ * The ramps do travel, and say so with the tempos they pass through. The arrows
+ * are the whole of the difference: a number is a tempo held, and a number with
+ * somewhere to point is a tempo on its way.
+ */
+function envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm) {
+  const from = Math.round(incomingBpm);
+  const to = Math.round(targetBpm);
+  if (shape === ENVELOPE.FLAT) return String(to);
+  if (shape === ENVELOPE.PEAK) return `${from} → ${to} → ${Math.round(outgoingBpm)}`;
+  return `${from} → ${to}`;
+}
+
 export function describeConfiguration(configuration) {
   const valid = createConfiguration(configuration);
+  const cycles = createSequenceTempoCurves(valid.bpm, valid.sequence.cycles).map(
+    ({ id, active, incomingBpm, targetBpm, outgoingBpm, curve }, index) => {
+      // The fold walks these same Cycles in this same order, so the position is
+      // the Cycle — searching for the id it was just handed would be a second
+      // answer to a question already settled.
+      const { envelope, repetitions } = valid.sequence.cycles[index];
+      const { shape, amount } = envelope;
+      const span = ` over ${repetitions} ${repetitions === 1 ? "repetition" : "repetitions"}`;
+      return {
+        id,
+        active,
+        incomingBpm,
+        // The tempo the Cycle opens on, which is its inherited one for a ramp and
+        // its stepped one for a Flat — a Flat spends its whole change on the
+        // first beat, so the tempo it inherited is never sounded.
+        startBpm: curve.startBpm,
+        targetBpm,
+        outgoingBpm,
+        // An inactive Cycle is skipped by the fold, so what it does to the tempo
+        // is nothing at all — whatever envelope it is still holding for the day
+        // its repetitions come back.
+        tempo: active
+          ? envelopeTempoText(shape, incomingBpm, targetBpm, outgoingBpm)
+          : String(Math.round(incomingBpm)),
+        notation: amount ? ENVELOPE_NOTATION[shape](amount) : "",
+        accessibleNotation: amount ? `${ENVELOPE_PHRASE[shape](amount)}${active ? span : ""}` : "",
+      };
+    },
+  );
+
+  /*
+   * The span of tempos a complete traversal actually visits, which is narrower
+   * than the range the tempo control offers and is what the transport draws its
+   * band from. A ramp passes through every tempo between the two it joins, so
+   * the endpoints are the whole of what has to be collected; the starting tempo
+   * is in there because a Sequence whose first Cycle steps away from it still
+   * began by sounding it.
+   */
+  const visited = cycles
+    .filter(({ active }) => active)
+    .flatMap(({ incomingBpm, targetBpm, outgoingBpm }) => [incomingBpm, targetBpm, outgoingBpm])
+    .concat(valid.bpm);
+
+  /*
+   * The narrower span the transport draws its band over: not every tempo a
+   * traversal visits, but the stretch it travels continuously through, which is
+   * the only one a bar can claim without saying the run played tempos it never
+   * sounded.
+   *
+   * Two things are left out, and they are the two ADR-0016 names as the only
+   * intentional discontinuities. A Flat jumps from one tempo to the next and
+   * sounds neither of the ones between, so the gap it clears is visited at its
+   * ends and travelled nowhere. And a ramp is asked for its endpoints rather
+   * than for the amount written down: a ramp held against a limit has both of
+   * them on that limit and travels nothing at all, however large the amount it
+   * still carries.
+   *
+   * `null` rather than a range of zero width, so that having nothing to draw is
+   * one answer here instead of a comparison every reader has to remember to
+   * make.
+   *
+   * Adjacent ramps meet at their audible endpoint, so a run of them stays one
+   * contiguous stretch. A Flat *between* two ramps does not: the two stretches
+   * either side of it are still reported as one span, which claims the step it
+   * cleared. Saying that exactly needs more than one bar to say it with.
+   */
+  const travelled = cycles.flatMap(({ active, startBpm, targetBpm, outgoingBpm }, index) =>
+    active && valid.sequence.cycles[index].envelope.shape !== ENVELOPE.FLAT
+      ? [startBpm, targetBpm, outgoingBpm]
+      : [],
+  );
+  const minimum = Math.min(...travelled);
+  const maximum = Math.max(...travelled);
 
   return {
+    cycles,
+    tempoRange: { minimum: Math.min(...visited), maximum: Math.max(...visited) },
+    travelledRange: travelled.length && minimum !== maximum ? { minimum, maximum } : null,
     choices: {
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
@@ -788,6 +940,55 @@ const COMMANDS = Object.freeze({
           sequence: {
             cycles: current.sequence.cycles.map((candidate) =>
               candidate.id === edit.cycleId ? { ...candidate, repetitions } : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
+    },
+  },
+  /*
+   * The shape and the amount are one edit because they are one value: choosing
+   * a shape carries the magnitude across with it, and choosing an amount is
+   * choosing it for the shape already selected. Splitting them would let a
+   * caller write an amount no shape's range admits.
+   *
+   * Its consequence is a timing one, the same `set-tempo` produces, so a change
+   * made while playing restarts the run once. Opening or closing the drawer is
+   * not an edit and never reaches here.
+   */
+  "set-cycle-envelope": {
+    validPayload: (edit) =>
+      targetsCycle(edit) && hasString(edit, "shape") && hasFormNumber(edit, "amount"),
+    // A whole number inside the range the chosen shape offers, which is what a
+    // Meter count and a repetition count are held to as well: a well-formed edit
+    // carrying a value the domain rejects reports back rather than committing
+    // some other value the author did not ask for. The bound is read from the
+    // shape being set, so the same amount can be valid for a Flat and refused
+    // for a ramp — Flat's is the only range that reaches zero and below.
+    //
+    // The normaliser still clamps, and the two do not disagree: it repairs
+    // stored data, which arrives with nobody to report back to, while an edit
+    // has an author and an interface to say no in.
+    validValue: (edit) => {
+      const limit = ENVELOPE_LIMIT[edit.shape];
+      return Boolean(limit) && numberInRange(edit, "amount", limit.minimum, limit.maximum, true);
+    },
+    leavesUnchanged: (current, edit) => {
+      const envelope = findCycle(current, edit.cycleId)?.envelope;
+      const next = normaliseEnvelope({ shape: edit.shape, amount: formNumber(edit.amount) });
+      return envelope?.shape === next.shape && envelope.amount === next.amount;
+    },
+    apply(current, edit) {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      const envelope = normaliseEnvelope({ shape: edit.shape, amount: formNumber(edit.amount) });
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((candidate) =>
+              candidate.id === edit.cycleId ? { ...candidate, envelope } : candidate,
             ),
           },
         },
