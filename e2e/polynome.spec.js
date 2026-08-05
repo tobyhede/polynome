@@ -1465,6 +1465,7 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
 test("a dot marks each beat, clear of the row below even when it pulses", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await setSubdivision(page, 4);
+  await showSubdivisionMode(page);
   await settleLayout(page);
 
   // One round trip per beat, with the dot's own 90ms transition allowed to
@@ -1558,6 +1559,7 @@ for (const motion of ["no-preference", "reduce"]) {
     await page.emulateMedia({ reducedMotion: motion });
     // The re-render. Every beat below is a node reconciliation has just written.
     await setSubdivision(page, 4);
+    await showSubdivisionMode(page);
     await settleLayout(page);
 
     const dotsAt = async (step) => {
@@ -1599,30 +1601,47 @@ for (const motion of ["no-preference", "reduce"]) {
  *
  * Driven by writing the class the playhead writes, rather than by running the
  * transport, so what is asserted is a state and not a moment. Reduced motion is
- * emulated and two frames are let past before each reading, for the same
- * reason: the transition is 90ms, and a computed style taken before the first
- * recalc after a class change is the value the transition starts from, which is
- * indistinguishable from the state never having changed. That mistake is what
- * made this look at first like a Chromium bug rather than a measurement error.
- * A timeout would be a number too short on a loaded runner and wasted
- * everywhere else.
+ * emulated, and each reading waits for the state it asked for: exactly one onset
+ * dot differs from the others, or every dot has returned to rest. A fixed frame
+ * count can land before Chromium has invalidated the `:has()` pseudo-element
+ * under load, and a timeout would be a number too short on a loaded runner and
+ * wasted everywhere else.
  */
 test("the beat dot pulses on its own onset, not through the whole beat", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await setSubdivision(page, 4);
+  await showSubdivisionMode(page);
   await settleLayout(page);
 
-  const dotsWhilePlaying = (step) =>
-    page.evaluate(async (index) => {
+  const dotStyles = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+        const dot = getComputedStyle(beat, "::after");
+        return `${dot.backgroundColor} ${dot.transform}`;
+      }),
+    );
+  const dotsWhilePlaying = async (step) => {
+    await page.evaluate((index) => {
       const steps = [...document.querySelectorAll(".rhythm-card .step")];
       for (const element of steps) element.classList.remove("is-current");
       if (index !== null) steps[index].classList.add("is-current");
-      await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
-      return [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
-        const dot = getComputedStyle(beat, "::after");
-        return `${dot.backgroundColor} ${dot.transform}`;
-      });
     }, step);
+    await page.waitForFunction(
+      (index) => {
+        const styles = [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+          const dot = getComputedStyle(beat, "::after");
+          return `${dot.backgroundColor} ${dot.transform}`;
+        });
+        const onset = index !== null && index % 4 === 0 ? index / 4 : null;
+        if (onset === null) return new Set(styles).size === 1;
+        const resting = styles.filter((_, beat) => beat !== onset);
+        return new Set(resting).size === 1 && styles[onset] !== resting[0];
+      },
+      step,
+      { polling: "raf" },
+    );
+    return dotStyles();
+  };
 
   const resting = await dotsWhilePlaying(null);
   // Step 0 is beat one's own onset; step 2 is inside beat one but past it; step
