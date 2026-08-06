@@ -178,6 +178,11 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
   await expect(mark).toBeVisible();
   await expect(mark).toHaveAccessibleName("Edit Cycle envelope, falling 20 bpm over 1 repetition");
   await expect(mark.locator("polyline")).toHaveAttribute("points", "2,4 32,15");
+  const border = (element) => {
+    const style = getComputedStyle(element);
+    return [style.borderTopWidth, style.borderTopStyle, style.borderTopColor];
+  };
+  expect(await mark.evaluate(border)).toEqual(await page.locator(".step").first().evaluate(border));
   // It carries no text, and it is not one of the repetition controls.
   await expect(mark).toHaveText("");
   await expect(
