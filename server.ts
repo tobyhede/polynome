@@ -311,7 +311,25 @@ export function createDevServer(root = DEFAULT_ROOT, reload = false) {
       const body = await responseBody(file, filePath, contentType, reload);
       response.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" });
       response.end(body);
-    } catch {
+    } catch (failure) {
+      // ENOENT is the only failure caught here that means what the answer says,
+      // and it is the one that arrives constantly — every path naming nothing,
+      // every favicon a browser asks after. Everything else is a file that is
+      // there and could not be handed over: a mode that refuses the read, a
+      // directory that cannot be walked, a disk that gave up. Answering those
+      // with the same silent sentence is what leaves a developer hunting for a
+      // file that is sitting in front of them, so they go to stderr, which is
+      // where this server's other operator-facing lines already go.
+      if (failure?.code !== "ENOENT") console.error(`Could not serve ${request.url}: ${failure}`);
+      // Still a 404, and for the reason ADR-0018 gives: a browser abandons a
+      // module request answering with any non-ok status without evaluating the
+      // body, so a 500 would put a different word in the network panel and
+      // nothing in the console — no diagnosis reaches anyone through a status,
+      // which is why the diagnosis is now logged instead. What it would cost is
+      // real: this catch also covers a request this could not decode, and a URI
+      // with a broken percent-escape is not this machine being at fault. The one
+      // claim true of every failure above is the one worth making to a client —
+      // there is nothing here to hand over — and 404 is how that is said.
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not found");
     }

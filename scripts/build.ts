@@ -71,11 +71,12 @@ function withoutImportMap(source) {
 
 /**
  * A `<script>` or `<style>` element holds raw text, and the tokenizer ends that
- * text at the first `</script` or `</style` — an ASCII case-insensitive match,
- * decided on the character stream alone, with no notion of the JavaScript
- * string literal or CSS declaration the sequence might sit inside. Inlining a
- * bundle is the one place in this build where the bundle's own bytes can close
- * the element around them and spill the remainder into the document as markup.
+ * text at the first `</script` or `</style` whose name is followed by
+ * whitespace, `/`, or `>` — an ASCII case-insensitive match, decided on the
+ * character stream alone, with no notion of the JavaScript string literal or
+ * CSS declaration the sequence might sit inside. Inlining a bundle is the one
+ * place in this build where the bundle's own bytes can close the element around
+ * them and spill the remainder into the document as markup.
  * Escaping the solidus breaks the match while denoting the same character in
  * both languages: `\/` is an identity escape in a JavaScript string, and CSS
  * treats a reverse solidus before anything but a newline as a valid escape
@@ -114,9 +115,26 @@ function withoutImportMap(source) {
  * solidus and the name does not. Nor does this make an inline script safe in
  * general — the standard names `<!--` and `<script` alongside `</script`, and
  * neither esbuild nor this escapes those.
+ *
+ * Because the escape is not free of context, the delimiter after the name is
+ * part of what is matched rather than an afterthought: `</stylex` ends nothing,
+ * so escaping it would edit a value that was never dangerous. The delimiter is
+ * matched in a lookahead so the replacement cannot consume it, which is what
+ * keeps a `>` from being swallowed and what leaves the scan positioned to find
+ * the second sequence in `</style</style>`, where the first is text and the
+ * second is the one that closes the element.
+ *
+ * End of input counts as a delimiter too, because it is not the end of the
+ * stream the tokenizer will read: this returns a body the caller splices in
+ * front of its own closing tag, so a `</style` flush against the end is
+ * followed by that tag's leading whitespace and closes the element there.
+ * Nothing here can see what comes next, so it escapes rather than assumes. Both
+ * bundlers end their output with a newline, which is a delimiter of its own and
+ * hides that case from every artifact, so it is exported for the one test that
+ * can reach it by calling directly.
  */
-function withoutRawTextTerminator(body, tagName) {
-  return body.replace(new RegExp(`</(?=${tagName})`, "gi"), "<\\/");
+export function withoutRawTextTerminator(body, tagName) {
+  return body.replace(new RegExp(`</(?=${tagName}(?:[\\t\\n\\f\\r />]|$))`, "gi"), "<\\/");
 }
 
 /**

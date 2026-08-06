@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
 
-import { buildDistribution } from "../scripts/build.ts";
+import { buildDistribution, withoutRawTextTerminator } from "../scripts/build.ts";
 
 const projectRoot = new URL("..", import.meta.url);
 const artifact = new URL("../dist/polynome.html", import.meta.url);
@@ -301,6 +301,69 @@ test("single-file distribution keeps a bundled `</style>` inside the inline styl
   assert.match(style, /--lower:[^;]*b;/);
   assert.match(style, /--upper:[^;]*d;/);
   assert.match(style, /}/, "Expected the rule to reach its closing brace");
+});
+
+/**
+ * What ends a raw text element is `</` and the name *and* a delimiter after it:
+ * whitespace, `/`, or `>`. `</stylex` is none of those, so it is ordinary text
+ * that needs no rewriting, and escaping it anyway edits a value the build was
+ * only ever meant to pass through — `<` `/` `stylex` becomes `<` `/stylex`,
+ * which is a different token sequence carrying the same code points.
+ *
+ * A custom property is the route to all of this for the same reason it is in
+ * the test above: esbuild prints the value's tokens verbatim, so what the
+ * assertions see is this build's own escaping and nothing else. The expected
+ * text is written out in full rather than matched loosely, because the delimiter
+ * is exactly what a wrong pattern would swallow — an escape that ate the `>` of
+ * `</style>` would still leave a declaration that parses and a stylesheet that
+ * reaches its closing brace.
+ *
+ * The last case is the one that decides where the delimiter goes. In
+ * `i</style</style>j` the first sequence is text, because a `<` follows the
+ * name, and the second closes the element; only a match that leaves the name
+ * unconsumed is still positioned to find it.
+ */
+test("single-file distribution escapes an end tag and leaves a longer name alone", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-style-name-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+    ),
+    writeFile(
+      join(fixture, "styles.css"),
+      ":root { --gt: a</style>b; --space: c</style d; --slash: e</style/f; --longer: g</stylex h; --twice: i</style</style>j; }",
+    ),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
+  ]);
+
+  await buildDistribution({ target: "single-file", projectRoot: fixture });
+  const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
+  const style = rawTextOf(html, "style");
+
+  assert.ok(style.includes("--gt: a<\\/style>b;"), `Unescaped \`</style>\` in ${style}`);
+  assert.ok(style.includes("--space: c<\\/style d;"), `Unescaped \`</style \` in ${style}`);
+  assert.ok(style.includes("--slash: e<\\/style/f;"), `Unescaped \`</style/\` in ${style}`);
+  assert.ok(style.includes("--longer: g</stylex h;"), `Rewrote \`</stylex\` in ${style}`);
+  assert.ok(
+    style.includes("--twice: i</style<\\/style>j;"),
+    `Wrong \`</style\` escaped in ${style}`,
+  );
+});
+
+/**
+ * The one case no artifact can show. This returns a body the caller splices
+ * straight in front of its own closing tag, so a `</style` flush against the end
+ * of that body is followed by the whitespace of the tag that comes next and
+ * closes the element there — the delimiter exists, it just arrives after the
+ * string this function was handed. Both bundlers end their output with a
+ * newline, which is a delimiter of its own and hides the case, so it is reached
+ * by calling directly or not at all.
+ */
+test("a raw text terminator flush against the end of a body is escaped", () => {
+  assert.equal(withoutRawTextTerminator("a</style", "style"), "a<\\/style");
+  assert.equal(withoutRawTextTerminator("a</stylex", "style"), "a</stylex");
 });
 
 /**

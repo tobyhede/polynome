@@ -36,12 +36,26 @@ async function parseManifest(path) {
 /**
  * A filtered run re-shoots part of the matrix, so it keeps the shots it did not
  * regenerate and folds the new ones in. Only a full run starts from empty.
+ *
+ * A shot is kept only if the matrix still declares both its state and its
+ * profile. Clearing the directory is the full run's job, so a filtered one is
+ * the only thing standing between a renamed or deleted state and a manifest
+ * that still names it, and what it hands back is treated downstream as an
+ * equal member of the matrix. `inMatrixOrder` is where that bites: it ranks by
+ * `indexOf`, which answers -1 for a name the matrix does not hold, so one
+ * undeclared shot both appears and drags the reading order of every other card
+ * out of shape — with nothing raised, because sorting is the failure.
  */
-export async function priorShots(directory, regenerated) {
+export async function priorShots(directory, regenerated, stateNames, profileNames) {
   const path = `${directory}/manifest.json`;
   const previous = await parseManifest(path);
   if (!previous) return [];
-  return previous.shots.filter((shot) => !regenerated.has(`${shot.state}__${shot.profile}`));
+  return previous.shots.filter(
+    (shot) =>
+      stateNames.includes(shot.state) &&
+      profileNames.includes(shot.profile) &&
+      !regenerated.has(`${shot.state}__${shot.profile}`),
+  );
 }
 
 /**

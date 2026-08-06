@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { type AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -586,6 +586,67 @@ test("the transform and its diagnostic are reachable without spawning a server",
 
   const absent = await fetch(`${origin}/nothing-here.ts`);
   assert.equal(absent.status, 404);
+});
+
+/**
+ * Every failure under the request handler used to leave by one door and say one
+ * sentence. A path naming nothing says it truthfully; a mode that refuses the
+ * read, a directory that cannot be walked and a disk that gave up all said it
+ * too, so the failure meaning "your file is not where you think" was
+ * indistinguishable from the ones meaning "something on this machine is wrong",
+ * and none of them left a trace anywhere. The status is unchanged — see the
+ * handler for why a 500 would buy nothing — and the reason now goes to stderr,
+ * beside the lines this server already prints for whoever started it.
+ *
+ * The failure is provoked rather than stood in for: a real file, with a real
+ * mode, refused by the real `open`. That is what costs the case its portability,
+ * since a process running as root is refused nothing and Windows does not read
+ * these bits at all — so the over-long name is asserted first and unconditionally,
+ * and it is what keeps this test from passing while proving nothing on a machine
+ * where a refusal cannot be staged.
+ */
+test("a failure that is not an absent file is reported to the operator", async (t) => {
+  const { root, origin } = await serveInProcess(t);
+  // Held rather than left to print, because a suite that reports a passing run
+  // in the middle of a server's error output has taught its reader to skim it.
+  const logged = t.mock.method(console, "error", () => {});
+
+  // A name longer than any filesystem here will hold: `stat` refuses it as
+  // ENAMETOOLONG rather than ENOENT, which is the branch under test, and it
+  // needs neither a mode nor a uid to arrange.
+  const overlong = await fetch(`${origin}/${"n".repeat(300)}.ts`);
+  assert.equal(overlong.status, 404);
+  assert.equal(logged.mock.callCount(), 1);
+  assert.match(logged.mock.calls[0].arguments[0], /ENAMETOOLONG/);
+
+  // The case the finding is about, staged where it can be. The file is written
+  // here rather than in `temporaryRoot` because it only exists where the read
+  // can actually be refused, and a fixture that is sometimes there is not
+  // something that directory can be said to hold.
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    await writeFile(join(root, "denied.ts"), "export const secret = true;\n");
+    await chmod(join(root, "denied.ts"), 0o000);
+
+    const refused = await fetch(`${origin}/denied.ts`);
+    // `stat` still answers for this file — a mode of zero refuses opening it,
+    // not describing it — so the failure is the read, which is where a file that
+    // is present and unreachable differs from one that is not there.
+    assert.equal(refused.status, 404);
+    assert.equal(logged.mock.callCount(), 2);
+    const reported = logged.mock.calls[1].arguments[0];
+    assert.match(reported, /EACCES/);
+    assert.match(reported, /denied\.ts/);
+  }
+
+  // The other direction, and the reason this discriminates on the code rather
+  // than logging everything it catches: an ordinary miss is not a fault of the
+  // machine, and a line of stderr for every favicon a browser asks after is how
+  // an operator learns to stop reading them.
+  const before = logged.mock.callCount();
+  const absent = await fetch(`${origin}/nothing-here.ts`);
+  assert.equal(absent.status, 404);
+  assert.equal(await absent.text(), "Not found");
+  assert.equal(logged.mock.callCount(), before);
 });
 
 /**

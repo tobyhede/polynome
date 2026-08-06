@@ -158,9 +158,18 @@ async function waitForServer(url, signal) {
 
 async function startServer(port) {
   const signal = { exited: false };
+  // `HOST` is cleared rather than inherited. `server.ts` binds loopback unless
+  // `HOST` names something wider, and what it serves is the working tree, so a
+  // developer who exported `HOST=0.0.0.0` for something else would get a
+  // screenshot run that hands `.git` and every uncommitted change to the
+  // network — from a command whose entire visible output is a page of images.
+  // The wider bind is meant to be chosen, and nobody chooses it here. Empty
+  // rather than `127.0.0.1` because `server.ts` reads an empty `HOST` as no
+  // `HOST` and applies its own default, which is one fewer place holding an
+  // address that has to stay in step with it.
   const child = spawn("node", ["server.ts"], {
     cwd: root,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, PORT: String(port), HOST: "" },
     stdio: ["ignore", "ignore", "inherit"],
   });
   child.on("exit", () => {
@@ -270,11 +279,20 @@ if (outputRelative.startsWith("..") || isAbsolute(outputRelative)) {
   throw new Error(`Output must remain inside ${shotsRoot}`);
 }
 
+// The whole matrix rather than the filtered selection, and read once so that
+// what a kept shot is held against and what it is later ranked against are the
+// same two lists. Two derivations of these could drift apart, and the shape of
+// that drift is a shot kept by one and ranked -1 by the other.
+const stateNames = STATES.map((state) => state.name);
+const profileNames = PROFILES.map((profile) => profile.name);
+
 const isFullRun = !options.device && !options.state;
 const regenerated = new Set(
   profiles.flatMap((profile) => states.map((state) => `${state.name}__${profile.name}`)),
 );
-const kept = isFullRun ? [] : await priorShots(outputDirectory, regenerated);
+const kept = isFullRun
+  ? []
+  : await priorShots(outputDirectory, regenerated, stateNames, profileNames);
 
 let stopServer = null;
 let browser = null;
@@ -347,11 +365,7 @@ try {
 
 // The sheet always shows everything on disk, so re-shooting one device still
 // leaves a comparable set to flip through.
-const all = inMatrixOrder(
-  [...kept, ...shots],
-  STATES.map((state) => state.name),
-  PROFILES.map((profile) => profile.name),
-);
+const all = inMatrixOrder([...kept, ...shots], stateNames, profileNames);
 const shownStates = STATES.filter((state) => all.some((shot) => shot.state === state.name));
 const shownProfiles = PROFILES.filter((profile) =>
   all.some((shot) => shot.profile === profile.name),
