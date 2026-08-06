@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -80,6 +80,37 @@ test("site distribution versions transitive chunks without manual rewrites", asy
   assert.ok(imported, "Expected a transitive chunk import");
   assert.match(imported, /^feature-fixture12345-[^.]+\.js$/);
   assert.ok(emitted.includes(imported));
+});
+
+test("site distribution can write outside the source tree", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-site-output-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const sourceRoot = join(fixture, "source");
+  const outputRoot = join(fixture, "output");
+  await mkdir(join(sourceRoot, "site"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      join(sourceRoot, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+    ),
+    writeFile(join(sourceRoot, "styles.css"), "body {}"),
+    writeFile(join(sourceRoot, "app.js"), "globalThis.fixture = 1;"),
+    writeFile(join(sourceRoot, "site", "sentinel"), "source output stays untouched"),
+  ]);
+
+  const result = await buildDistribution({
+    target: "site",
+    version: "isolated",
+    projectRoot: sourceRoot,
+    outputRoot,
+  });
+
+  assert.equal(result.output, join(outputRoot, "site"));
+  assert.ok((await readdir(result.output)).includes("app-isolated.js"));
+  assert.equal(
+    await readFile(join(sourceRoot, "site", "sentinel"), "utf8"),
+    "source output stays untouched",
+  );
 });
 
 /**

@@ -34,7 +34,8 @@ same preserved node.
 - `test/audio-work.test.js` holds the new contract at zero steady-state
   `setTargetAtTime` calls. The total AudioParam budgets fall from 128 to 8 calls
   per second at the default Configuration and from 1,725 to 725 at the domain
-  maximum; measured traffic is 6.1 and 720.1 respectively.
+  maximum; measured steady-state traffic, excluding transport shutdown, is 6.0
+  and 720.0 respectively.
 - A new path that changes the master, layer gain, layer pan, or layer set must
   dirty and synchronize the graph itself. Waiting for a scheduler tick is no
   longer a supported recovery path.

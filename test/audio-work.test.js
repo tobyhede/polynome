@@ -37,11 +37,8 @@ import { MetronomeEngine } from "../metronome.js";
  * See `docs/research/performance-optimisation-and-regression-testing.md`.
  */
 
-const SCHEDULER_INTERVAL_SECONDS = 0.025;
-const TICKS_PER_SECOND = 1 / SCHEDULER_INTERVAL_SECONDS;
 /** Long enough to make the click rate representative, short enough to stay quick. */
 const SECONDS = 20;
-const TICKS = SECONDS * TICKS_PER_SECOND;
 
 class CountingParam {
   constructor(counts, value) {
@@ -219,9 +216,9 @@ class CountingAudioContext extends EventTarget {
 const timers = { nextId: 1, intervals: new Map(), timeouts: new Map() };
 
 const windowStub = {
-  setInterval(callback) {
+  setInterval(callback, delay) {
     const id = timers.nextId++;
-    timers.intervals.set(id, callback);
+    timers.intervals.set(id, { callback, delay });
     return id;
   },
   clearInterval(id) {
@@ -275,7 +272,7 @@ const configurationOf = ({ bpm, rhythms, envelope }) =>
  * run needed to exist is built before the counters are zeroed, so every number
  * below is work the engine chose to do *again* on a tick.
  */
-async function runTicks(configuration, ticks = TICKS) {
+async function runTicks(configuration, requestedTicks) {
   timers.intervals.clear();
   timers.timeouts.clear();
   const context = new CountingAudioContext();
@@ -284,18 +281,51 @@ async function runTicks(configuration, ticks = TICKS) {
   await engine.start(configuration);
   context.reset();
 
+  const [scheduledInterval] = timers.intervals.values();
+  const ticks = requestedTicks ?? Math.round(SECONDS / (scheduledInterval.delay / 1_000));
+  let elapsedSeconds = 0;
   for (let index = 0; index < ticks; index += 1) {
-    context.advance(SCHEDULER_INTERVAL_SECONDS);
-    for (const callback of [...timers.intervals.values()]) callback();
+    for (const { callback, delay } of [...timers.intervals.values()]) {
+      const intervalSeconds = delay / 1_000;
+      context.advance(intervalSeconds);
+      elapsedSeconds += intervalSeconds;
+      callback();
+    }
   }
 
   // Past every scheduled stop, so every source has had its `ended`.
   context.advance(1);
-  const perSecond = (value) => Number((value / (ticks * SCHEDULER_INTERVAL_SECONDS)).toFixed(1));
+  const perSecond = (value) => Number((value / elapsedSeconds).toFixed(1));
+  const counts = {
+    ...context.counts,
+    automation: { ...context.counts.automation },
+  };
 
   engine.stop();
-  return { context, counts: context.counts, perSecond };
+  return { context, counts, perSecond };
 }
+
+test("the scheduler timer exposes the interval requested by the engine", async () => {
+  timers.intervals.clear();
+  timers.timeouts.clear();
+  const context = new CountingAudioContext();
+  const engine = new MetronomeEngine({ createContext: () => context });
+
+  await engine.start(
+    configurationOf({
+      bpm: 120,
+      rhythms: [{ signature: { count: 4, unit: 4 }, subdivision: 1 }],
+      envelope: { shape: ENVELOPE.FLAT, amount: 0 },
+    }),
+  );
+
+  const [interval] = timers.intervals.values();
+  assert.ok(
+    Number.isFinite(interval?.delay) && interval.delay > 0,
+    "the timer boundary discarded the engine's requested interval",
+  );
+  engine.stop();
+});
 
 const WORKLOADS = {
   default: {
@@ -405,3 +435,17 @@ for (const [key, workload] of Object.entries(WORKLOADS)) {
     );
   });
 }
+
+test("steady-state traffic excludes transport shutdown", async () => {
+  const { context, counts } = await runTicks(WORKLOADS.default.build(), 1);
+
+  assert.deepEqual(
+    [
+      counts === context.counts,
+      counts.automation === context.counts.automation,
+      counts.automation.cancelScheduledValues ?? 0,
+    ],
+    [false, false, 0],
+    "stopping the engine changed the returned steady-state traffic snapshot",
+  );
+});

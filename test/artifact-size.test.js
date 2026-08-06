@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 import { buildDistribution } from "../scripts/build.mjs";
@@ -52,21 +54,27 @@ const BUDGETS = Object.freeze({
  */
 const GZIP_LEVEL = 9;
 
-const bytesOf = async (relativePath) => {
-  const contents = await readFile(new URL(relativePath, projectRoot));
+const artifactContents = (relativePath, root = projectRoot) =>
+  readFile(root instanceof URL ? new URL(relativePath, root) : join(root, relativePath));
+
+const bytesOf = async (relativePath, root = projectRoot) => {
+  const contents = await artifactContents(relativePath, root);
   return { raw: contents.byteLength, gzip: gzipSync(contents, { level: GZIP_LEVEL }).byteLength };
 };
 
-test("both distributions stay inside their byte budgets", async () => {
+test("both distributions stay inside their byte budgets", async (t) => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "polynome-artifact-budget-"));
+  t.after(() => rm(outputRoot, { recursive: true, force: true }));
+
   // Both targets, because the site build emits the script and stylesheet
   // separately and the single-file build inlines them: neither total contains
   // the other, and a change can move one without moving the other.
-  await buildDistribution({ target: "single-file", projectRoot });
-  await buildDistribution({ target: "site", projectRoot });
+  await buildDistribution({ target: "single-file", projectRoot, outputRoot });
+  await buildDistribution({ target: "site", version: "local", projectRoot, outputRoot });
 
   const measured = {};
   for (const [path, budget] of Object.entries(BUDGETS)) {
-    const size = await bytesOf(path);
+    const size = await bytesOf(path, outputRoot);
     measured[path] = size;
     assert.ok(
       size.raw <= budget.raw,
@@ -96,11 +104,13 @@ test("both distributions stay inside their byte budgets", async () => {
  * must produce the same bytes. A build that varied run to run would make every
  * figure in this file a sample rather than a measurement.
  */
-test("the build is byte-reproducible, which is what makes a budget an assertion", async () => {
-  await buildDistribution({ target: "single-file", projectRoot });
-  const first = await bytesOf("dist/polynome.html");
-  await buildDistribution({ target: "single-file", projectRoot });
-  const second = await bytesOf("dist/polynome.html");
+test("the build is byte-reproducible, which is what makes a budget an assertion", async (t) => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "polynome-artifact-reproducibility-"));
+  t.after(() => rm(outputRoot, { recursive: true, force: true }));
+  await buildDistribution({ target: "single-file", projectRoot, outputRoot });
+  const first = await artifactContents("dist/polynome.html", outputRoot);
+  await buildDistribution({ target: "single-file", projectRoot, outputRoot });
+  const second = await artifactContents("dist/polynome.html", outputRoot);
 
-  assert.equal(first.raw, second.raw);
+  assert.deepEqual(first, second);
 });
