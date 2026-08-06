@@ -136,10 +136,21 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
-test("healthy foreground lifecycle signals leave playback active", async ({ page }) => {
+test("healthy foreground lifecycle signals preserve the Transport run", async ({ page }) => {
+  await page
+    .getByRole("group", { name: "Cycle repetitions" })
+    .getByRole("button", { name: "Set Cycle to 8 repetitions" })
+    .click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page).fill("120");
+  await envelopeAmount(page).blur();
+
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
-  await page.waitForTimeout(100);
+  const live = page.getByLabel("Current tempo in beats per minute");
+  await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(130);
+  const beforeForeground = Number(await live.inputValue());
 
   await page.evaluate(() => {
     document.dispatchEvent(new Event("visibilitychange"));
@@ -147,8 +158,16 @@ test("healthy foreground lifecycle signals leave playback active", async ({ page
     document.dispatchEvent(new Event("resume"));
     window.dispatchEvent(new Event("focus"));
   });
-  await page.waitForTimeout(600);
 
+  // This rising envelope is the public position of the Transport run. A hard
+  // replacement would begin a new run at 120 BPM; preserving this run lets the
+  // readout continue beyond the value it held before foregrounding.
+  await expect
+    .poll(async () => Number(await live.inputValue()), {
+      intervals: [50],
+      timeout: 750,
+    })
+    .toBeGreaterThan(beforeForeground);
   await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
   await expect(page.locator("#status")).toHaveText("Playing");
 });
@@ -170,6 +189,38 @@ test("a frozen audio clock is recovered and announced", async ({ page }) => {
 
   await expect(page.locator("#status")).toHaveText("Audio clock is not advancing.");
   await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+});
+
+test("failed automatic audio replacement leaves the interface stopped", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeAudioContext = window.AudioContext;
+    let initialContextCreated = false;
+    let clockFrozen = false;
+    window.freezeAudioClock = () => {
+      clockFrozen = true;
+    };
+    window.AudioContext = class FailingReplacementAudioContext extends NativeAudioContext {
+      constructor(options) {
+        if (initialContextCreated) throw new Error("Replacement AudioContext failed.");
+        super(options);
+        initialContextCreated = true;
+      }
+
+      get currentTime() {
+        return clockFrozen ? 0 : super.currentTime;
+      }
+    };
+  });
+  await page.reload();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await page.evaluate(() => window.freezeAudioClock());
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  await expect(page.locator("#status")).toHaveText("Replacement AudioContext failed.");
+  await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restart Audio" })).toBeHidden();
 });
 
 test("Restart Audio replaces playback from an accessible secondary control", async ({ page }) => {

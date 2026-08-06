@@ -852,10 +852,13 @@ test("a render error reports one failed replacement and abandons playback", asyn
   const errors = audioErrorsOf(engine);
 
   await engine.start(pulsePerSecond());
+  const playstates = [];
+  engine.addEventListener("playstate", () => playstates.push(engine.playing));
   failed.dispatchEvent(new Event("error"));
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(errors, [constructionError]);
+  assert.deepEqual(playstates, [false]);
   assert.equal(engine.playing, false);
   assert.equal(schedulerRunning(), false);
   assert.deepEqual(types, ["playback", "auto"]);
@@ -865,6 +868,7 @@ test("a render error reports one failed replacement and abandons playback", asyn
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(errors, [constructionError]);
+  assert.deepEqual(playstates, [false]);
   assert.equal(constructions, 2);
 });
 
@@ -915,6 +919,31 @@ test("a visible suspended transition recovers immediately", async (t) => {
   assert.equal(engine.origin, 16.06);
   assert.deepEqual(clickStarts(replacement), [16.06]);
   assert.deepEqual(contexts, []);
+
+  engine.stop();
+});
+
+test("an unchanged suspended episode gets only one recovery attempt", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const suspended = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const engine = new MetronomeEngine({ createContext: () => suspended });
+
+  await engine.start(pulsePerSecond());
+  suspended.setState("suspended");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(suspended.resumeCalls, 1);
+
+  suspended.setState("running");
+  suspended.setState("suspended");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(suspended.resumeCalls, 2);
 
   engine.stop();
 });
@@ -1182,6 +1211,32 @@ test("foreground recovery asks once for an interrupted run and preserves its ori
   engine.stop();
 });
 
+test("an unchanged interrupted episode gets only one foreground recovery attempt", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const interrupted = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const engine = new MetronomeEngine({ createContext: () => interrupted });
+
+  await engine.start(pulsePerSecond());
+  interrupted.setState("interrupted");
+
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(interrupted.resumeCalls, 1);
+
+  interrupted.setState("running");
+  interrupted.setState("interrupted");
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(interrupted.resumeCalls, 2);
+
+  engine.stop();
+});
+
 test("a rejected foreground recovery replaces an interrupted context once", async () => {
   timers.callbacks.clear();
   timers.deadlines.clear();
@@ -1217,6 +1272,37 @@ test("a rejected foreground recovery replaces an interrupted context once", asyn
   engine.stop();
 });
 
+test("a clock that begins advancing just after foreground grace is left running", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const running = new FakeAudioContext({
+    state: "running",
+    currentTime: 3,
+    suspend: "transition",
+    resume: "transition",
+  });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [running, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  const origin = engine.origin;
+  engine.checkAudioAfterForeground();
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+  running.currentTime = 3.1;
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(running.suspendCalls, 0);
+  assert.equal(running.resumeCalls, 0);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
 test("a frozen running clock gets one soft recovery and preserves its Transport run", async () => {
   timers.callbacks.clear();
   timers.deadlines.clear();
@@ -1233,6 +1319,12 @@ test("a frozen running clock gets one soft recovery and preserves its Transport 
   await engine.start(pulsePerSecond());
   const origin = engine.origin;
   engine.checkAudioAfterForeground();
+
+  assert.equal(running.suspendCalls, 0);
+  assert.equal(running.resumeCalls, 0);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(running.suspendCalls, 0);
   assert.equal(running.resumeCalls, 0);
@@ -1267,6 +1359,12 @@ test("a clock still frozen after soft recovery begins a fresh Transport run", as
 
   await engine.start(pulsePerSecond());
   engine.checkAudioAfterForeground();
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(frozen.suspendCalls, 0);
+  assert.equal(frozen.resumeCalls, 0);
 
   runNextDeadline();
   await new Promise((resolve) => setImmediate(resolve));
@@ -1311,6 +1409,11 @@ test("a rejected soft recovery reports once and begins a fresh Transport run", a
   runNextDeadline();
   await new Promise((resolve) => setImmediate(resolve));
 
+  assert.equal(frozen.suspendCalls, 0);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
   assert.equal(frozen.suspendCalls, 1);
   assert.equal(frozen.resumeCalls, 0);
   assert.equal(errors.length, 1);
@@ -1346,6 +1449,28 @@ test("foreground recovery immediately replaces a closed context", async () => {
   assert.equal(closed.suspendCalls, 0);
   assert.equal(engine.origin, 32.06);
   assert.deepEqual(clickStarts(replacement), [32.06]);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a context that closes during a foreground clock probe is replaced", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const closed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 33 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 40 });
+  const contexts = [closed, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  engine.checkAudioAfterForeground();
+  closed.setState("closed");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.origin, 33.06);
+  assert.deepEqual(clickStarts(replacement), [33.06]);
   assert.deepEqual(contexts, [unexpected]);
 
   engine.stop();

@@ -154,6 +154,7 @@ export class MetronomeEngine extends EventTarget {
   #holdsAudioSession = false;
   #suspendedRecovery = null;
   #foregroundRecovery = null;
+  #recoveryAttemptedState = null;
   #softRecoveryContext = null;
   #replacement = null;
 
@@ -167,6 +168,9 @@ export class MetronomeEngine extends EventTarget {
    */
   #handleStateChange = (event) => {
     if (!this.#playing || event.currentTarget !== this.#context) return;
+    if (this.#context.state !== this.#recoveryAttemptedState) {
+      this.#recoveryAttemptedState = null;
+    }
     if (this.#softRecoveryContext === this.#context) return;
     if (this.#anchored && this.#context.state === "closed") {
       if (globalThis.document?.visibilityState === "visible") {
@@ -275,6 +279,7 @@ export class MetronomeEngine extends EventTarget {
     this.#anchored = false;
     this.#unstartedTicks = 0;
     this.#reportedStuckContext = false;
+    this.#recoveryAttemptedState = null;
 
     for (const source of this.#scheduledSources) {
       try {
@@ -347,6 +352,7 @@ export class MetronomeEngine extends EventTarget {
 
     this.#suspendedRecovery = null;
     this.#foregroundRecovery = null;
+    this.#recoveryAttemptedState = null;
     this.#softRecoveryContext = null;
 
     this.stop({ preserveContext: false, emit: false, releaseAudioSession: false });
@@ -365,12 +371,17 @@ export class MetronomeEngine extends EventTarget {
       // The failed resource is already detached; closing it is best effort.
     }
 
-    await this.start(state);
+    try {
+      await this.start(state);
+    } catch (error) {
+      this.dispatchEvent(new Event("playstate"));
+      throw error;
+    }
   }
 
   checkAudioAfterForeground() {
     const context = this.#context;
-    if (this.#foregroundRecovery || !this.#playing || !this.#anchored || !context) {
+    if (!this.#playing || !this.#anchored || !context) {
       return;
     }
 
@@ -382,12 +393,16 @@ export class MetronomeEngine extends EventTarget {
       return;
     }
 
+    if (this.#foregroundRecovery) return;
+
     if (context.state === "suspended") {
       this.#recoverSuspendedContext(context);
       return;
     }
 
     if (context.state === "interrupted") {
+      if (this.#recoveryAttemptedState === "interrupted") return;
+      this.#recoveryAttemptedState = "interrupted";
       const recovery = this.#resumeByDeadline(context)
         .catch((recoveryError) => {
           return this.#replaceAfterForegroundFailure(context, recoveryError);
@@ -414,13 +429,27 @@ export class MetronomeEngine extends EventTarget {
           return false;
         }
 
-        this.#softRecoveryContext = context;
-        return this.#suspendByDeadline(context)
-          .then(() => this.#resumeByDeadline(context))
-          .then(() => true)
-          .finally(() => {
-            if (this.#softRecoveryContext === context) this.#softRecoveryContext = null;
-          });
+        const postGraceTime = context.currentTime;
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, FOREGROUND_CLOCK_GRACE_MS);
+        }).then(() => {
+          if (
+            !this.#playing ||
+            context !== this.#context ||
+            context.state !== "running" ||
+            context.currentTime !== postGraceTime
+          ) {
+            return false;
+          }
+
+          this.#softRecoveryContext = context;
+          return this.#suspendByDeadline(context)
+            .then(() => this.#resumeByDeadline(context))
+            .then(() => true)
+            .finally(() => {
+              if (this.#softRecoveryContext === context) this.#softRecoveryContext = null;
+            });
+        });
       })
       .then((softRecovered) => {
         if (
@@ -553,7 +582,8 @@ export class MetronomeEngine extends EventTarget {
   }
 
   #recoverSuspendedContext(context) {
-    if (this.#suspendedRecovery) return;
+    if (this.#suspendedRecovery || this.#recoveryAttemptedState === "suspended") return;
+    this.#recoveryAttemptedState = "suspended";
 
     const recovery = this.#resumeByDeadline(context)
       .catch((recoveryError) => {
@@ -566,32 +596,14 @@ export class MetronomeEngine extends EventTarget {
   }
 
   #resumeByDeadline(context) {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const deadline = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error("Audio recovery timed out."));
-      }, RECOVERY_ATTEMPT_TIMEOUT_MS);
-      const settle = (callback, value) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(deadline);
-        callback(value);
-      };
-
-      try {
-        Promise.resolve(context.resume()).then(
-          (value) => settle(resolve, value),
-          (error) => settle(reject, error),
-        );
-      } catch (error) {
-        settle(reject, error);
-      }
-    });
+    return this.#completeByDeadline(() => context.resume());
   }
 
   #suspendByDeadline(context) {
+    return this.#completeByDeadline(() => context.suspend());
+  }
+
+  #completeByDeadline(operation) {
     return new Promise((resolve, reject) => {
       let settled = false;
       const deadline = window.setTimeout(() => {
@@ -607,7 +619,7 @@ export class MetronomeEngine extends EventTarget {
       };
 
       try {
-        Promise.resolve(context.suspend()).then(
+        Promise.resolve(operation()).then(
           (value) => settle(resolve, value),
           (error) => settle(reject, error),
         );
@@ -750,8 +762,8 @@ export class MetronomeEngine extends EventTarget {
     if (this.#context.state !== "running") {
       // A run that has never sounded is reported rather than retried: it is
       // told to tap play again, and that tap is itself the activation a resume
-      // needs. A run that was sounding is told nothing, so asking again is the
-      // only way back.
+      // needs. An established run parks scheduling here; statechange and
+      // foreground lifecycle handling own its bounded recovery or replacement.
       if (!this.#anchored) this.#countUnstartedTick();
       return;
     }
