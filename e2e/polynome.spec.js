@@ -360,6 +360,31 @@ test("a Flat is one number where a ramp is the pair it crosses", async ({ page }
   await expect(drawer.locator("output")).toHaveText("120");
 });
 
+test("an open Cycle envelope follows a Starting BPM edit", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const drawer = cycleDrawer(page);
+  await drawer.getByRole("button", { name: "Down" }).click();
+  const tempo = drawer.locator("output");
+  await expect(tempo).toHaveText("120 → 100");
+  await tempo.evaluate((output) => {
+    window.renderedEnvelopeTempo = output.firstChild;
+  });
+
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(tempo).toHaveText("125 → 105");
+  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
+    true,
+  );
+
+  await page.getByRole("button", { name: "Increase tempo" }).click();
+  await expect(tempo).toHaveText("126 → 106");
+  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
+    true,
+  );
+});
+
 /**
  * The field writes a minus sign and has to read one back, but a hyphen is what
  * most keyboards offer first, so both are accepted. An amount the domain refuses
