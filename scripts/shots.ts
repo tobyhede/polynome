@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, devices } from "@playwright/test";
 
 import { inMatrixOrder, priorShots } from "./shots-manifest.ts";
+import { stopChild } from "./shots-shutdown.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const shotsRoot = resolve(root, "shots");
@@ -165,15 +166,11 @@ async function startServer(port) {
   child.on("exit", () => {
     signal.exited = true;
   });
-  // `settle`, not `resolve`: this module imports `resolve` from node:path, and
-  // shadowing it here would hand any later path work in this scope the wrong
-  // binding without a word of complaint.
-  const stop = () =>
-    new Promise<void>((settle) => {
-      if (signal.exited) return settle();
-      child.on("exit", settle);
-      child.kill("SIGTERM");
-    });
+  // The shutdown itself is in its own module because it has to be testable, and
+  // nothing declared here is: importing this file starts a capture. What it has
+  // to be tested for is that it ends — a shutdown that waits only on `exit`
+  // waits for as long as the child is willing to stay.
+  const stop = () => stopChild(child);
   try {
     await waitForServer(`http://127.0.0.1:${port}/`, signal);
   } catch (error) {
