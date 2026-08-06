@@ -23,7 +23,47 @@
   --line: #2a2a30;
   --line-strong: #4c4c56;
   --soft: #1a1a1f;
-  --accent: #7ea3f0;
+  /* The Accent swatches, in the order the panel offers them: the six house
+     hues, then the two the set was widened with, then the four neon ones. The
+     grouping is ordering and the glow flag below, and nothing else — the panel
+     draws no headings for it — but it is the reason the row reads as a set
+     rather than twelve colours in a heap.
+
+     One constraint decides whether a hue can join, and it is the reason there
+     are no deep or dusty ones here: `--accent` is read as text on the surfaces
+     and as a background under a glyph coloured for the paper, contrast is
+     symmetric, so a swatch that reads in one direction reads in the other.
+     `test/accessibility.test.js` holds every one of them to AA against the
+     lightest surface — see ADR-0017. Cherry is the tightest at 5.1:1 on the
+     card.
+
+     Amber, Blush, Cherry and Magenta all sit within reach of `--danger`.
+     Nothing becomes unreadable, but on those the armed delete stops being the
+     only warm thing on screen and leans on its glyph and its position instead.
+     That is the accepted cost of not reserving a quadrant nobody asked us to. */
+  --accent-signal: #7ea3f0;
+  --accent-teal: #1fb0a5;
+  --accent-matcha: #8cbb6a;
+  --accent-amber: #dd9440;
+  --accent-blush: #e88aa8;
+  --accent-lilac: #b795e8;
+  --accent-butter: #f0d264;
+  --accent-cherry: #e2566d;
+  --accent-laser: #22e6ff;
+  --accent-magenta: #ff4d8f;
+  --accent-acid: #c2ff33;
+  --accent-violet: #b57bff;
+  /* An alias rather than a thirteenth literal: two copies of Signal is the
+     version of this that drifts. `app.js` overwrites this property on the root
+     element when a stored Accent says otherwise. */
+  --accent: var(--accent-signal);
+  /* Whether the Accent in force is a neon one, as a number the glow rules
+     multiply by rather than a flag they branch on. Every glow in the interface
+     is one declaration whose strength reads `40%` at 0 and `68%` at 1, so a
+     neon Accent turns the existing glows up and lights two that are dark at 0
+     — without a second copy of any shadow, and without a second setting: the
+     glow rides on the colour. `app.js` writes it beside `--accent`. */
+  --accent-glow: 0;
   --danger: #e07a5f;
   --display-font: "Major Mono Display", monospace;
   --body-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
@@ -265,6 +305,186 @@ h1 {
   color: var(--ink);
 }
 
+/* The toggle's glyph is the Accent in force, which is what lets this control
+   carry no word: it shows the setting rather than naming it. */
+.accent-glyph {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* The one header button the Accent colours, which is what makes it read as the
+   colour control rather than a fourth glyph. The open state is named a second
+   time because `.header-actions .icon-button.is-active` hands the border back
+   to `--line-strong`, and a control that stops being the Accent's the moment
+   it is opened is saying the wrong thing at the one moment anybody is looking
+   at it. The filled surface is kept from that rule rather than dropped: the
+   dot needs a ground that is not the page. */
+.accent-toggle,
+.header-actions .accent-toggle.is-active {
+  border-color: var(--accent);
+  background: var(--soft);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) calc(var(--accent-glow) * 45%), transparent);
+}
+
+/* A fieldset draws a border and reserves room for its legend by default, and
+   this one's legend is hidden — so both are cleared, and `min-width` with it,
+   which a fieldset otherwise holds at its content's width and would keep the
+   row from wrapping at the narrowest viewport. */
+.accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 18px 18px;
+  border: 0;
+}
+
+/* 44px is the pointer-target floor, so the row wraps rather than shrinking and
+   nothing here changes at the 540px breakpoint: twelve at 44 + 16 fall to six
+   and six in the full column and to five, five and two at 360px. Both shapes
+   are fine, which is why there is no grid forcing one of them. */
+.accent-swatch {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Two shadows rather than a border: the first is a ring of the surface behind
+   the swatch, so the second reads as a ring held off the circle rather than a
+   thicker edge on it, and neither changes the size the row is laid out at. An
+   outline would have done it in one, but focus already uses that and both have
+   to be able to show at once.
+
+   The ring is the selection. A row of twelve fills cannot say which fill is
+   chosen by fill alone, and a listener who cannot separate two of the hues
+   would be left with a control that never appears to respond.
+
+   The gap ring is `--card` rather than `--paper`, because `--card` is what the
+   panel is actually painted in and the ring's whole job is to read as a gap.
+   On the page colour it would read as a third ring in a colour of its own. */
+.accent-swatch.is-selected {
+  box-shadow:
+    0 0 0 3px var(--card),
+    0 0 0 5px var(--ink);
+}
+
+/* A selected neon swatch throws the glow its Accent turns on everywhere else,
+   so the panel shows what the choice does rather than only which hue it is.
+   The colour is the swatch's own fill and not `var(--accent)`: this has to be
+   right on the swatch under the cursor a moment before it is the Accent. */
+.accent-swatch[data-accent-group="neon"].is-selected {
+  box-shadow:
+    0 0 0 3px var(--card),
+    0 0 0 5px var(--ink),
+    0 0 20px color-mix(in srgb, var(--swatch-fill) 60%, transparent);
+}
+
+/* The fill is named once per swatch and read twice — as the background, and by
+   the glow above, which has to mix from this swatch's colour rather than from
+   `var(--accent)`: it is drawn on the swatch under the cursor a moment before
+   that swatch is the Accent. The property is deliberately not called
+   `--accent-something`, because everything under that prefix is a member of
+   the set as far as `test/accessibility.test.js` is concerned. */
+.accent-swatch[data-accent] {
+  background: var(--swatch-fill);
+}
+
+.accent-swatch[data-accent="signal"] {
+  --swatch-fill: var(--accent-signal);
+}
+
+.accent-swatch[data-accent="teal"] {
+  --swatch-fill: var(--accent-teal);
+}
+
+.accent-swatch[data-accent="matcha"] {
+  --swatch-fill: var(--accent-matcha);
+}
+
+.accent-swatch[data-accent="amber"] {
+  --swatch-fill: var(--accent-amber);
+}
+
+.accent-swatch[data-accent="blush"] {
+  --swatch-fill: var(--accent-blush);
+}
+
+.accent-swatch[data-accent="lilac"] {
+  --swatch-fill: var(--accent-lilac);
+}
+
+.accent-swatch[data-accent="butter"] {
+  --swatch-fill: var(--accent-butter);
+}
+
+.accent-swatch[data-accent="cherry"] {
+  --swatch-fill: var(--accent-cherry);
+}
+
+.accent-swatch[data-accent="laser"] {
+  --swatch-fill: var(--accent-laser);
+}
+
+.accent-swatch[data-accent="magenta"] {
+  --swatch-fill: var(--accent-magenta);
+}
+
+.accent-swatch[data-accent="acid"] {
+  --swatch-fill: var(--accent-acid);
+}
+
+.accent-swatch[data-accent="violet"] {
+  --swatch-fill: var(--accent-violet);
+}
+
+/* What the swatches cannot say themselves: which one is selected by name, the
+   hex to quote it by, and the ratio it clears on the card it is read on. The
+   marker never warns — every colour in the set passes — and that is the point
+   of keeping it on screen: it is the standing check for whoever adds the
+   thirteenth. Baselines rather than centres, so three sizes sit on one line. */
+.accent-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  margin: 0;
+  padding: 0 18px 16px;
+}
+
+.accent-caption-name {
+  color: var(--accent);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.accent-caption-hex {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* `--line` and not `--line-strong`: the border is decoration and may be a
+   hairline, but the text inside it is text, and `--line-strong` is 2.2:1 on
+   the card. The tick labels learned this one already. */
+.accent-caption-contrast {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--muted);
+  font-size: 0.55rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -384,6 +604,7 @@ h1 {
 .preset-button.is-selected {
   border-color: var(--accent);
   background: var(--accent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) calc(var(--accent-glow) * 40%), transparent);
   color: #0c0c0d;
 }
 
@@ -470,7 +691,8 @@ h1 {
 .play-button.is-playing {
   padding-left: 0;
   background: var(--accent);
-  box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 34px
+    color-mix(in srgb, var(--accent) calc(40% + var(--accent-glow) * 28%), transparent);
   font-size: clamp(0.95rem, 3.4cqw, 1.4rem);
 }
 
@@ -738,10 +960,15 @@ h1.is-glitching {
     opacity 140ms ease;
 }
 
+/* The offset block is the mark; the glow is added beside it rather than in
+   place of it, so a neon Accent lights the card without changing how a current
+   card is identified. */
 .cycle-card.is-current,
 .rhythm-card.is-current {
   border-color: var(--accent);
-  box-shadow: 4px 4px 0 var(--accent);
+  box-shadow:
+    4px 4px 0 var(--accent),
+    0 0 28px color-mix(in srgb, var(--accent) calc(var(--accent-glow) * 30%), transparent);
 }
 
 .card-heading {
@@ -1133,7 +1360,7 @@ h1.is-glitching {
 .step.is-current {
   --step-glow:
     0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
-    0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+    0 0 22px color-mix(in srgb, var(--accent) calc(60% + var(--accent-glow) * 30%), transparent);
 
   border-color: var(--ink);
   box-shadow: var(--step-glow);

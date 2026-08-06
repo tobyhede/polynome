@@ -8,6 +8,7 @@ A deliberately small browser metronome with:
 - a per-layer view of either one control per beat or one per pattern position
 - four Step voices: primary, secondary, tertiary, and off
 - independent volume and stereo pan for each rhythm
+- a choice of twelve interface accent colours, remembered per browser
 - sample-accurate Web Audio scheduling from one shared transport clock
 - no runtime dependencies, accounts, analytics, or framework build step
 

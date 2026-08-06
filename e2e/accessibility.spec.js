@@ -81,6 +81,17 @@ test("the help panel has no accessibility violations", async ({ page }) => {
   await expectNoViolations(page);
 });
 
+/**
+ * The swatches are the one row of controls here whose visible content is a
+ * colour, so their names live entirely in the accessibility tree — a scan is
+ * the only thing that would notice them going missing.
+ */
+test("the colour panel has no accessibility violations", async ({ page }) => {
+  await page.getByRole("button", { name: "Colour", exact: true }).click();
+  await expect(page.locator("#accent-panel")).toBeVisible();
+  await expectNoViolations(page);
+});
+
 test("the preset panel has no accessibility violations, populated and empty", async ({ page }) => {
   // A first run opens on the seeded example Presets, so this already scans a
   // populated list and the delete button every card carries.

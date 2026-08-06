@@ -32,6 +32,10 @@ import { html, render } from "htm/preact";
 
 const STORAGE_KEY = "polynome-configuration-v2";
 const PRESET_STORAGE_KEY = "polynome-presets-v3";
+// The Accent is a preference of this browser, not part of the Configuration:
+// no Preset carries it and changing it never marks a setup unsaved. It is a
+// third key for that reason rather than a field — see ADR-0017.
+const ACCENT_STORAGE_KEY = "polynome-accent-v1";
 const PERSIST_DELAY_MS = 400;
 // The meter domain narrowed in v2. Values from earlier releases are retired
 // instead of repaired into different rhythms without the listener's consent.
@@ -86,6 +90,14 @@ const elements = {
   presetName: /** @type {HTMLInputElement} */ (document.querySelector("#preset-name")),
   helpToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#help-toggle")),
   helpPanel: /** @type {HTMLElement} */ (document.querySelector("#help-panel")),
+  accentToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#accent-toggle")),
+  accentPanel: /** @type {HTMLElement} */ (document.querySelector("#accent-panel")),
+  accentSwatches: /** @type {HTMLElement} */ (document.querySelector("#accent-swatches")),
+  accentCaptionName: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-name")),
+  accentCaptionHex: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-hex")),
+  accentCaptionContrast: /** @type {HTMLElement} */ (
+    document.querySelector("#accent-caption-contrast")
+  ),
   cycles: /** @type {HTMLElement} */ (document.querySelector("#cycles")),
   addCycle: /** @type {HTMLButtonElement} */ (document.querySelector("#add-cycle")),
   status: /** @type {HTMLParagraphElement} */ (document.querySelector("#status")),
@@ -136,6 +148,9 @@ const {
 let presetsOpen = false;
 let helpOpen = false;
 let savePanelOpen = false;
+let accentOpen = false;
+/** The chosen Accent's name; `applyAccent` is the only writer. */
+let accent = null;
 /**
  * The Preset this Configuration came from — applied from the panel, or written
  * by the last save — and the snapshot it held at that moment. It answers two
@@ -212,6 +227,88 @@ function storedSavedPresets() {
   return readSavedPresets() ?? savedPresets;
 }
 
+/**
+ * The controls that offer the Accents, which is everything this module knows
+ * about the set: the name, the group that decides the glow, and the contrast
+ * the caption quotes are all read back off them. The swatches are static
+ * markup, so the shell is already the one list of what a user can choose, and a
+ * second copy here would be a second place to add a colour with only one of
+ * them noticed missing. `test/accessibility.test.js` holds the stylesheet to
+ * this same set.
+ */
+function accentSwatches() {
+  return /** @type {HTMLElement[]} */ (
+    Array.from(elements.accentSwatches.querySelectorAll("[data-accent]"))
+  );
+}
+
+function accentNames() {
+  return accentSwatches().map((swatch) => swatch.dataset.accent);
+}
+
+/**
+ * The `rgb(...)` a swatch computes to, spelled as the hex the stylesheet wrote
+ * it as. The caption quotes a colour the stylesheet owns, and reading it back
+ * off the painted circle is what keeps `index.html` from carrying a second copy
+ * of twelve hex values for the one line of text that shows them — the copy that
+ * would go on reading `#7EA3F0` after the token behind it had been corrected.
+ */
+function paintedHex(element) {
+  const channels = getComputedStyle(element).backgroundColor.match(/\d+/g) ?? [];
+  if (channels.length < 3) return "";
+  const hex = channels
+    .slice(0, 3)
+    .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+    .join("");
+  return `#${hex}`.toUpperCase();
+}
+
+/**
+ * A stored name that no swatch offers is repaired to the default rather than
+ * refused, which is how every other stored value here is treated: storage is
+ * something a previous version, another tab, or a person with a console may
+ * have written, and the interface has to open on something either way.
+ */
+function loadAccent() {
+  const [fallback] = accentNames();
+  let stored = null;
+  try {
+    stored = localStorage.getItem(ACCENT_STORAGE_KEY);
+  } catch {
+    // Resolving the browser's storage property can itself be forbidden.
+  }
+  return accentNames().includes(stored) ? stored : fallback;
+}
+
+/**
+ * The property is written onto the root element rather than a class being
+ * toggled, so every `var(--accent)` in the stylesheet — including the ones
+ * inside `color-mix()` — follows from one assignment. The value names a swatch
+ * token instead of repeating its hex, which keeps the stylesheet the only place
+ * a colour is written down.
+ */
+function applyAccent(name) {
+  accent = name;
+  const chosen = accentSwatches().find((swatch) => swatch.dataset.accent === name);
+  const root = document.documentElement;
+  root.style.setProperty("--accent", `var(--accent-${name})`);
+  // The glow rides on the colour rather than on a setting of its own: the neon
+  // Accents turn the existing glows up and light two that are dark otherwise.
+  // It is written as the number those rules multiply by, so each of them stays
+  // one declaration whose strength happens to be a `calc()`. Which group a
+  // swatch is in is markup, like its name, so there is nothing to keep in step
+  // here.
+  root.style.setProperty("--accent-glow", chosen?.dataset.accentGroup === "neon" ? "1" : "0");
+}
+
+function writeAccent(name) {
+  try {
+    localStorage.setItem(ACCENT_STORAGE_KEY, name);
+  } catch {
+    // The metronome remains usable when storage is unavailable.
+  }
+}
+
 function writeSavedPresets(presets) {
   try {
     localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
@@ -286,6 +383,26 @@ function renderPanels() {
   elements.presetSavePanel.hidden = !savePanelOpen;
   elements.presetSaveOpen.setAttribute("aria-expanded", String(savePanelOpen));
   elements.presetSaveOpen.classList.toggle("is-active", savePanelOpen);
+  elements.accentPanel.hidden = !accentOpen;
+  elements.accentToggle.setAttribute("aria-expanded", String(accentOpen));
+  elements.accentToggle.classList.toggle("is-active", accentOpen);
+  // The pressed swatch is written on every render rather than moved from the
+  // one that was clicked, so the panel reports the Accent in force whatever put
+  // it there — including a repaired storage value nobody selected.
+  let chosen = null;
+  for (const swatch of accentSwatches()) {
+    const selected = swatch.dataset.accent === accent;
+    swatch.setAttribute("aria-pressed", String(selected));
+    swatch.classList.toggle("is-selected", selected);
+    if (selected) chosen = swatch;
+  }
+  // The three things a circle cannot say about itself: which one it is, the hex
+  // to quote it by, and the ratio it clears on the surface it is read as text
+  // on. The name comes from the swatch's own title rather than a table here,
+  // for the same reason the set does.
+  elements.accentCaptionName.textContent = chosen?.title ?? "";
+  elements.accentCaptionHex.textContent = chosen ? paintedHex(chosen) : "";
+  elements.accentCaptionContrast.textContent = chosen ? `AA · ${chosen.dataset.contrast}:1` : "";
   // Nothing to save is not a reason to hide the way in, so this marks the chip
   // unavailable rather than removing it: it stays where the user learned it is,
   // and says why it will not act.
@@ -1487,6 +1604,7 @@ elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
   if (presetsOpen) {
     helpOpen = false;
+    accentOpen = false;
     renderPresetPanel();
   }
   renderPanels();
@@ -1495,6 +1613,30 @@ elements.presetsClose.addEventListener("click", () => {
   presetsOpen = false;
   renderPanels();
   elements.presetsToggle.focus();
+});
+// Colour is a fourth subject, so it follows the rule Help follows: opening it
+// closes the other three, and any of them closes it. There is no close control
+// and no Escape handler, unlike Save — Escape's job in that panel is abandoning
+// a half-typed name, and a row of swatches has nothing to abandon.
+elements.accentToggle.addEventListener("click", () => {
+  accentOpen = !accentOpen;
+  if (accentOpen) {
+    helpOpen = false;
+    presetsOpen = false;
+    savePanelOpen = false;
+  }
+  renderPanels();
+});
+elements.accentSwatches.addEventListener("click", (event) => {
+  const swatch = /** @type {HTMLElement} */ (event.target).closest("[data-accent]");
+  if (!swatch) return;
+  const name = /** @type {HTMLElement} */ (swatch).dataset.accent;
+  applyAccent(name);
+  writeAccent(name);
+  // Only the panels are redrawn: the Accent is a custom property every rule
+  // already reads, so nothing about the Configuration or the Sequence has
+  // changed and there is nothing else to re-render.
+  renderPanels();
 });
 elements.helpToggle.addEventListener("click", () => {
   helpOpen = !helpOpen;
@@ -1505,6 +1647,7 @@ elements.helpToggle.addEventListener("click", () => {
   if (helpOpen) {
     presetsOpen = false;
     savePanelOpen = false;
+    accentOpen = false;
   }
   renderPanels();
 });
@@ -1828,10 +1971,11 @@ elements.presetSaveOpen.addEventListener("click", () => {
     closeSavePanel({ focusToggle: false });
     return;
   }
-  // Help is a different subject wanting the same room. The preset panel is not:
-  // it is this panel's other half, and saving with it open is what puts the new
-  // Preset on screen where the save leaves focus.
+  // Help and Colour are different subjects wanting the same room. The preset
+  // panel is not: it is this panel's other half, and saving with it open is what
+  // puts the new Preset on screen where the save leaves focus.
   helpOpen = false;
+  accentOpen = false;
   // Prefilled with the Preset this Configuration came from, so saving an edited
   // version back over it is the default and renaming is the deliberate act. An
   // untouched name is what carries the edits onto the Preset the user started
@@ -2339,6 +2483,11 @@ elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
  * to keep, so the reconciliation below is that derivation.
  */
 reconcilePresetOrigin();
+// Before the first render rather than after it, so nothing is ever painted in a
+// colour the browser did not choose. The shell paints before this module runs,
+// but the regions the Accent reaches — the step grids, the Preset cards, the
+// tick labels — are rendered from here and do not exist until it has.
+applyAccent(loadAccent());
 // The count is not part of `renderInterface`: no Configuration edit changes the
 // stored list, so every edit-driven render would rewrite a number that cannot
 // have moved. It is rendered once here and again wherever `savedPresets` does.
