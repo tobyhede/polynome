@@ -62,6 +62,7 @@ const elements = {
   heading: document.querySelector("#app-heading") as HTMLHeadingElement,
   play: document.querySelector("#play-button") as HTMLButtonElement,
   playIcon: document.querySelector("#play-icon") as HTMLSpanElement,
+  restartAudio: document.querySelector("#restart-audio") as HTMLButtonElement,
   bpm: document.querySelector("#bpm-input") as HTMLInputElement,
   bpmSlider: document.querySelector("#bpm-slider") as HTMLInputElement,
   bpmDown: document.querySelector("#bpm-down") as HTMLButtonElement,
@@ -1455,6 +1456,7 @@ function updatePlayButton() {
   elements.play.setAttribute("aria-pressed", String(playing));
   elements.play.setAttribute("aria-label", playing ? "Stop metronome" : "Play metronome");
   elements.playIcon.textContent = playing ? "■" : "▶";
+  elements.restartAudio.hidden = !playing;
   elements.status.textContent = playing ? "Playing" : "Stopped";
 }
 
@@ -1544,6 +1546,16 @@ async function togglePlayback() {
   }
 }
 
+async function restartAudio() {
+  try {
+    await engine.restartAudio(state);
+    elements.status.textContent = "Audio restarted";
+  } catch (error) {
+    renderTransport();
+    showError(error);
+  }
+}
+
 function changeTempo(nextBpm) {
   if (engine.playing) return;
   applyEdit({ type: "set-tempo", bpm: nextBpm });
@@ -1605,6 +1617,7 @@ function dismissSubdivisionMenu() {
 }
 
 elements.play.addEventListener("click", togglePlayback);
+elements.restartAudio.addEventListener("click", restartAudio);
 elements.presetsToggle.addEventListener("click", () => {
   presetsOpen = !presetsOpen;
   if (presetsOpen) {
@@ -2452,11 +2465,20 @@ window.addEventListener("storage", (event) => {
   }
   adoptSavedPresets(presets);
 });
+
+function checkAudioAfterForeground() {
+  if (document.visibilityState === "visible") engine.checkAudioAfterForeground();
+}
+
 // A backgrounded tab can be frozen or discarded without ever firing pagehide,
 // and hiding is the last moment a mobile browser reliably hands over.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistence.flush();
+  else checkAudioAfterForeground();
 });
+window.addEventListener("pageshow", checkAudioAfterForeground);
+document.addEventListener("resume", checkAudioAfterForeground);
+window.addEventListener("focus", checkAudioAfterForeground);
 
 // Major ticks carry their own number, so the tick row is the tempo scale: it is
 // how a reader knows what the thumb above it is sitting on without reading the

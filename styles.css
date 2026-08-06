@@ -1649,6 +1649,12 @@ h1.is-glitching {
   font-size: 0.75rem;
 }
 
+.footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .page-footer .chip-button {
   background: var(--card);
   color: var(--ink);

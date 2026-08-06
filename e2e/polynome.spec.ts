@@ -136,6 +136,60 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+test("healthy foreground lifecycle signals leave playback active", async ({ page }) => {
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await page.waitForTimeout(100);
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new PageTransitionEvent("pageshow"));
+    document.dispatchEvent(new Event("resume"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForTimeout(600);
+
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await expect(page.locator("#status")).toHaveText("Playing");
+});
+
+test("a frozen audio clock is recovered and announced", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+      get currentTime() {
+        return 0;
+      }
+    };
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await page.waitForTimeout(200);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  await expect(page.locator("#status")).toHaveText("Audio clock is not advancing.");
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+});
+
+test("Restart Audio replaces playback from an accessible secondary control", async ({ page }) => {
+  const restart = page.getByRole("button", { name: "Restart Audio" });
+
+  await expect(restart).toBeHidden();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(restart).toBeVisible();
+
+  await restart.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(restart).toBeFocused();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await expect(page.locator("#status")).toHaveText("Audio restarted");
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(restart).toBeHidden();
+});
+
 /**
  * The Cycle card is visible even when there is only one Cycle, so its envelope
  * and its repetitions are reachable in the simplest Sequence there is. The sole

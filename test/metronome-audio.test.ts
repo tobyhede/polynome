@@ -37,13 +37,14 @@ import {
  */
 type FakeContextState = "suspended" | "running" | "interrupted" | "closed";
 
-/** How a test wants `resume()` to settle, or refuse to. */
-type ResumeBehaviour = "resolve" | "hang" | "reject";
+/** How a test wants a context lifecycle operation to settle, or refuse to. */
+type RecoveryBehaviour = "resolve" | "hang" | "reject" | "transition";
 
 interface FakeContextOptions {
   state?: FakeContextState;
   currentTime?: number;
-  resume?: ResumeBehaviour;
+  resume?: RecoveryBehaviour;
+  suspend?: RecoveryBehaviour;
 }
 
 /**
@@ -167,6 +168,7 @@ class FakeOscillatorNode extends EventTarget {
   declare detune: FakeAudioParam;
   declare outputs: FakeAudioNode[];
   declare click: FakeClick | null;
+  declare stopped: boolean;
 
   constructor(context: FakeAudioContext) {
     super();
@@ -177,6 +179,7 @@ class FakeOscillatorNode extends EventTarget {
     this.detune = new FakeAudioParam(context, "detune", 0);
     this.outputs = [];
     this.click = null;
+    this.stopped = false;
   }
 
   connect(target: FakeAudioNode) {
@@ -203,6 +206,7 @@ class FakeOscillatorNode extends EventTarget {
   }
 
   stop(when: number = this.context.currentTime) {
+    if (arguments.length === 0) this.stopped = true;
     if (!this.click || this.click.stopAt !== null) return;
     this.click.stopAt = when;
     this.click.effectiveStop = Math.max(when, this.context.currentTime);
@@ -223,12 +227,15 @@ class FakeAudioContext extends EventTarget {
   declare panners: FakeStereoPannerNode[];
   declare oscillators: FakeOscillatorNode[];
   declare resumeCalls: number;
-  declare resumeBehaviour: ResumeBehaviour;
+  declare resumeBehaviour: RecoveryBehaviour;
+  declare suspendCalls: number;
+  declare suspendBehaviour: RecoveryBehaviour;
 
   constructor({
     state = "suspended",
     currentTime = 0,
     resume = "resolve",
+    suspend = "resolve",
   }: FakeContextOptions = {}) {
     super();
     this.state = state;
@@ -241,6 +248,8 @@ class FakeAudioContext extends EventTarget {
     this.oscillators = [];
     this.resumeCalls = 0;
     this.resumeBehaviour = resume;
+    this.suspendCalls = 0;
+    this.suspendBehaviour = suspend;
   }
 
   /**
@@ -320,6 +329,17 @@ class FakeAudioContext extends EventTarget {
     if (this.resumeBehaviour === "reject") {
       return Promise.reject(new Error("not allowed to start"));
     }
+    if (this.resumeBehaviour === "transition") this.setState("running");
+    return Promise.resolve();
+  }
+
+  suspend() {
+    this.suspendCalls += 1;
+    if (this.suspendBehaviour === "hang") return new Promise(() => {});
+    if (this.suspendBehaviour === "reject") {
+      return Promise.reject(new Error("not allowed to suspend"));
+    }
+    if (this.suspendBehaviour === "transition") this.setState("suspended");
     return Promise.resolve();
   }
 
@@ -341,7 +361,7 @@ class FakeAudioContext extends EventTarget {
   }
 }
 
-const timers = { nextId: 1, callbacks: new Map() };
+const timers = { nextId: 1, callbacks: new Map(), deadlines: new Map() };
 
 const windowStub = {
   setInterval(callback, delay) {
@@ -352,6 +372,15 @@ const windowStub = {
   },
   clearInterval(id) {
     timers.callbacks.delete(id);
+  },
+  setTimeout(callback, delay) {
+    const id = timers.nextId;
+    timers.nextId += 1;
+    timers.deadlines.set(id, { callback, delay });
+    return id;
+  },
+  clearTimeout(id) {
+    timers.deadlines.delete(id);
   },
 };
 
@@ -402,20 +431,27 @@ const SCHEDULER_INTERVAL_MS = 25;
 const STUCK_CONTEXT_TIMEOUT_MS = 2000;
 const STUCK_CONTEXT_TICKS = Math.ceil(STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
 
-/** The interval at which an interrupted run re-asks for its context, restated. */
-const RESUME_RETRY_TIMEOUT_MS = 1000;
-const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
-
 const tick = (times = 1) => {
   for (let count = 0; count < times; count += 1) {
     for (const timer of [...timers.callbacks.values()]) timer.callback();
   }
 };
 
+const runNextDeadline = () => {
+  const next = [...timers.deadlines.entries()].sort(
+    ([firstId, first], [secondId, second]) => first.delay - second.delay || firstId - secondId,
+  )[0];
+  assert.ok(next, "no engine deadline was installed");
+  const [id, { callback }] = next;
+  timers.deadlines.delete(id);
+  callback();
+};
+
 const schedulerRunning = () => timers.callbacks.size > 0;
 
 const harness = (contextOptions: FakeContextOptions = {}) => {
   timers.callbacks.clear();
+  timers.deadlines.clear();
   const context = new FakeAudioContext(contextOptions);
   const engine = new MetronomeEngine({ createContext: () => context });
   return { context, engine };
@@ -675,6 +711,273 @@ test("an injected audio context factory supplies the whole audio graph", async (
   engine.stop();
 });
 
+test("restarting audio replaces its context and begins a fresh Transport run", async () => {
+  timers.callbacks.clear();
+  const failed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 8 });
+  const contexts = [failed, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const configuration = pulsePerSecond();
+
+  await engine.start(configuration);
+  const staleSources = [...failed.oscillators];
+  const failedOrigin = engine.origin;
+
+  await engine.restartAudio(configuration);
+
+  assert.equal(engine.playing, true);
+  assert.equal(failedOrigin, 0.06);
+  assert.equal(engine.origin, 8.06);
+  assert.deepEqual(clickStarts(replacement), [8.06]);
+  assert.equal(
+    staleSources.every((source) => source.stopped && source.outputs.length === 0),
+    true,
+  );
+  assert.deepEqual(contexts, []);
+
+  engine.stop();
+});
+
+test("simultaneous audio restarts coalesce into one replacement", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const original = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 10 });
+  const laterReplacement = new FakeAudioContext({ state: "running", currentTime: 20 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [original, replacement, laterReplacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const configuration = pulsePerSecond();
+
+  await engine.start(configuration);
+  let replacementRuns = 0;
+  engine.addEventListener("playstate", () => {
+    replacementRuns += 1;
+  });
+
+  const first = engine.restartAudio(configuration);
+  const simultaneous = engine.restartAudio(configuration);
+  await Promise.all([first, simultaneous]);
+
+  assert.equal(replacementRuns, 1);
+  assert.equal(engine.origin, 10.06);
+  assert.deepEqual(contexts, [laterReplacement, unexpected]);
+
+  await engine.restartAudio(configuration);
+
+  assert.equal(replacementRuns, 2);
+  assert.equal(engine.origin, 20.06);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a replacement context recovers independently of an abandoned hanging recovery", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const abandoned = new FakeAudioContext({ state: "running", currentTime: 0 });
+  abandoned.resumeBehaviour = "hang";
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 10 });
+  const recovered = new FakeAudioContext({ state: "running", currentTime: 20 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [abandoned, replacement, recovered, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const errors = audioErrorsOf(engine);
+  const configuration = pulsePerSecond();
+
+  await engine.start(configuration);
+  abandoned.setState("suspended");
+  engine.checkAudioAfterForeground();
+  assert.equal(abandoned.resumeCalls, 1);
+
+  await engine.restartAudio(configuration);
+  replacement.resumeBehaviour = "reject";
+  replacement.setState("suspended");
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(replacement.resumeCalls, 1);
+  assert.equal(engine.origin, 20.06);
+  assert.deepEqual(contexts, [unexpected]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /not allowed to start/i);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.origin, 20.06);
+  assert.deepEqual(contexts, [unexpected]);
+  assert.equal(errors.length, 1);
+
+  engine.stop();
+});
+
+test("an audio render error replaces the context and begins a fresh Transport run", async () => {
+  timers.callbacks.clear();
+  const failed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 12 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 20 });
+  const contexts = [failed, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  failed.dispatchEvent(new Event("error"));
+
+  assert.equal(engine.origin, 12.06);
+  assert.deepEqual(clickStarts(replacement), [12.06]);
+  assert.deepEqual(contexts, [unexpected]);
+
+  failed.dispatchEvent(new Event("error"));
+
+  assert.equal(engine.origin, 12.06);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a render error reports one failed replacement and abandons playback", async (t) => {
+  const { types, audioSession } = recordingAudioSession();
+  withNavigator(t, { audioSession });
+  timers.callbacks.clear();
+  const failed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const constructionError = new Error("cannot replace AudioContext");
+  let constructions = 0;
+  const engine = new MetronomeEngine({
+    createContext: () => {
+      constructions += 1;
+      if (constructions === 1) return failed;
+      throw constructionError;
+    },
+  });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  failed.dispatchEvent(new Event("error"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(errors, [constructionError]);
+  assert.equal(engine.playing, false);
+  assert.equal(schedulerRunning(), false);
+  assert.deepEqual(types, ["playback", "auto"]);
+
+  failed.dispatchEvent(new Event("error"));
+  tick(4);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(errors, [constructionError]);
+  assert.equal(constructions, 2);
+});
+
+test("a rejected suspended-context recovery begins a fresh Transport run", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const suspended = new FakeAudioContext({ state: "running", currentTime: 0 });
+  suspended.resumeBehaviour = "reject";
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 15 });
+  const contexts = [suspended, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  suspended.setState("suspended");
+  tick(STUCK_CONTEXT_TICKS * 2);
+
+  assert.equal(suspended.resumeCalls, 0);
+  assert.equal(engine.origin, 0.06);
+  assert.deepEqual(contexts, [replacement]);
+
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(suspended.resumeCalls, 1);
+  assert.equal(engine.origin, 15.06);
+  assert.deepEqual(clickStarts(replacement), [15.06]);
+  assert.deepEqual(contexts, []);
+  assert.equal(timers.deadlines.size, 0);
+
+  engine.stop();
+});
+
+test("a visible suspended transition recovers immediately", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const suspended = new FakeAudioContext({ state: "running", currentTime: 0 });
+  suspended.resumeBehaviour = "reject";
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 16 });
+  const contexts = [suspended, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  suspended.setState("suspended");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(suspended.resumeCalls, 1);
+  assert.equal(engine.origin, 16.06);
+  assert.deepEqual(clickStarts(replacement), [16.06]);
+  assert.deepEqual(contexts, []);
+
+  engine.stop();
+});
+
+test("a timed-out visible suspended recovery reports once and replaces once", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const suspended = new FakeAudioContext({ state: "running", currentTime: 0 });
+  suspended.resumeBehaviour = "hang";
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 19 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [suspended, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  suspended.setState("suspended");
+  assert.equal(suspended.resumeCalls, 1);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /recovery.*timed out/i);
+  assert.equal(engine.origin, 19.06);
+  assert.deepEqual(clickStarts(replacement), [19.06]);
+  assert.deepEqual(contexts, [unexpected]);
+
+  suspended.dispatchEvent(new Event("error"));
+  suspended.setState("running");
+  tick(STUCK_CONTEXT_TICKS * 2);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(errors.length, 1);
+  assert.equal(engine.origin, 19.06);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a visible closed transition is replaced immediately", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const closed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 17 });
+  const contexts = [closed, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  closed.setState("closed");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(closed.resumeCalls, 0);
+  assert.equal(closed.suspendCalls, 0);
+  assert.equal(engine.origin, 17.06);
+  assert.deepEqual(clickStarts(replacement), [17.06]);
+  assert.deepEqual(contexts, []);
+
+  engine.stop();
+});
+
 /** Every automated value the master gain was given, oldest first. */
 const masterGainAutomation = (context: FakeAudioContext) =>
   context.gains[0].gain.automation
@@ -823,6 +1126,8 @@ test("a transport run recovers from an interruption without replaying past event
 
   // A call, an app switch, or a screen lock: the clock freezes here.
   context.setState("interrupted");
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(context.resumeCalls, 1);
 
   const scheduledWhileInterrupted = context.clicks.length;
@@ -847,46 +1152,201 @@ test("a transport run recovers from an interruption without replaying past event
   engine.stop();
 });
 
-test("an interrupted run keeps asking for its context back", async () => {
-  const { context, engine } = harness({ state: "running", currentTime: 0 });
+test("foreground recovery asks once for an interrupted run and preserves its origin", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const interrupted = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 20 });
+  const contexts = [interrupted, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
 
   await engine.start(pulsePerSecond());
-  context.setState("interrupted");
+  const origin = engine.origin;
+  interrupted.setState("interrupted");
+  tick(STUCK_CONTEXT_TICKS * 2);
 
-  // The `statechange` handler asks once. A refused `resume()` fires no
-  // `statechange` of its own, so without the scheduler asking again this is the
-  // last request the run would ever make, and a run that recovers its
-  // activation later would stay silent with nothing left to notice.
-  assert.equal(context.resumeCalls, 1);
+  assert.equal(interrupted.resumeCalls, 0);
 
-  tick(RESUME_RETRY_TICKS - 1);
-  assert.equal(context.resumeCalls, 1);
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
 
+  assert.equal(interrupted.resumeCalls, 1);
+  interrupted.setState("running");
+  interrupted.currentTime = 0.95;
   tick();
-  assert.equal(context.resumeCalls, 2);
 
-  tick(RESUME_RETRY_TICKS);
-  assert.equal(context.resumeCalls, 3);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(clickStarts(interrupted), [0.06, 1.06]);
+  assert.deepEqual(contexts, [unexpected]);
 
   engine.stop();
 });
 
-test("a run that gets its context back stops asking", async () => {
-  const { context, engine } = harness({ state: "running", currentTime: 0 });
+test("a rejected foreground recovery replaces an interrupted context once", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const interrupted = new FakeAudioContext({ state: "running", currentTime: 0 });
+  interrupted.resumeBehaviour = "reject";
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 18 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [interrupted, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const errors = audioErrorsOf(engine);
 
   await engine.start(pulsePerSecond());
-  context.setState("interrupted");
-  tick(RESUME_RETRY_TICKS);
-  assert.equal(context.resumeCalls, 2);
+  interrupted.setState("interrupted");
+  tick(STUCK_CONTEXT_TICKS * 2);
+  assert.equal(interrupted.resumeCalls, 0);
 
-  context.currentTime = 0.95;
-  context.setState("running");
-  tick(RESUME_RETRY_TICKS * 3);
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
 
-  // Running again: nothing further is asked for, and the retry counter that
-  // was part-way through must not carry over into the next interruption.
-  assert.equal(context.resumeCalls, 2);
-  assert.equal(context.audibleClicks().length > 0, true);
+  assert.equal(interrupted.resumeCalls, 1);
+  assert.equal(engine.origin, 18.06);
+  assert.deepEqual(clickStarts(replacement), [18.06]);
+  assert.deepEqual(contexts, [unexpected]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /not allowed to start/i);
+
+  tick(STUCK_CONTEXT_TICKS * 2);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(contexts, [unexpected]);
+  assert.equal(errors.length, 1);
+
+  engine.stop();
+});
+
+test("a frozen running clock gets one soft recovery and preserves its Transport run", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const running = new FakeAudioContext({
+    state: "running",
+    currentTime: 4,
+    suspend: "transition",
+    resume: "transition",
+  });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [running, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  const origin = engine.origin;
+  engine.checkAudioAfterForeground();
+
+  assert.equal(running.suspendCalls, 0);
+  assert.equal(running.resumeCalls, 0);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+  running.currentTime = 4.5;
+  tick();
+
+  assert.equal(running.suspendCalls, 1);
+  assert.equal(running.resumeCalls, 1);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a clock still frozen after soft recovery begins a fresh Transport run", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const frozen = new FakeAudioContext({
+    state: "running",
+    currentTime: 6,
+    suspend: "transition",
+    resume: "transition",
+  });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 24 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [frozen, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  engine.checkAudioAfterForeground();
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(frozen.suspendCalls, 1);
+  assert.equal(frozen.resumeCalls, 1);
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.origin, 24.06);
+  assert.deepEqual(clickStarts(replacement), [24.06]);
+  assert.deepEqual(contexts, [unexpected]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /clock.*not advancing/i);
+
+  tick(STUCK_CONTEXT_TICKS * 2);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(errors.length, 1);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("a rejected soft recovery reports once and begins a fresh Transport run", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const frozen = new FakeAudioContext({
+    state: "running",
+    currentTime: 7,
+    suspend: "reject",
+  });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 25 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [frozen, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+  const errors = audioErrorsOf(engine);
+
+  await engine.start(pulsePerSecond());
+  engine.checkAudioAfterForeground();
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(frozen.suspendCalls, 1);
+  assert.equal(frozen.resumeCalls, 0);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /not allowed to suspend/i);
+  assert.equal(engine.origin, 25.06);
+  assert.deepEqual(clickStarts(replacement), [25.06]);
+  assert.deepEqual(contexts, [unexpected]);
+
+  tick(STUCK_CONTEXT_TICKS * 2);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(errors.length, 1);
+  assert.deepEqual(contexts, [unexpected]);
+
+  engine.stop();
+});
+
+test("foreground recovery immediately replaces a closed context", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const closed = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 32 });
+  const unexpected = new FakeAudioContext({ state: "running", currentTime: 40 });
+  const contexts = [closed, replacement, unexpected];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  closed.setState("closed");
+  engine.checkAudioAfterForeground();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(closed.resumeCalls, 0);
+  assert.equal(closed.suspendCalls, 0);
+  assert.equal(engine.origin, 32.06);
+  assert.deepEqual(clickStarts(replacement), [32.06]);
+  assert.deepEqual(contexts, [unexpected]);
 
   engine.stop();
 });
@@ -924,11 +1384,10 @@ test("a run that never started is reported rather than retried", async () => {
   await engine.start(pulsePerSecond());
   assert.equal(context.resumeCalls, 1);
 
-  // The retry belongs to a run that was interrupted, not one that never began.
   // This run is told to tap play again, and that tap carries the activation a
   // resume needs; asking on a timer instead would spend requests on the one
   // gate that a timer can never open.
-  tick(RESUME_RETRY_TICKS * 4);
+  tick(STUCK_CONTEXT_TICKS * 2);
 
   assert.equal(context.resumeCalls, 1);
 
