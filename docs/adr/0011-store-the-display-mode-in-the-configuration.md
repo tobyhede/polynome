@@ -2,7 +2,7 @@
 
 Every rhythm layer carries a `displayMode` of `beat` or `subdivision`, and it
 lives in the Configuration beside that layer's meter, subdivision and pattern
-rather than in the interface state [`app.js`](../../app.js) holds in module
+rather than in the interface state [`app.ts`](../../app.ts) holds in module
 scope. It is therefore repaired from storage like any other field, written back
 to storage, carried into a Preset, and compared by `sameRhythm`. Beat Mode is
 the default and the value repair falls back to, so the default Configuration

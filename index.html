@@ -12,8 +12,8 @@
     <link rel="stylesheet" href="./styles.css" />
     <!--
       Resolves the renderer for a browser loading this source directly, which is
-      what `server.mjs` serves. `htm/preact` imports both of the others by bare
-      specifier, so all three are named: a map that resolved only what `app.js`
+      what `server.ts` serves. `htm/preact` imports both of the others by bare
+      specifier, so all three are named: a map that resolved only what `app.ts`
       writes would leave the browser to fail on `preact` from inside `htm`, and a
       partial map is how a second copy of Preact gets loaded. Both distributions
       strip this — esbuild bundles the modules in, and `node_modules/` ships with
@@ -83,7 +83,7 @@
                and read. `aria-disabled` says a control will not act but never
                says why, and a `title` on a button that already has text is a
                description screen readers commonly skip — so the reason is a
-               described-by, and `app.js` writes both from one string. -->
+               described-by, and `app.ts` writes both from one string. -->
           <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel" aria-disabled="true" aria-describedby="preset-save-reason" title="No changes to save">+ Save</button>
           <span id="preset-save-reason" class="sr-only">No changes to save</span>
           <!-- The glyph is the current Accent, so the control that opens the
@@ -243,6 +243,6 @@
     </main>
 
     <noscript>This metronome requires JavaScript.</noscript>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.ts"></script>
   </body>
 </html>

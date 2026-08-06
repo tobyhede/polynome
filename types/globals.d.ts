@@ -12,7 +12,7 @@
 
 interface Window {
   /**
-   * Safari's prefixed constructor. `metronome.js` falls back to it when the
+   * Safari's prefixed constructor. `metronome.ts` falls back to it when the
    * unprefixed `AudioContext` is missing, which is still the case on older iOS.
    */
   webkitAudioContext?: typeof AudioContext;

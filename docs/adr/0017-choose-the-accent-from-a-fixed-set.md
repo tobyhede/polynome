@@ -4,13 +4,13 @@ The interface's highlight colour is a listener's to choose. It is chosen from
 twelve swatches declared in [`styles.css`](../../styles.css) as
 `--accent-signal` through `--accent-violet`, offered by a static row of controls
 in [`index.html`](../../index.html), and remembered under `polynome-accent-v1` —
-a third key [`app.js`](../../app.js) owns beside the Configuration's and the
+a third key [`app.ts`](../../app.ts) owns beside the Configuration's and the
 Presets'. Choosing one writes `--accent` onto the root element as a reference to
 that swatch's token, so every `var(--accent)` in the stylesheet follows from a
 single assignment.
 
 That assignment is made twice, and the first is in the shell's `<head>`.
-`app.js` is a module, so it runs after the document is parsed: an Accent applied
+`app.ts` is a module, so it runs after the document is parsed: an Accent applied
 only there paints the whole interface Signal blue first and repaints it a frame
 later, which is the one moment a chosen colour is visibly not in force. A small
 inline script makes the same assignment before first paint. It cannot check the
@@ -45,7 +45,7 @@ That is why there are no deep or dusty hues in the set; Cherry is the tightest
 at 5.1:1 on the card.
 
 A colour input would move that decision to a place nothing can check.
-`test/accessibility.test.js` reads the stylesheet and holds every `--accent-*`
+`test/accessibility.test.ts` reads the stylesheet and holds every `--accent-*`
 token to the ratio; with a free picker it would go on passing while the running
 interface was illegible, which is worse than not checking at all. That test is
 the reason the set is a set, and a thirteenth swatch is added by adding a token
@@ -67,7 +67,7 @@ its name. It draws no headings and no sections; it is the order the row is in,
 and it carries the one property of an Accent that is not colour.
 
 An Accent in the `neon` group turns the interface's existing glows up and lights
-two that are dark otherwise. `app.js` writes `--accent-glow` beside `--accent`
+two that are dark otherwise. `app.ts` writes `--accent-glow` beside `--accent`
 as `1` or `0`, and every glow in the stylesheet is a single declaration whose
 strength is a `calc()` multiplying by it — `calc(40% + var(--accent-glow) *
 28%)` and so on — rather than a second copy of the shadow under a selector. The
@@ -91,8 +91,8 @@ because the interface thought the music had moved.
 ## Consequences
 
 - Three storage keys rather than two, and the Accent's is named in two places:
-  once in `app.js` and once in the shell's head script, which cannot import it.
-  `e2e/polynome.spec.js` loads the page with `app.js` blocked and reads the
+  once in `app.ts` and once in the shell's head script, which cannot import it.
+  `e2e/polynome.spec.ts` loads the page with `app.ts` blocked and reads the
   colour off the header, so a key that drifted leaves the shell painting the
   default and the check fails.
 - A stored name naming no swatch is repaired to the default on read, as every
@@ -109,9 +109,9 @@ because the interface thought the music had moved.
   the armed delete stops being the only warm thing on screen and leans on its
   glyph and its position instead. The alternative was a cool-only set, which
   withholds a third of the hues to protect one button.
-- The swatch row is static markup and `app.js` reads the names, the groups and
+- The swatch row is static markup and `app.ts` reads the names, the groups and
   the stated contrast off it, so the shell is the one list of what is on offer.
-  `test/accessibility.test.js` holds the stylesheet to the same set in both
+  `test/accessibility.test.ts` holds the stylesheet to the same set in both
   directions: a swatch with no token would render unpainted and escape the
   contrast check, and a token with no swatch would be a colour nobody can pick.
   It also recomputes each swatch's stated ratio and the heading's count, which
