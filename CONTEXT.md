@@ -161,11 +161,14 @@ _Avoid_: Settings, state, options
 
 **Accent**:
 The single highlight colour the interface draws with, chosen from a fixed set of
-swatches and remembered per browser. It is not part of the Configuration: no
-Preset carries it, and changing it never marks a setup unsaved. The set is fixed
-because the Accent is read as text on the surfaces and as a background beneath a
-glyph coloured for the paper, so every swatch has to clear WCAG AA in both
-directions — see [ADR-0017](docs/adr/0017-choose-the-accent-from-a-fixed-set.md).
+twelve swatches and remembered per browser. It is not part of the Configuration:
+no Preset carries it, and changing it never marks a setup unsaved. The set is
+fixed because the Accent is read as text on the surfaces and as a background
+beneath a glyph coloured for the paper, so every swatch has to clear WCAG AA in
+both directions. Four of the twelve are neon, and an Accent's group is the one
+thing about it that is not colour: it turns the interface's glows up rather than
+being a setting of its own — see
+[ADR-0017](docs/adr/0017-choose-the-accent-from-a-fixed-set.md).
 _Avoid_: Theme, colour scheme, skin, palette
 
 **Preset**:

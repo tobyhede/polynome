@@ -51,7 +51,7 @@
                it. That is what earns this an icon rather than a word: a swatch
                says which colour without naming one, and `?` keeps the corner it
                already has. -->
-          <button id="accent-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="accent-panel" aria-label="Colour">
+          <button id="accent-toggle" class="icon-button accent-toggle" type="button" aria-expanded="false" aria-controls="accent-panel" aria-label="Colour">
             <span class="accent-glyph" aria-hidden="true"></span>
           </button>
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
@@ -109,27 +109,54 @@
            `test/accessibility.test.js` holds the stylesheet to the same set.
            Each swatch is a colour and nothing else, so the name lives in the
            accessible name and the title rather than on screen — and the
-           selected one carries a ring, because a fill cannot say which of six
-           fills is chosen. -->
+           selected one carries a ring, because a fill cannot say which of
+           twelve fills is chosen.
+
+           `data-accent-group` is ordering and the glow flag, and it draws
+           nothing: the panel shows one flat row, not three labelled ones. It is
+           held here rather than in `app.js` for the same reason the names are.
+
+           `data-contrast` is the ratio the swatch clears against `--card`, the
+           lightest surface it is read as text on. It is written here because it
+           is what the caption quotes, and `test/accessibility.test.js`
+           recomputes every one of them from the hex, so it is a checked copy
+           rather than a second source. -->
       <section id="accent-panel" class="top-panel" aria-labelledby="accent-heading" hidden>
         <div class="card-heading panel-heading">
-          <h2 id="accent-heading">Colour</h2>
+          <h2 id="accent-heading">Colour<span class="panel-divider" aria-hidden="true">/</span><span id="accent-count" class="heading-count">12</span><span class="sr-only"> colours</span></h2>
         </div>
         <!-- A fieldset rather than a `role="group"` div: it is the element the
              grouping already means, and the legend is the name the group is
              announced with. The legend is hidden because the heading above it
              is already on screen saying the same word, and a fieldset with no
-             name at all leaves six controls whose only names are colours,
+             name at all leaves twelve controls whose only names are colours,
              grouped by nothing a screen reader mentions. -->
         <fieldset id="accent-swatches" class="accent-swatches">
           <legend class="sr-only">Colour</legend>
-          <button type="button" class="accent-swatch is-selected" data-accent="blue" aria-pressed="true" aria-label="Blue" title="Blue"></button>
-          <button type="button" class="accent-swatch" data-accent="cyan" aria-pressed="false" aria-label="Cyan" title="Cyan"></button>
-          <button type="button" class="accent-swatch" data-accent="lime" aria-pressed="false" aria-label="Lime" title="Lime"></button>
-          <button type="button" class="accent-swatch" data-accent="amber" aria-pressed="false" aria-label="Amber" title="Amber"></button>
-          <button type="button" class="accent-swatch" data-accent="rose" aria-pressed="false" aria-label="Rose" title="Rose"></button>
-          <button type="button" class="accent-swatch" data-accent="violet" aria-pressed="false" aria-label="Violet" title="Violet"></button>
+          <button type="button" class="accent-swatch is-selected" data-accent="signal" data-accent-group="house" data-contrast="7.3" aria-pressed="true" aria-label="Signal" title="Signal"></button>
+          <button type="button" class="accent-swatch" data-accent="teal" data-accent-group="house" data-contrast="6.8" aria-pressed="false" aria-label="Teal" title="Teal"></button>
+          <button type="button" class="accent-swatch" data-accent="matcha" data-accent-group="house" data-contrast="8.3" aria-pressed="false" aria-label="Matcha" title="Matcha"></button>
+          <button type="button" class="accent-swatch" data-accent="amber" data-accent-group="house" data-contrast="7.3" aria-pressed="false" aria-label="Amber" title="Amber"></button>
+          <button type="button" class="accent-swatch" data-accent="blush" data-accent-group="house" data-contrast="7.6" aria-pressed="false" aria-label="Blush" title="Blush"></button>
+          <button type="button" class="accent-swatch" data-accent="lilac" data-accent-group="house" data-contrast="7.4" aria-pressed="false" aria-label="Lilac" title="Lilac"></button>
+          <button type="button" class="accent-swatch" data-accent="butter" data-accent-group="trend" data-contrast="12.4" aria-pressed="false" aria-label="Butter" title="Butter"></button>
+          <button type="button" class="accent-swatch" data-accent="cherry" data-accent-group="trend" data-contrast="5.1" aria-pressed="false" aria-label="Cherry" title="Cherry"></button>
+          <button type="button" class="accent-swatch" data-accent="laser" data-accent-group="neon" data-contrast="12.1" aria-pressed="false" aria-label="Laser" title="Laser"></button>
+          <button type="button" class="accent-swatch" data-accent="magenta" data-accent-group="neon" data-contrast="5.9" aria-pressed="false" aria-label="Magenta" title="Magenta"></button>
+          <button type="button" class="accent-swatch" data-accent="acid" data-accent-group="neon" data-contrast="15.4" aria-pressed="false" aria-label="Acid" title="Acid"></button>
+          <button type="button" class="accent-swatch" data-accent="violet" data-accent-group="neon" data-contrast="6.3" aria-pressed="false" aria-label="Violet" title="Violet"></button>
         </fieldset>
+        <!-- The caption reports the swatch that is already pressed, so it is
+             not announced: a screen reader has just read the name and the
+             pressed state off the button that was activated, and a live region
+             here would say the same name again and then two numbers nobody
+             asked for. It is written by `app.js` rather than sitting in the
+             markup because only one of the twelve is true at a time. -->
+        <p class="accent-caption">
+          <span id="accent-caption-name" class="accent-caption-name"></span>
+          <span id="accent-caption-hex" class="accent-caption-hex"></span>
+          <span id="accent-caption-contrast" class="accent-caption-contrast"></span>
+        </p>
       </section>
 
       <section class="transport" aria-label="Transport and tempo">

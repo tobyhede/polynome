@@ -93,6 +93,11 @@ const elements = {
   accentToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#accent-toggle")),
   accentPanel: /** @type {HTMLElement} */ (document.querySelector("#accent-panel")),
   accentSwatches: /** @type {HTMLElement} */ (document.querySelector("#accent-swatches")),
+  accentCaptionName: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-name")),
+  accentCaptionHex: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-hex")),
+  accentCaptionContrast: /** @type {HTMLElement} */ (
+    document.querySelector("#accent-caption-contrast")
+  ),
   cycles: /** @type {HTMLElement} */ (document.querySelector("#cycles")),
   addCycle: /** @type {HTMLButtonElement} */ (document.querySelector("#add-cycle")),
   status: /** @type {HTMLParagraphElement} */ (document.querySelector("#status")),
@@ -223,17 +228,39 @@ function storedSavedPresets() {
 }
 
 /**
- * The Accents on offer, read off the panel that offers them. The swatches are
- * static markup, so the shell is already the one list of what a user can
- * choose, and a second copy here would be a second place to add a colour and
- * only one of them would be noticed missing. `test/accessibility.test.js` holds
- * the stylesheet to this same set.
+ * The controls that offer the Accents, which is everything this module knows
+ * about the set: the name, the group that decides the glow, and the contrast
+ * the caption quotes are all read back off them. The swatches are static
+ * markup, so the shell is already the one list of what a user can choose, and a
+ * second copy here would be a second place to add a colour with only one of
+ * them noticed missing. `test/accessibility.test.js` holds the stylesheet to
+ * this same set.
  */
-function accentNames() {
-  return Array.from(
-    elements.accentSwatches.querySelectorAll("[data-accent]"),
-    (swatch) => /** @type {HTMLElement} */ (swatch).dataset.accent,
+function accentSwatches() {
+  return /** @type {HTMLElement[]} */ (
+    Array.from(elements.accentSwatches.querySelectorAll("[data-accent]"))
   );
+}
+
+function accentNames() {
+  return accentSwatches().map((swatch) => swatch.dataset.accent);
+}
+
+/**
+ * The `rgb(...)` a swatch computes to, spelled as the hex the stylesheet wrote
+ * it as. The caption quotes a colour the stylesheet owns, and reading it back
+ * off the painted circle is what keeps `index.html` from carrying a second copy
+ * of twelve hex values for the one line of text that shows them — the copy that
+ * would go on reading `#7EA3F0` after the token behind it had been corrected.
+ */
+function paintedHex(element) {
+  const channels = getComputedStyle(element).backgroundColor.match(/\d+/g) ?? [];
+  if (channels.length < 3) return "";
+  const hex = channels
+    .slice(0, 3)
+    .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+    .join("");
+  return `#${hex}`.toUpperCase();
 }
 
 /**
@@ -262,7 +289,16 @@ function loadAccent() {
  */
 function applyAccent(name) {
   accent = name;
-  document.documentElement.style.setProperty("--accent", `var(--accent-${name})`);
+  const chosen = accentSwatches().find((swatch) => swatch.dataset.accent === name);
+  const root = document.documentElement;
+  root.style.setProperty("--accent", `var(--accent-${name})`);
+  // The glow rides on the colour rather than on a setting of its own: the neon
+  // Accents turn the existing glows up and light two that are dark otherwise.
+  // It is written as the number those rules multiply by, so each of them stays
+  // one declaration whose strength happens to be a `calc()`. Which group a
+  // swatch is in is markup, like its name, so there is nothing to keep in step
+  // here.
+  root.style.setProperty("--accent-glow", chosen?.dataset.accentGroup === "neon" ? "1" : "0");
 }
 
 function writeAccent(name) {
@@ -353,11 +389,20 @@ function renderPanels() {
   // The pressed swatch is written on every render rather than moved from the
   // one that was clicked, so the panel reports the Accent in force whatever put
   // it there — including a repaired storage value nobody selected.
-  for (const swatch of elements.accentSwatches.querySelectorAll("[data-accent]")) {
-    const selected = /** @type {HTMLElement} */ (swatch).dataset.accent === accent;
+  let chosen = null;
+  for (const swatch of accentSwatches()) {
+    const selected = swatch.dataset.accent === accent;
     swatch.setAttribute("aria-pressed", String(selected));
     swatch.classList.toggle("is-selected", selected);
+    if (selected) chosen = swatch;
   }
+  // The three things a circle cannot say about itself: which one it is, the hex
+  // to quote it by, and the ratio it clears on the surface it is read as text
+  // on. The name comes from the swatch's own title rather than a table here,
+  // for the same reason the set does.
+  elements.accentCaptionName.textContent = chosen?.title ?? "";
+  elements.accentCaptionHex.textContent = chosen ? paintedHex(chosen) : "";
+  elements.accentCaptionContrast.textContent = chosen ? `AA · ${chosen.dataset.contrast}:1` : "";
   // Nothing to save is not a reason to hide the way in, so this marks the chip
   // unavailable rather than removing it: it stays where the user learned it is,
   // and says why it will not act.

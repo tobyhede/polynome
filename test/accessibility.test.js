@@ -302,6 +302,63 @@ test("the Accent swatches and the Accent tokens name the same colours", async ()
 });
 
 /**
+ * The panel's heading counts the swatches, the way the Preset panel's counts
+ * Presets. That one is written by `app.js` because it changes; this one is
+ * markup because the set does not, which makes it the one number here that can
+ * be wrong without anything noticing — a thirteenth colour is added by adding a
+ * token and a control, and neither of those passes through the heading.
+ */
+test("the Accent panel's heading counts the swatches it offers", async () => {
+  const html = await readFile("index.html", "utf8");
+  const offered = Array.from(html.matchAll(/data-accent="([\w-]+)"/g), (match) => match[1]);
+  const counted = html.match(/id="accent-count"[^>]*>(\d+)</);
+
+  assert.ok(counted, "Expected the Accent heading to state a count");
+  assert.equal(Number(counted[1]), offered.length);
+});
+
+/**
+ * Each swatch states the ratio it clears against `--card`, because the caption
+ * quotes it and a caption that reads its number off a live calculation would be
+ * reporting the arithmetic rather than the palette. Recomputing it here is what
+ * makes that a checked copy: the marker is informational and never warns, so
+ * nothing else in the interface would ever look wrong if it drifted, and the
+ * one reader it is for — whoever adds the thirteenth colour — is exactly the
+ * person a stale number would mislead.
+ *
+ * `--card` and not `--soft`, which the AA floor above is measured against: the
+ * card is the surface the Accent is actually set as text on, and quoting the
+ * worst case of three would print a number nobody can reproduce by looking.
+ */
+test("each Accent swatch states the contrast it clears on the card", async () => {
+  const [html, css] = await Promise.all([
+    readFile("index.html", "utf8"),
+    readFile("styles.css", "utf8"),
+  ]);
+  const tokens = colorTokens(css);
+  const card = tokens.get("--card");
+  assert.ok(card, "Expected a hex value for --card");
+
+  const stated = Array.from(
+    html.matchAll(/data-accent="([\w-]+)"[^>]*data-contrast="([\d.]+)"/g),
+    (match) => ({ name: match[1], claimed: match[2] }),
+  );
+  const offered = Array.from(html.matchAll(/data-accent="([\w-]+)"/g), (match) => match[1]);
+
+  assert.equal(stated.length, offered.length, "Expected every swatch to state a contrast");
+
+  const failures = [];
+  for (const { name, claimed } of stated) {
+    const value = tokens.get(`--accent-${name}`);
+    assert.ok(value, `Expected a hex value for --accent-${name}`);
+    const actual = (Math.round(contrastRatio(value, card) * 10) / 10).toFixed(1);
+    if (claimed !== actual) failures.push(`${name} claims ${claimed}:1 and is ${actual}:1`);
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+/**
  * The palette separates surfaces, text and lines, and the line tokens are dark
  * enough that borders read as hairlines. Tinting text with one looks
  * deliberate and still fails WCAG 1.4.3, so check the ratio rather than the

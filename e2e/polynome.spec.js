@@ -988,7 +988,7 @@ test("storage from the wider meter domain is retired instead of repaired", async
  * The Accent is asserted through what it paints rather than through the custom
  * property that carries it. The toggle's glyph and the swatch draw from
  * opposite ends of the mechanism — the glyph from `--accent`, the swatch from
- * the `--accent-rose` the choice resolves to — so the two agreeing is the whole
+ * the `--accent-blush` the choice resolves to — so the two agreeing is the whole
  * chain reporting, and neither side is the test restating the implementation
  * back to itself.
  */
@@ -1001,27 +1001,74 @@ function accentPanel(page) {
 
 test("an Accent is chosen from the panel and survives a reload", async ({ page }) => {
   const glyph = page.locator("#accent-toggle .accent-glyph");
-  const blue = page.getByRole("button", { name: "Blue", exact: true });
-  const rose = page.getByRole("button", { name: "Rose", exact: true });
+  const signal = page.getByRole("button", { name: "Signal", exact: true });
+  const blush = page.getByRole("button", { name: "Blush", exact: true });
 
   await accentPanel(page).click();
-  await expect(blue).toHaveAttribute("aria-pressed", "true");
-  await expect(rose).toHaveAttribute("aria-pressed", "false");
+  await expect(signal).toHaveAttribute("aria-pressed", "true");
+  await expect(blush).toHaveAttribute("aria-pressed", "false");
 
-  await rose.click();
-  await expect(rose).toHaveAttribute("aria-pressed", "true");
-  await expect(blue).toHaveAttribute("aria-pressed", "false");
+  await blush.click();
+  await expect(blush).toHaveAttribute("aria-pressed", "true");
+  await expect(signal).toHaveAttribute("aria-pressed", "false");
 
-  const chosen = await paintedColour(rose);
+  const chosen = await paintedColour(blush);
   expect(await paintedColour(glyph)).toBe(chosen);
-  expect(chosen).not.toBe(await paintedColour(blue));
+  expect(chosen).not.toBe(await paintedColour(signal));
 
   await page.reload();
 
   expect(await paintedColour(glyph)).toBe(chosen);
   await accentPanel(page).click();
-  await expect(rose).toHaveAttribute("aria-pressed", "true");
-  await expect(blue).toHaveAttribute("aria-pressed", "false");
+  await expect(blush).toHaveAttribute("aria-pressed", "true");
+  await expect(signal).toHaveAttribute("aria-pressed", "false");
+});
+
+/**
+ * The caption is the panel's only text about the colour, and every part of it
+ * is derived: the name off the swatch's title, the hex read back out of what
+ * the stylesheet painted, the ratio off the swatch's own attribute. Asserting
+ * the hex against the swatch's computed fill is what makes this a check rather
+ * than a restatement — the two agreeing means the line is quoting the colour on
+ * screen and not a string that was typed beside it.
+ */
+test("the Accent caption names the chosen colour", async ({ page }) => {
+  const butter = page.getByRole("button", { name: "Butter", exact: true });
+
+  await accentPanel(page).click();
+  await expect(page.locator("#accent-caption-name")).toHaveText("Signal");
+  await expect(page.locator("#accent-caption-hex")).toHaveText("#7EA3F0");
+  await expect(page.locator("#accent-caption-contrast")).toHaveText("AA · 7.3:1");
+
+  await butter.click();
+  await expect(page.locator("#accent-caption-name")).toHaveText("Butter");
+  await expect(page.locator("#accent-caption-contrast")).toHaveText("AA · 12.4:1");
+  expect(await paintedColour(butter)).toBe("rgb(240, 210, 100)");
+});
+
+/**
+ * The glow is not a second setting: it rides on the colour, so the only thing
+ * that can turn it on is choosing a neon Accent. It is asserted on the root
+ * property rather than on a shadow, because the property is the whole
+ * mechanism — every glow in the interface is one declaration multiplying by it,
+ * and a rule that had stopped reading it would be a rule, not the feature.
+ */
+test("a neon Accent turns the interface's glows up and a house one puts them back", async ({
+  page,
+}) => {
+  const glow = () =>
+    page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--accent-glow"),
+    );
+
+  await accentPanel(page).click();
+  expect((await glow()).trim()).toBe("0");
+
+  await page.getByRole("button", { name: "Laser", exact: true }).click();
+  expect((await glow()).trim()).toBe("1");
+
+  await page.getByRole("button", { name: "Teal", exact: true }).click();
+  expect((await glow()).trim()).toBe("0");
 });
 
 /**
@@ -1047,7 +1094,7 @@ test("choosing an Accent leaves the Configuration untouched", async ({ page }) =
   const before = await stored();
 
   await accentPanel(page).click();
-  await page.getByRole("button", { name: "Lime", exact: true }).click();
+  await page.getByRole("button", { name: "Matcha", exact: true }).click();
 
   await saveNotOffered(page);
   expect(await stored()).toBe(before);
@@ -1065,10 +1112,10 @@ test("an Accent naming no swatch is repaired to the default", async ({ page }) =
   await page.reload();
 
   await accentPanel(page).click();
-  const blue = page.getByRole("button", { name: "Blue", exact: true });
-  await expect(blue).toHaveAttribute("aria-pressed", "true");
+  const signal = page.getByRole("button", { name: "Signal", exact: true });
+  await expect(signal).toHaveAttribute("aria-pressed", "true");
   expect(await paintedColour(page.locator("#accent-toggle .accent-glyph"))).toBe(
-    await paintedColour(blue),
+    await paintedColour(signal),
   );
 });
 
