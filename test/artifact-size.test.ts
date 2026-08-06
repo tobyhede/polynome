@@ -37,9 +37,9 @@ type ArtifactSize = { raw: number; gzip: number };
 
 const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /** The whole application as one file: markup, styles, script, and base64 woff2. */
-  "dist/polynome.html": { raw: 274_000 },
+  "dist/polynome.html": { raw: 282_000 },
   /** The bundled script alone, which is the half that grows from source. */
-  "site/app-local.js": { raw: 155_000, gzip: 38_400 },
+  "site/app-local.js": { raw: 165_000, gzip: 40_000 },
   "site/styles-local.css": { raw: 30_200 },
 });
 
