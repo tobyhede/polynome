@@ -142,6 +142,7 @@ export class SharedTransport {
               absoluteStep:
                 (sequenceIndex * cycle.repetitions + repetition) * stepsPerSpan + localStep,
               patternPosition,
+              musicalBeat,
               voice,
               audioTime,
             });
@@ -211,7 +212,7 @@ export class SharedTransport {
     return absoluteStep % rhythm.steps.length;
   }
 
-  currentBpm(currentTime) {
+  currentBpm(currentTime, musicalBeat = null) {
     if (!this.#timing) return null;
     if (currentTime < this.#origin) return this.#timing.cycles[0].curve.startBpm;
     const elapsed = (currentTime - this.#origin) % this.#timing.sequenceDuration;
@@ -219,7 +220,9 @@ export class SharedTransport {
       (candidate) => elapsed < candidate.offset + candidate.duration,
     );
     if (!cycle) return this.#timing.bpm;
-    const beat = beatAtSeconds(cycle.curve, elapsed - cycle.offset);
+    // A planned event already carries the cycle-relative beat its audio time
+    // came from. Interface reads omit it and derive the beat from wall time.
+    const beat = musicalBeat ?? beatAtSeconds(cycle.curve, elapsed - cycle.offset);
     return tempoAtBeat(cycle.curve, beat);
   }
 }

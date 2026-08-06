@@ -110,10 +110,9 @@ function duplicateSteps(events) {
 
 /**
  * Four workloads: the default and the domain maximum, each on the cheap
- * envelope shape and the expensive one. Peak is the expensive one because
- * `secondsAtBeat` and `beatAtSeconds` rebuild two sub-curves per call on it,
- * and it emits a different number of events from Flat over the same wall
- * interval because the tempo is genuinely moving.
+ * envelope shape and the formerly allocation-heavy one. Peak emits a different
+ * number of events from Flat over the same wall interval because the tempo is
+ * genuinely moving; memoising its sub-curves must not move those counts.
  *
  * `events` is the exact count `plan()` returns over `TICKS` ticks. It is
  * recorded, not derived: a closed form would restate the arithmetic under test

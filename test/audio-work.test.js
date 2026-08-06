@@ -29,20 +29,17 @@ import { MetronomeEngine } from "../metronome.js";
  * is an equality against the clicks actually sounded, and it fails if anything
  * starts allocating per tick instead of per event.
  *
- * The second is that `#schedule()` calls `#syncNodes()` on every tick, which
- * re-asserts the master gain and every layer's gain and pan forty times a
- * second whether or not the mix moved. At the default Configuration that is 120
- * `setTargetAtTime` calls per second against the six a click needs — 95% of all
- * automation traffic restating values already in force. That is not a
- * regression, it is the state of the code, and it is ratcheted here so that
- * fixing it shows up as a number falling rather than as nothing at all.
+ * The second is that steady-state scheduler ticks issue no mix automation.
+ * `start()` and `updateMix()` synchronize the graph at the moment its state
+ * changes, so repeating the master gain and every layer's gain and pan forty
+ * times a second would only restate values already in force.
  *
  * See `docs/research/performance-optimisation-and-regression-testing.md`.
  */
 
 const SCHEDULER_INTERVAL_SECONDS = 0.025;
 const TICKS_PER_SECOND = 1 / SCHEDULER_INTERVAL_SECONDS;
-/** Long enough that the per-tick traffic dominates the one-off setup, short enough to stay quick. */
+/** Long enough to make the click rate representative, short enough to stay quick. */
 const SECONDS = 20;
 const TICKS = SECONDS * TICKS_PER_SECOND;
 
@@ -310,7 +307,6 @@ const WORKLOADS = {
         envelope: { shape: ENVELOPE.FLAT, amount: 0 },
       }),
     clicksPerSecond: 2,
-    layers: 1,
   },
   maximum: {
     name: "twelve 8/4 layers at subdivision four, 300 BPM",
@@ -324,7 +320,6 @@ const WORKLOADS = {
         envelope: { shape: ENVELOPE.FLAT, amount: 0 },
       }),
     clicksPerSecond: 240,
-    layers: 12,
   },
 };
 
@@ -367,22 +362,19 @@ for (const workload of Object.values(WORKLOADS)) {
 }
 
 /**
- * The ratchet that names the waste.
+ * The ratchet that proves the waste stays removed.
  *
- * `#syncNodes()` runs inside `#schedule()`, so a run issues `40 × (1 + 2L)`
- * `setTargetAtTime` calls per second regardless of whether anything about the
- * mix changed — one for the master gain and two per layer. Every one of them is
- * a control message to the rendering thread restating a value already in force.
+ * Setup is excluded before the run is counted, so `setTargetAtTime` has no
+ * steady-state caller: graph changes synchronize at their edit path and clicks
+ * use value and exponential-ramp automation instead.
  *
  * These are ceilings set where the code stands, in the spirit of the coverage
  * ratchet: raise deliberately if the real figure rises, never lower one to make
- * a change fit. Removing the per-tick sync — the highest-value optimisation the
- * research identified — drops the `setTargetAtTime` figure to near zero, and
- * lowering these numbers is then the deliberate act that records it.
+ * a change fit.
  */
 const AUTOMATION_BUDGETS = {
-  default: { total: 128, setTargetAtTime: 120 },
-  maximum: { total: 1725, setTargetAtTime: 1000 },
+  default: { total: 8, setTargetAtTime: 0 },
+  maximum: { total: 725, setTargetAtTime: 0 },
 };
 
 for (const [key, workload] of Object.entries(WORKLOADS)) {
@@ -402,14 +394,10 @@ for (const [key, workload] of Object.entries(WORKLOADS)) {
       `${reassertions} setTargetAtTime calls per second, over the ${budget.setTargetAtTime} budget`,
     );
 
-    // Stated as an expectation rather than left implicit: the per-tick sync
-    // issues one call for the master gain and two per layer, forty times a
-    // second. If this stops holding, the sync changed and the budget above is
-    // measuring something else.
     assert.equal(
       reassertions,
-      TICKS_PER_SECOND * (1 + 2 * workload.layers),
-      "the per-tick graph sync is no longer re-asserting exactly the master gain and every layer's gain and pan",
+      0,
+      "a steady-state scheduler tick re-asserted mix values already in force",
     );
 
     console.log(
