@@ -99,7 +99,7 @@ npm run check
 
 `npm test` is the fast loop. `npm run check` is what CI runs, and adds, in order: `npm run lint` (Biome), `npm run types` (TypeScript), the coverage thresholds, the browser tests, and the site build. `npm run format` writes the fixes Biome can apply itself.
 
-The browser tests take port 4174 and do not attach to a server already on it, so two checkouts running them at once will find the second one refused. `POLYNOME_TEST_PORT=4591 npm run check` moves one of them out of the way. Read the exit code rather than the last lines of output, and do not pipe: the browser reporter is long enough to invite `| tail`, and the status of `a | b` is `b`'s, so a red suite reads as a green one. Redirect to a file and echo `$?`, or set `pipefail` first.
+The browser tests choose and print a random ephemeral-range port for each run, and do not attach to a server already on it, so concurrent checkouts ordinarily need no coordination. Set `POLYNOME_TEST_PORT=4591` only when a reproducible fixed port is useful. Read the exit code rather than the last lines of output, and do not pipe: the browser reporter is long enough to invite `| tail`, and the status of `a | b` is `b`'s, so a red suite reads as a green one. Redirect to a file and echo `$?`, or set `pipefail` first.
 
 Three ratchets guard against drift, and all are set where the code already stands rather than where it might ideally be. Raise one when the real figure rises; do not lower one to make a change fit.
 

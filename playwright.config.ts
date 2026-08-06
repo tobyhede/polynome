@@ -1,14 +1,22 @@
+import { randomInt } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
-// Deliberately not the 4173 `npm start` uses or the 4175 `npm run shots` takes,
-// so a run collides with neither. The override is for the case those three
-// numbers cannot help with: a second checkout of this repo running its own
-// browser suite at the same time, which wants the same 4174 and, because reuse
-// is disabled below, fails outright rather than attaching to the first one's
-// server. `POLYNOME_TEST_PORT` rather than `PORT` because `PORT` is what gets
-// handed to the server process, and a value already exported for some other
-// reason would move this suite without anyone asking it to.
-const port = Number(process.env.POLYNOME_TEST_PORT || 4174);
+// Each run chooses its own port so concurrent checkouts neither collide nor
+// need a distinct shell command (and therefore a distinct agent permission).
+// The explicit override remains for reproducing a run on a known port.
+// `POLYNOME_TEST_PORT` rather than `PORT` because `PORT` is handed to the server
+// process, and a value exported for some other reason must not move this suite.
+const requestedPort = process.env.POLYNOME_TEST_PORT;
+const port = requestedPort === undefined ? randomInt(49_152, 65_536) : Number(requestedPort);
+if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+  throw new TypeError(
+    `POLYNOME_TEST_PORT must be an integer from 1 to 65535; got ${requestedPort}`,
+  );
+}
+// Playwright loads this config again in worker processes. Preserve the first
+// choice so every process in one run addresses the server the runner started.
+process.env.POLYNOME_TEST_PORT = String(port);
+console.log(`POLYNOME_TEST_PORT=${port}`);
 
 export default defineConfig({
   testDir: "./e2e",

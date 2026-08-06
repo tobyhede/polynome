@@ -10,9 +10,8 @@ shots/
 .serena/project.local.yml
 .serena/cache/
 
-# Agent worktrees of this repository. Each is a full checkout carrying its own
-# copy of `biome.jsonc`, and Biome refuses a root configuration nested inside
-# another, so `npm run lint` fails outright for as long as one exists. Biome
-# reads this file, which is why the entry belongs here rather than in its
-# `files.includes`: one exclusion then covers every tool that walks the tree.
+# Agent worktrees of this repository. Each is a full checkout and must not be
+# staged from its parent checkout. Biome force-ignores these separately because
+# its scanner gives nested configuration files priority over VCS ignores.
+.worktrees/
 .claude/worktrees/

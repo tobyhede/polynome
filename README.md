@@ -89,6 +89,8 @@ npm run check
 
 `npm run check` runs both suites and generates the bundle and site output.
 Either suite can be run on its own with `npm test` or `npm run test:browser`.
+The browser suite chooses and prints a random test-server port for each run;
+set `POLYNOME_TEST_PORT` only when you need to reproduce one on a fixed port.
 
 `npm test` covers the pure timing and state model. The Chromium suite covers
 browser focus, accessibility state, persistence, playback controls, Step-voice
