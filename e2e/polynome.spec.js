@@ -1101,11 +1101,36 @@ test("choosing an Accent leaves the Configuration untouched", async ({ page }) =
 });
 
 /**
- * Storage is written by a previous version, another tab, or a person with a
- * console open, so a name no swatch offers has to be repaired rather than
- * refused — the interface opens on a colour either way, and the alternative is
- * `--accent` set to a token that does not exist, which resolves to nothing and
- * takes the highlight out of the interface entirely.
+ * `app.js` is a module, so it runs after the document is parsed and an Accent
+ * applied only there paints the stylesheet's default first and the chosen
+ * colour a frame later. Blocking the module is what separates the two: what is
+ * left is the static shell and whatever ran inside it, so a header glyph
+ * already wearing Acid is the head script having done it and nothing else.
+ *
+ * The glyph is compared against the swatch rather than a colour written here,
+ * which is the same pairing the tests above make — the glyph resolves through
+ * `--accent` and the swatch through `--accent-acid`, so the two agreeing is the
+ * head script having named the right token, not this test naming a hex twice.
+ */
+test("the Accent is in force before `app.js` has run", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("polynome-accent-v1", "acid"));
+  await page.route("**/app.js", (route) => route.abort());
+  await page.reload();
+
+  const glyph = await paintedColour(page.locator("#accent-toggle .accent-glyph"));
+  expect(glyph).toBe(await paintedColour(page.locator('[data-accent="acid"]')));
+  expect(glyph).not.toBe(await paintedColour(page.locator('[data-accent="signal"]')));
+});
+
+/**
+ * A name no swatch offers is repaired twice by two different mechanisms, and
+ * this is the second of them. The shell's head script cannot see the set, so it
+ * leaves an unrecognised token to fall through `var()` to Signal; `loadAccent`
+ * then checks the name against the swatches properly and arrives at the same
+ * place. Storage is written by a previous version, another tab, or a person
+ * with a console open, and the interface has to open on a colour either way —
+ * the alternative is `--accent` set to a token that does not exist, which
+ * resolves to nothing and takes the highlight out of the interface entirely.
  */
 test("an Accent naming no swatch is repaired to the default", async ({ page }) => {
   await page.evaluate(() => localStorage.setItem("polynome-accent-v1", "chartreuse"));

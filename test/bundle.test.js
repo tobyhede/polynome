@@ -88,13 +88,25 @@ function browserContext({ denyStorage = false, onBpmRendered = () => {} } = {}) 
 }
 
 /**
+ * The application, as the artifact carries it. The shell has an inline classic
+ * script of its own — the one that puts the Accent on the root element before
+ * first paint — and it comes first, in the head. So the bundle is the last of
+ * them rather than the only one, and saying that here is what keeps these tests
+ * exercising the application instead of the few lines above it.
+ */
+function bundledScript(html) {
+  const scripts = Array.from(html.matchAll(/<script>\s*([\s\S]*?)\s*<\/script>/g), (m) => m[1]);
+  return scripts.at(-1) ?? "";
+}
+
+/**
  * Running the real build writes real output into the gitignored `dist/`, which
  * is deliberate: only the shipped artifact shows what a browser would load.
  */
 test("single-file distribution embeds browser-valid JavaScript, CSS, and fonts", async () => {
   await buildDistribution({ target: "single-file", projectRoot });
   const html = await readFile(artifact, "utf8");
-  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const script = bundledScript(html);
 
   assert.ok(script, "Expected an inline classic script");
   assert.match(html, /<style>/);
@@ -136,7 +148,7 @@ test("single-file distribution carries no import map and no fetchable installed-
 test("single-file distribution starts with defaults when storage access is denied", async () => {
   await buildDistribution({ target: "single-file", projectRoot });
   const html = await readFile(artifact, "utf8");
-  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const script = bundledScript(html);
   const renderedBpms = [];
   const context = browserContext({
     denyStorage: true,
@@ -179,7 +191,7 @@ test("single-file distribution discovers transitive modules and preserves their 
 
   await buildDistribution({ target: "single-file", projectRoot: fixture });
   const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
-  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const script = bundledScript(html);
   const context = vm.createContext({});
   new vm.Script(script).runInContext(context);
 
@@ -200,7 +212,7 @@ test("single-file distribution preserves String.replace tokens in bundled source
 
   await buildDistribution({ target: "single-file", projectRoot: fixture });
   const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
-  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1] ?? "";
+  const script = bundledScript(html);
   const context = vm.createContext({});
   new vm.Script(script).runInContext(context);
 

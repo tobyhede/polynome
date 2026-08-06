@@ -9,6 +9,22 @@ Presets'. Choosing one writes `--accent` onto the root element as a reference to
 that swatch's token, so every `var(--accent)` in the stylesheet follows from a
 single assignment.
 
+That assignment is made twice, and the first is in the shell's `<head>`.
+`app.js` is a module, so it runs after the document is parsed: an Accent applied
+only there paints the whole interface Signal blue first and repaints it a frame
+later, which is the one moment a chosen colour is visibly not in force. A small
+inline script makes the same assignment before first paint. It cannot check the
+name — the swatches are not parsed yet — so it bounds the shape and hands the
+repair to CSS, writing `var(--accent-NAME, var(--accent-signal))` so that an
+unrecognised token falls through to the default rather than resolving to nothing
+and taking the highlight out of the interface entirely. `loadAccent` then checks
+the name against the swatches properly and arrives at the same place by its own
+route.
+
+`--accent-glow` is not set in the head. A swatch's group is markup that has not
+been parsed at that point, and the module settles it on the same tick it
+confirms the name; a glow arriving a frame late is not the flash this prevents.
+
 Only `--accent` moves. Surfaces, ink and lines are untouched, the interface
 stays dark, and `<meta name="theme-color">` keeps the paper colour. This is not
 a theme system and the vocabulary in [`CONTEXT.md`](../../CONTEXT.md) rules the
@@ -74,9 +90,17 @@ because the interface thought the music had moved.
 
 ## Consequences
 
-- Three storage keys rather than two. A stored name naming no swatch is repaired
-  to the default on read, as every other stored value here is; nothing is
-  written back, so the repair simply happens again on the next load.
+- Three storage keys rather than two, and the Accent's is named in two places:
+  once in `app.js` and once in the shell's head script, which cannot import it.
+  `e2e/polynome.spec.js` loads the page with `app.js` blocked and reads the
+  colour off the header, so a key that drifted leaves the shell painting the
+  default and the check fails.
+- A stored name naming no swatch is repaired to the default on read, as every
+  other stored value here is; nothing is written back, so the repair simply
+  happens again on the next load. It is now repaired twice by two mechanisms —
+  the head script's `var()` fallback and `loadAccent`'s membership check — which
+  is one more than strictly needed, and the cost of applying a colour before the
+  list of colours exists.
 - The Accent does not follow a Preset, a shared setup, or a second tab. Two open
   tabs disagree until one reloads, which is cosmetic and self-correcting —
   unlike the Preset origin, which is a live claim about storage and has a

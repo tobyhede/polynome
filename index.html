@@ -28,6 +28,46 @@
         }
       }
     </script>
+    <!--
+      The Accent is applied here rather than left to `app.js`, which is a module
+      and so runs after the document is parsed. The stylesheet's default would
+      paint the whole interface Signal blue and the module would repaint it a
+      frame later — the one moment a chosen colour is visibly not in force, and
+      the more so the further from blue the choice was.
+
+      This runs before the swatches are parsed, so it cannot hold the name
+      against the set the way `loadAccent` does. It bounds the shape instead and
+      leaves the repair to CSS: an unrecognised token falls through `var()` to
+      Signal, which is the default `loadAccent` arrives at a moment later by its
+      own route. The fallback is the whole safety of doing this early — without
+      it an unknown name resolves to nothing and takes the highlight out of the
+      interface entirely.
+
+      `--accent-glow` is deliberately not set here. Which group a swatch is in is
+      markup that has not been parsed yet, and the module settles it on the same
+      tick it confirms the name. A glow that arrives a frame late is not the
+      flash this is here to prevent.
+
+      The key is repeated from `app.js` because a module cannot be imported from
+      here. `e2e/polynome.spec.js` loads the page with `app.js` blocked and reads
+      the colour off the header, which is a check the two agree: a key that
+      drifted would leave the shell painting the default.
+    -->
+    <script>
+      {
+        try {
+          const stored = localStorage.getItem("polynome-accent-v1");
+          if (/^[a-z]+$/.test(stored ?? "")) {
+            document.documentElement.style.setProperty(
+              "--accent",
+              `var(--accent-${stored}, var(--accent-signal))`,
+            );
+          }
+        } catch {
+          // Resolving the browser's storage property can itself be forbidden.
+        }
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell">
