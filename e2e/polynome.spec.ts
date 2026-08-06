@@ -196,9 +196,9 @@ test("failed automatic audio replacement leaves the interface stopped", async ({
     const NativeAudioContext = window.AudioContext;
     let initialContextCreated = false;
     let clockFrozen = false;
-    window.freezeAudioClock = () => {
+    window.addEventListener("freeze-audio-clock", () => {
       clockFrozen = true;
-    };
+    });
     window.AudioContext = class FailingReplacementAudioContext extends NativeAudioContext {
       constructor(options) {
         if (initialContextCreated) throw new Error("Replacement AudioContext failed.");
@@ -215,7 +215,7 @@ test("failed automatic audio replacement leaves the interface stopped", async ({
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
-  await page.evaluate(() => window.freezeAudioClock());
+  await page.evaluate(() => window.dispatchEvent(new Event("freeze-audio-clock")));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 
   await expect(page.locator("#status")).toHaveText("Replacement AudioContext failed.");

@@ -205,11 +205,12 @@ class FakeOscillatorNode extends EventTarget {
     this.context.clicks.push(this.click);
   }
 
-  stop(when: number = this.context.currentTime) {
-    if (arguments.length === 0) this.stopped = true;
+  stop(when?: number) {
+    if (when === undefined) this.stopped = true;
+    const stopTime = when ?? this.context.currentTime;
     if (!this.click || this.click.stopAt !== null) return;
-    this.click.stopAt = when;
-    this.click.effectiveStop = Math.max(when, this.context.currentTime);
+    this.click.stopAt = stopTime;
+    this.click.effectiveStop = Math.max(stopTime, this.context.currentTime);
   }
 }
 

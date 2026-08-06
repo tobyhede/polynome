@@ -185,7 +185,7 @@ There is no single guaranteed web workaround. The useful mitigations are:
 
 ## Polynome implications
 
-Polynome implements the recoverable measures in `metronome.js`: it observes
+Polynome implements the recoverable measures in `metronome.ts`: it observes
 context state and render errors, treats foreground lifecycle signals as health
 checks, detects a positively stalled audio clock, and places application-owned
 deadlines around recovery promises. A visible suspended context receives one

@@ -1,6 +1,6 @@
 # Replace failed audio contexts after bounded recovery
 
-Polynome will keep the Web Audio lifecycle wholly inside `metronome.js`, but a context is no longer presumed reusable for the life of the page. This decision supersedes [ADR-0005](0005-own-the-audio-context-lifecycle.md): ordinary interruptions retain their transport run and receive bounded recovery, while a render error, a positively stalled audio clock, failed bounded recovery, or an explicit user request replaces the context and begins a new Transport run because timestamps from two audio clocks cannot share a Transport origin.
+Polynome will keep the Web Audio lifecycle wholly inside `metronome.ts`, but a context is no longer presumed reusable for the life of the page. This decision supersedes [ADR-0005](0005-own-the-audio-context-lifecycle.md): ordinary interruptions retain their transport run and receive bounded recovery, while a render error, a positively stalled audio clock, failed bounded recovery, or an explicit user request replaces the context and begins a new Transport run because timestamps from two audio clocks cannot share a Transport origin.
 
 ## Consequences
 
