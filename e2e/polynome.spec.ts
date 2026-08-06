@@ -136,6 +136,111 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+test("healthy foreground lifecycle signals preserve the Transport run", async ({ page }) => {
+  await page
+    .getByRole("group", { name: "Cycle repetitions" })
+    .getByRole("button", { name: "Set Cycle to 8 repetitions" })
+    .click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page).fill("120");
+  await envelopeAmount(page).blur();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  const live = page.getByLabel("Current tempo in beats per minute");
+  await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(130);
+  const beforeForeground = Number(await live.inputValue());
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new PageTransitionEvent("pageshow"));
+    document.dispatchEvent(new Event("resume"));
+    window.dispatchEvent(new Event("focus"));
+  });
+
+  // This rising envelope is the public position of the Transport run. A hard
+  // replacement would begin a new run at 120 BPM; preserving this run lets the
+  // readout continue beyond the value it held before foregrounding.
+  await expect
+    .poll(async () => Number(await live.inputValue()), {
+      intervals: [50],
+      timeout: 750,
+    })
+    .toBeGreaterThan(beforeForeground);
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await expect(page.locator("#status")).toHaveText("Playing");
+});
+
+test("a frozen audio clock is recovered and announced", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+      get currentTime() {
+        return 0;
+      }
+    };
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await page.waitForTimeout(200);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  await expect(page.locator("#status")).toHaveText("Audio clock is not advancing.");
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+});
+
+test("failed automatic audio replacement leaves the interface stopped", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeAudioContext = window.AudioContext;
+    let initialContextCreated = false;
+    let clockFrozen = false;
+    window.addEventListener("freeze-audio-clock", () => {
+      clockFrozen = true;
+    });
+    window.AudioContext = class FailingReplacementAudioContext extends NativeAudioContext {
+      constructor(options) {
+        if (initialContextCreated) throw new Error("Replacement AudioContext failed.");
+        super(options);
+        initialContextCreated = true;
+      }
+
+      get currentTime() {
+        return clockFrozen ? 0 : super.currentTime;
+      }
+    };
+  });
+  await page.reload();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("freeze-audio-clock")));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  await expect(page.locator("#status")).toHaveText("Replacement AudioContext failed.");
+  await expect(page.getByRole("button", { name: "Play metronome" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restart Audio" })).toBeHidden();
+});
+
+test("Restart Audio replaces playback from an accessible secondary control", async ({ page }) => {
+  const restart = page.getByRole("button", { name: "Restart Audio" });
+
+  await expect(restart).toBeHidden();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(restart).toBeVisible();
+
+  await restart.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(restart).toBeFocused();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeVisible();
+  await expect(page.locator("#status")).toHaveText("Audio restarted");
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(restart).toBeHidden();
+});
+
 /**
  * The Cycle card is visible even when there is only one Cycle, so its envelope
  * and its repetitions are reachable in the simplest Sequence there is. The sole

@@ -19,28 +19,8 @@ const MASTER_GAIN = 0.8;
 const STUCK_CONTEXT_TIMEOUT_MS = 2000;
 const STUCK_CONTEXT_TICKS = Math.ceil(STUCK_CONTEXT_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
 
-/**
- * How often a run that has lost `running` asks for its context back.
- *
- * The `statechange` handler asks once on the way out of `running`, but a
- * refused `resume()` fires no `statechange` at all, so that one request is also
- * the last one the handler will ever make. The gate it was refused on is
- * transient user activation, which the page can regain at any moment from a tap
- * that has nothing to do with the metronome — and no event tells the engine
- * that it has. Asking again on a slow cadence is the only way to take that
- * chance up.
- *
- * A second a part is far longer than a user notices against an interruption
- * they are already living through, and rare enough that a permanently refused
- * context costs one parked promise a second rather than one per tick.
- *
- * Deliberately not guarded by a "resume already pending" flag. WebKit parks the
- * promise and settles it neither way for exactly the refusals this retry exists
- * to survive, so such a flag would latch on the first refusal and disable every
- * later attempt — the failure it was added to prevent.
- */
-const RESUME_RETRY_TIMEOUT_MS = 1000;
-const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVAL_MS);
+const RECOVERY_ATTEMPT_TIMEOUT_MS = 1000;
+const FOREGROUND_CLOCK_GRACE_MS = 250;
 
 /**
  * How late a planned click may be and still be worth sounding: the committing
@@ -172,8 +152,12 @@ export class MetronomeEngine extends EventTarget {
   #scheduledSources = new Set<AudioScheduledSourceNode>();
   #unstartedTicks = 0;
   #reportedStuckContext = false;
-  #ticksSinceResumeRequest = 0;
   #holdsAudioSession = false;
+  #recovery = null;
+  #recoveryAttemptedState = null;
+  #softRecoveryContext = null;
+  #replacement = null;
+  #runGeneration = 0;
 
   /**
    * WebKit fires `statechange` on every transition. Losing `"running"` during
@@ -183,9 +167,35 @@ export class MetronomeEngine extends EventTarget {
    * stays in phase and re-anchoring would only risk replaying past events.
    * Scheduling stays parked until a tick observes `"running"` again.
    */
-  #handleStateChange = () => {
-    if (!this.#playing) return;
+  #handleStateChange = (event) => {
+    if (!this.#playing || event.currentTarget !== this.#context) return;
+    if (this.#context.state !== this.#recoveryAttemptedState) {
+      this.#recoveryAttemptedState = null;
+    }
+    if (this.#softRecoveryContext === this.#context) return;
+    if (this.#anchored && this.#context.state === "closed") {
+      if (globalThis.document?.visibilityState === "visible") {
+        this.checkAudioAfterForeground();
+      }
+      return;
+    }
+    if (this.#anchored && this.#context.state === "suspended") {
+      if (globalThis.document?.visibilityState === "visible") {
+        this.#recoverSuspendedContext(this.#context);
+      }
+      return;
+    }
+    if (this.#anchored && this.#context.state === "interrupted") {
+      return;
+    }
     this.#requestResume();
+  };
+
+  #handleContextError = (event) => {
+    if (!this.#playing || !this.#state || event.currentTarget !== this.#context) return;
+    this.restartAudio(this.#state).catch((error) => {
+      this.dispatchEvent(new CustomEvent("audioerror", { detail: error }));
+    });
   };
 
   /**
@@ -262,6 +272,7 @@ export class MetronomeEngine extends EventTarget {
    * must not be handed back and taken again for the sake of one statement.
    */
   stop({ preserveContext = true, emit = true, releaseAudioSession = true } = {}) {
+    this.#runGeneration += 1;
     if (this.#timer !== null) {
       window.clearInterval(this.#timer);
       this.#timer = null;
@@ -271,13 +282,20 @@ export class MetronomeEngine extends EventTarget {
     this.#anchored = false;
     this.#unstartedTicks = 0;
     this.#reportedStuckContext = false;
-    this.#ticksSinceResumeRequest = 0;
+    this.#recoveryAttemptedState = null;
+    this.#recovery = null;
+    this.#softRecoveryContext = null;
 
     for (const source of this.#scheduledSources) {
       try {
         source.stop();
       } catch {
         // Already stopped sources are harmless.
+      }
+      try {
+        source.disconnect();
+      } catch {
+        // A source the browser already detached is harmless.
       }
     }
     this.#scheduledSources.clear();
@@ -317,6 +335,206 @@ export class MetronomeEngine extends EventTarget {
       return;
     }
     await this.start(state);
+  }
+
+  /**
+   * Abandons the current audio resource and begins a new Transport run on a
+   * newly constructed context. Audio timestamps from separate contexts are
+   * unrelated, so replacement must never carry the old Transport origin over.
+   */
+  restartAudio(state) {
+    if (this.#replacement) return this.#replacement;
+
+    const replacement = this.#replaceAudio(state).finally(() => {
+      if (this.#replacement === replacement) this.#replacement = null;
+    });
+    this.#replacement = replacement;
+    return replacement;
+  }
+
+  async #replaceAudio(state) {
+    const context = this.#context;
+    const master = this.#master;
+
+    this.#recovery = null;
+    this.#recoveryAttemptedState = null;
+    this.#softRecoveryContext = null;
+
+    this.stop({ preserveContext: false, emit: false, releaseAudioSession: false });
+    context?.removeEventListener("statechange", this.#handleStateChange);
+    context?.removeEventListener("error", this.#handleContextError);
+    master?.disconnect();
+    this.#context = null;
+    this.#master = null;
+
+    try {
+      const pending = context?.close();
+      pending?.catch(() => {
+        // The failed resource is already detached; closing it is best effort.
+      });
+    } catch {
+      // The failed resource is already detached; closing it is best effort.
+    }
+
+    try {
+      await this.start(state);
+    } catch (error) {
+      this.dispatchEvent(new Event("playstate"));
+      throw error;
+    }
+  }
+
+  checkAudioAfterForeground() {
+    const context = this.#context;
+    const runGeneration = this.#runGeneration;
+    if (!this.#playing || !this.#anchored || !context) {
+      return;
+    }
+
+    if (context.state === "closed") {
+      const recovery = Promise.resolve(
+        this.#replaceAfterForegroundFailure(context, null, runGeneration),
+      ).finally(() => {
+        this.#finishRecovery(recovery, context, runGeneration);
+      });
+      this.#recovery = recovery;
+      return;
+    }
+
+    if (this.#recovery) return;
+
+    if (context.state === "suspended") {
+      this.#recoverSuspendedContext(context);
+      return;
+    }
+
+    if (context.state === "interrupted") {
+      if (this.#recoveryAttemptedState === "interrupted") return;
+      this.#recoveryAttemptedState = "interrupted";
+      const recovery = this.#resumeByDeadline(context)
+        .catch((recoveryError) => {
+          if (context.state !== "interrupted") return null;
+          return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
+        })
+        .finally(() => {
+          this.#finishRecovery(recovery, context, runGeneration);
+        });
+      this.#recovery = recovery;
+      return;
+    }
+
+    if (context.state !== "running") return;
+    const sampledTime = context.currentTime;
+    const recovery = new Promise((resolve) => {
+      window.setTimeout(resolve, FOREGROUND_CLOCK_GRACE_MS);
+    })
+      .then(() => {
+        if (
+          !this.#playing ||
+          runGeneration !== this.#runGeneration ||
+          context !== this.#context ||
+          context.state !== "running" ||
+          context.currentTime !== sampledTime
+        ) {
+          return false;
+        }
+
+        const postGraceTime = context.currentTime;
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, FOREGROUND_CLOCK_GRACE_MS);
+        }).then(() => {
+          if (
+            !this.#playing ||
+            runGeneration !== this.#runGeneration ||
+            context !== this.#context ||
+            context.state !== "running" ||
+            context.currentTime !== postGraceTime
+          ) {
+            return false;
+          }
+
+          this.#softRecoveryContext = context;
+          return this.#suspendByDeadline(context)
+            .then(() => this.#resumeByDeadline(context))
+            .then(() => true)
+            .finally(() => {
+              if (this.#softRecoveryContext === context) this.#softRecoveryContext = null;
+            });
+        });
+      })
+      .then((softRecovered) => {
+        if (
+          !softRecovered ||
+          !this.#playing ||
+          runGeneration !== this.#runGeneration ||
+          context !== this.#context ||
+          context.state !== "running"
+        ) {
+          return null;
+        }
+
+        const recoveredTime = context.currentTime;
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, FOREGROUND_CLOCK_GRACE_MS);
+        }).then(() => {
+          if (
+            !this.#playing ||
+            runGeneration !== this.#runGeneration ||
+            context !== this.#context ||
+            context.state !== "running" ||
+            context.currentTime !== recoveredTime
+          ) {
+            return null;
+          }
+          return this.#replaceAfterForegroundFailure(
+            context,
+            new Error("Audio clock is not advancing."),
+            runGeneration,
+          );
+        });
+      })
+      .catch((recoveryError) => {
+        return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
+      })
+      .finally(() => {
+        this.#finishRecovery(recovery, context, runGeneration);
+      });
+    this.#recovery = recovery;
+  }
+
+  #replaceAfterForegroundFailure(context, recoveryError = null, runGeneration) {
+    if (
+      !this.#playing ||
+      !this.#state ||
+      context !== this.#context ||
+      runGeneration !== this.#runGeneration
+    ) {
+      return null;
+    }
+    return this.restartAudio(this.#state).then(
+      () => {
+        if (recoveryError) {
+          this.dispatchEvent(new CustomEvent("audioerror", { detail: recoveryError }));
+        }
+      },
+      (replacementError) => {
+        this.dispatchEvent(new CustomEvent("audioerror", { detail: replacementError }));
+      },
+    );
+  }
+
+  #finishRecovery(recovery, context, runGeneration) {
+    if (this.#recovery !== recovery) return;
+    this.#recovery = null;
+    if (
+      !this.#playing ||
+      !this.#anchored ||
+      context !== this.#context ||
+      runGeneration !== this.#runGeneration
+    ) {
+      return;
+    }
+    if (context.state !== "running") this.checkAudioAfterForeground();
   }
 
   /**
@@ -399,6 +617,56 @@ export class MetronomeEngine extends EventTarget {
     }
   }
 
+  #recoverSuspendedContext(context) {
+    if (this.#recovery || this.#recoveryAttemptedState === "suspended") return;
+    this.#recoveryAttemptedState = "suspended";
+    const runGeneration = this.#runGeneration;
+
+    const recovery = this.#resumeByDeadline(context)
+      .catch((recoveryError) => {
+        if (context.state !== "suspended") return null;
+        return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
+      })
+      .finally(() => {
+        this.#finishRecovery(recovery, context, runGeneration);
+      });
+    this.#recovery = recovery;
+  }
+
+  #resumeByDeadline(context) {
+    return this.#completeByDeadline(() => context.resume());
+  }
+
+  #suspendByDeadline(context) {
+    return this.#completeByDeadline(() => context.suspend());
+  }
+
+  #completeByDeadline(operation) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const deadline = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("Audio recovery timed out."));
+      }, RECOVERY_ATTEMPT_TIMEOUT_MS);
+      const settle = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(deadline);
+        callback(value);
+      };
+
+      try {
+        Promise.resolve(operation()).then(
+          (value) => settle(resolve, value),
+          (error) => settle(reject, error),
+        );
+      } catch (error) {
+        settle(reject, error);
+      }
+    });
+  }
+
   /**
    * Takes the `playback` audio session for the duration of a run.
    *
@@ -452,6 +720,7 @@ export class MetronomeEngine extends EventTarget {
 
     this.#context = this.#createContext();
     this.#context.addEventListener("statechange", this.#handleStateChange);
+    this.#context.addEventListener("error", this.#handleContextError);
     this.#master = this.#context.createGain();
     this.#master.gain.value = MASTER_GAIN;
     this.#master.connect(this.#context.destination);
@@ -524,20 +793,6 @@ export class MetronomeEngine extends EventTarget {
   }
 
   /**
-   * Asks for an interrupted run's context back, no more than once every
-   * `RESUME_RETRY_TICKS`. The counter is reset by any tick that observes
-   * `running` and by `stop()`, so a recovered run starts the next interruption
-   * with a full interval rather than part-way through one.
-   */
-  #retryResume() {
-    this.#ticksSinceResumeRequest += 1;
-    if (this.#ticksSinceResumeRequest < RESUME_RETRY_TICKS) return;
-
-    this.#ticksSinceResumeRequest = 0;
-    this.#requestResume();
-  }
-
-  /**
    * One scheduler tick. `currentTime` is frozen at zero while a context is
    * suspended or interrupted and never catches up, so the transport origin is
    * anchored from the first tick at which the context is genuinely running.
@@ -547,14 +802,11 @@ export class MetronomeEngine extends EventTarget {
     if (this.#context.state !== "running") {
       // A run that has never sounded is reported rather than retried: it is
       // told to tap play again, and that tap is itself the activation a resume
-      // needs. A run that was sounding is told nothing, so asking again is the
-      // only way back.
-      if (this.#anchored) this.#retryResume();
-      else this.#countUnstartedTick();
+      // needs. An established run parks scheduling here; statechange and
+      // foreground lifecycle handling own its bounded recovery or replacement.
+      if (!this.#anchored) this.#countUnstartedTick();
       return;
     }
-
-    this.#ticksSinceResumeRequest = 0;
 
     if (!this.#anchored) {
       this.#transport.start(this.#state, this.#context.currentTime + START_DELAY_SECONDS);
