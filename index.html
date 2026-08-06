@@ -86,6 +86,14 @@
                described-by, and `app.ts` writes both from one string. -->
           <button id="preset-save-open" class="chip-button" type="button" aria-expanded="false" aria-controls="save-panel" aria-disabled="true" aria-describedby="preset-save-reason" title="No changes to save">+ Save</button>
           <span id="preset-save-reason" class="sr-only">No changes to save</span>
+          <button id="share-configuration" class="icon-button" type="button" aria-label="Share current configuration" title="Share current configuration" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="18" cy="5" r="2"></circle>
+              <circle cx="6" cy="12" r="2"></circle>
+              <circle cx="18" cy="19" r="2"></circle>
+              <path d="m8 11 8-5M8 13l8 5"></path>
+            </svg>
+          </button>
           <!-- The glyph is the current Accent, so the control that opens the
                panel is also the only place the chosen colour is stated outside
                it. That is what earns this an icon rather than a word: a swatch
@@ -97,6 +105,8 @@
           <button id="help-toggle" class="icon-button" type="button" aria-expanded="false" aria-controls="help-panel" aria-label="Help">?</button>
         </nav>
       </header>
+
+      <p id="feedback" class="feedback" hidden></p>
 
       <section id="help-panel" class="top-panel" aria-labelledby="help-heading" hidden>
         <div class="card-heading panel-heading">
@@ -111,6 +121,7 @@
           <p><strong>Rhythm settings</strong><span>Select a rhythm's name, double-click its card, or use its pencil to edit the time signature, subdivision, sound, level, and stereo balance.</span></p>
           <p><strong>Playback</strong><span>Use the play button or press Space to start and stop the metronome.</span></p>
           <p><strong>Presets</strong><span>Open the panel to recall a complete setup, or save the current one to keep it in this browser.</span></p>
+          <p><strong>Share</strong><span>Share creates a link to the current configuration. It remains unnamed until you save it as a preset.</span></p>
         </div>
       </section>
 

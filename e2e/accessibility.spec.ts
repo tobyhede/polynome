@@ -81,6 +81,12 @@ test("the help panel has no accessibility violations", async ({ page }) => {
   await expectNoViolations(page);
 });
 
+test("Share-link failure feedback has no accessibility violations", async ({ page }) => {
+  await page.goto("/index.html#share=not-a-gzip-payload");
+  await expect(page.locator("#feedback")).toBeVisible();
+  await expectNoViolations(page);
+});
+
 /**
  * The swatches are the one row of controls here whose visible content is a
  * colour, so their names live entirely in the accessibility tree — a scan is

@@ -25,6 +25,7 @@ import {
 } from "./model.ts";
 import { controlCounts, controlIndexAt, controls } from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
+import { decodeSharePayload, encodeShareConfiguration } from "./share.ts";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
 // resolves all three specifiers this pulls in.
@@ -87,6 +88,7 @@ const elements = {
   presetSaveIconSave: document.querySelector("#preset-save-icon-save") as SVGElement,
   presetSaveIconReplace: document.querySelector("#preset-save-icon-replace") as SVGElement,
   presetName: document.querySelector("#preset-name") as HTMLInputElement,
+  shareConfiguration: document.querySelector("#share-configuration") as HTMLButtonElement,
   helpToggle: document.querySelector("#help-toggle") as HTMLButtonElement,
   helpPanel: document.querySelector("#help-panel") as HTMLElement,
   accentToggle: document.querySelector("#accent-toggle") as HTMLButtonElement,
@@ -97,6 +99,7 @@ const elements = {
   accentCaptionContrast: document.querySelector("#accent-caption-contrast") as HTMLElement,
   cycles: document.querySelector("#cycles") as HTMLElement,
   addCycle: document.querySelector("#add-cycle") as HTMLButtonElement,
+  feedback: document.querySelector("#feedback") as HTMLParagraphElement,
   status: document.querySelector("#status") as HTMLParagraphElement,
 };
 
@@ -183,6 +186,76 @@ function loadState() {
 
 function writeState(configuration) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
+}
+
+function showFeedback(message) {
+  elements.feedback.textContent = message;
+  elements.feedback.hidden = false;
+  elements.status.textContent = message;
+}
+
+function shareUrlBase() {
+  if (typeof location === "undefined" || !["http:", "https:"].includes(location.protocol)) {
+    return null;
+  }
+  return `${location.origin}${location.pathname}`;
+}
+
+async function shareCurrentConfiguration() {
+  try {
+    const base = shareUrlBase();
+    if (base === null) return;
+    const payload = await encodeShareConfiguration(state);
+    const url = `${base}#share=${payload}`;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "Polynome", url });
+        elements.status.textContent = "Configuration shared";
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    if (typeof navigator.clipboard?.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(url);
+        showFeedback("Share link copied");
+        return;
+      } catch {
+        // The terminal failure below covers a refused clipboard write.
+      }
+    }
+    showFeedback("Configuration could not be shared");
+  } catch {
+    showFeedback("Configuration could not be shared");
+  }
+}
+
+async function loadSharedState(fallback) {
+  if (typeof location === "undefined" || !location.hash.startsWith("#share=")) {
+    return { configuration: fallback };
+  }
+  try {
+    const configuration = await decodeSharePayload(location.hash.slice("#share=".length));
+    try {
+      writeState(configuration);
+      history.replaceState(null, "", location.pathname);
+      return { configuration, status: "Shared configuration loaded" };
+    } catch {
+      return {
+        configuration,
+        status: "Shared configuration could not be saved in this browser",
+        feedback: "Shared configuration could not be saved in this browser",
+      };
+    }
+  } catch {
+    history.replaceState(null, "", location.pathname);
+    return {
+      configuration: fallback,
+      status: "This share link could not be loaded.",
+      feedback: "This share link could not be loaded.",
+    };
+  }
 }
 
 /**
@@ -2553,4 +2626,22 @@ applyAccent(loadAccent());
 // stored list, so every edit-driven render would rewrite a number that cannot
 // have moved. It is rendered once here and again wherever `savedPresets` does.
 renderPresetCount();
+elements.shareConfiguration.hidden = !(
+  typeof CompressionStream === "function" &&
+  typeof DecompressionStream === "function" &&
+  shareUrlBase() !== null
+);
+elements.shareConfiguration.addEventListener("click", shareCurrentConfiguration);
 renderInterface();
+loadSharedState(state).then((startup) => {
+  if (!startup.status) return;
+  state = startup.configuration;
+  description = describeConfiguration(state);
+  presetOrigin = null;
+  renderInterface();
+  elements.status.textContent = startup.status;
+  if (startup.feedback) {
+    elements.feedback.textContent = startup.feedback;
+    elements.feedback.hidden = false;
+  }
+});
