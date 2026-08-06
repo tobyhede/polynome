@@ -91,10 +91,10 @@ test("site distribution can write outside the source tree", async (t) => {
   await Promise.all([
     writeFile(
       join(sourceRoot, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(sourceRoot, "styles.css"), "body {}"),
-    writeFile(join(sourceRoot, "app.js"), "globalThis.fixture = 1;"),
+    writeFile(join(sourceRoot, "app.ts"), "globalThis.fixture = 1;"),
     writeFile(join(sourceRoot, "site", "sentinel"), "source output stays untouched"),
   ]);
 

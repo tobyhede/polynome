@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+type WorkEntry = { kind: string; name: string };
+type FrameWork = { select: number; escape: number };
+type PerformanceScratchWindow = Window & {
+  __perf: {
+    start(): void;
+    stop(): WorkEntry[];
+    overFrames(frames: number): Promise<FrameWork[]>;
+  };
+  __longTasks: number[];
+};
+
 /**
  * What the interface costs per frame, counted rather than timed.
  *
@@ -30,7 +41,7 @@ import { expect, test } from "@playwright/test";
  * to it. A log is the only shape that can answer "did a read follow a write".
  */
 const INSTRUMENT = () => {
-  const log = [];
+  const log: WorkEntry[] = [];
   let recording = false;
 
   const wrap = (owner, name, kind) => {
@@ -68,7 +79,7 @@ const INSTRUMENT = () => {
     return escapeIdentifier(value);
   };
 
-  window.__perf = {
+  (window as unknown as PerformanceScratchWindow).__perf = {
     start() {
       log.length = 0;
       recording = true;
@@ -83,7 +94,7 @@ const INSTRUMENT = () => {
       for (let index = 0; index < frames; index += 1) {
         log.length = 0;
         recording = true;
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         recording = false;
         perFrame.push({
           select: log.filter((entry) => entry.kind === "select").length,
@@ -135,7 +146,9 @@ test.beforeEach(async ({ page }) => {
  */
 test("the playhead frame does not grow its per-frame selector cost", async ({ page }) => {
   await startPlaying(page);
-  const frames = await page.evaluate(() => window.__perf.overFrames(30));
+  const frames = await page.evaluate(() =>
+    (window as unknown as PerformanceScratchWindow).__perf.overFrames(30),
+  );
 
   const worstSelect = Math.max(...frames.map((frame) => frame.select));
   const worstEscape = Math.max(...frames.map((frame) => frame.escape));
@@ -154,7 +167,9 @@ test("the playhead frame does not grow its per-frame selector cost", async ({ pa
 test("the playhead frame stays inside budget at the domain maximum", async ({ page }) => {
   await fillToMaximumRhythms(page);
   await startPlaying(page);
-  const frames = await page.evaluate(() => window.__perf.overFrames(30));
+  const frames = await page.evaluate(() =>
+    (window as unknown as PerformanceScratchWindow).__perf.overFrames(30),
+  );
 
   const worstSelect = Math.max(...frames.map((frame) => frame.select));
   const worstEscape = Math.max(...frames.map((frame) => frame.escape));
@@ -188,9 +203,11 @@ test("the playhead frame stays inside budget at the domain maximum", async ({ pa
 test("a render measures every rhythm before it writes any", async ({ page }) => {
   await fillToMaximumRhythms(page);
 
-  await page.evaluate(() => window.__perf.start());
+  await page.evaluate(() => (window as unknown as PerformanceScratchWindow).__perf.start());
   await page.locator(".step").first().click();
-  const log = await page.evaluate(() => window.__perf.stop());
+  const log = await page.evaluate(() =>
+    (window as unknown as PerformanceScratchWindow).__perf.stop(),
+  );
 
   // The pass is bounded by the property it exists to write. Anything before the
   // first `--beats-per-row` is the render that preceded it; anything after the
@@ -244,13 +261,16 @@ test("steady-state playback produces no long task", async ({ page }) => {
   await page.waitForTimeout(1_000);
 
   await page.evaluate(() => {
-    window.__longTasks = [];
+    (window as unknown as PerformanceScratchWindow).__longTasks = [];
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) window.__longTasks.push(entry.duration);
+      for (const entry of list.getEntries())
+        (window as unknown as PerformanceScratchWindow).__longTasks.push(entry.duration);
     }).observe({ type: "longtask", buffered: false });
   });
   await page.waitForTimeout(5_000);
 
-  const durations = await page.evaluate(() => window.__longTasks);
+  const durations = await page.evaluate(
+    () => (window as unknown as PerformanceScratchWindow).__longTasks,
+  );
   expect(durations, `long tasks during playback: ${durations.join(", ")}`).toEqual([]);
 });

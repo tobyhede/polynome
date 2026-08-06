@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-import { buildDistribution } from "../scripts/build.mjs";
+import { buildDistribution } from "../scripts/build.ts";
 
 const projectRoot = new URL("..", import.meta.url);
 
@@ -32,7 +32,10 @@ const projectRoot = new URL("..", import.meta.url);
  * one branch's shape would read as a regression the moment another merged.
  * Re-take them here, on `main`, whenever one is raised.
  */
-const BUDGETS = Object.freeze({
+type Budget = { raw: number; gzip?: number };
+type ArtifactSize = { raw: number; gzip: number };
+
+const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /** The whole application as one file: markup, styles, script, and base64 woff2. */
   "dist/polynome.html": { raw: 274_000 },
   /** The bundled script alone, which is the half that grows from source. */
@@ -54,10 +57,13 @@ const BUDGETS = Object.freeze({
  */
 const GZIP_LEVEL = 9;
 
-const artifactContents = (relativePath, root = projectRoot) =>
+const artifactContents = (relativePath: string, root: URL | string = projectRoot) =>
   readFile(root instanceof URL ? new URL(relativePath, root) : join(root, relativePath));
 
-const bytesOf = async (relativePath, root = projectRoot) => {
+const bytesOf = async (
+  relativePath: string,
+  root: URL | string = projectRoot,
+): Promise<ArtifactSize> => {
   const contents = await artifactContents(relativePath, root);
   return { raw: contents.byteLength, gzip: gzipSync(contents, { level: GZIP_LEVEL }).byteLength };
 };
@@ -72,7 +78,7 @@ test("both distributions stay inside their byte budgets", async (t) => {
   await buildDistribution({ target: "single-file", projectRoot, outputRoot });
   await buildDistribution({ target: "site", version: "local", projectRoot, outputRoot });
 
-  const measured = {};
+  const measured: Record<string, ArtifactSize> = {};
   for (const [path, budget] of Object.entries(BUDGETS)) {
     const size = await bytesOf(path, outputRoot);
     measured[path] = size;

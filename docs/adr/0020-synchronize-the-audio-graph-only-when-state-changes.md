@@ -31,7 +31,7 @@ same preserved node.
 - A steady-state scheduler tick allocates and automates only the clicks it
   plans. It does not rebuild the rhythm list and identifier set or issue mix
   automation.
-- `test/audio-work.test.js` holds the new contract at zero steady-state
+- `test/audio-work.test.ts` holds the new contract at zero steady-state
   `setTargetAtTime` calls. The total AudioParam budgets fall from 128 to 8 calls
   per second at the default Configuration and from 1,725 to 725 at the domain
   maximum; measured steady-state traffic, excluding transport shutdown, is 6.0

@@ -1282,6 +1282,55 @@ test("a slow grid stops nudging 50 ms late, long before a quarter of its step", 
   engine.stop();
 });
 
+test("a cycle-boundary event uses its own envelope when deciding marginal lateness", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+  const configuration = createConfiguration({
+    bpm: 30,
+    sequence: {
+      cycles: [
+        {
+          repetitions: 1,
+          envelope: { shape: "up", amount: 120 },
+          rhythms: [
+            {
+              signature: { count: 1, unit: 4 },
+              subdivision: 1,
+              steps: [STEP.OFF],
+            },
+          ],
+        },
+        {
+          repetitions: 1,
+          envelope: { shape: "flat", amount: 0 },
+          rhythms: [
+            {
+              signature: { count: 1, unit: 4 },
+              subdivision: 5,
+              steps: [STEP.PRIMARY, STEP.OFF, STEP.OFF, STEP.OFF, STEP.OFF],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  await engine.start(configuration);
+  assert.deepEqual(clickStarts(context), []);
+
+  // The second Cycle begins at 150 BPM. Thirty milliseconds is beyond a
+  // quarter of its 80 ms grid step, so its downbeat must be dropped. Binary
+  // rounding puts the event's audio time infinitesimally before the Cycle
+  // boundary; reading beat zero against the preceding 30→150 curve would
+  // instead grant the event that curve's 30 BPM, 50 ms lateness allowance.
+  context.currentTime = 0.8647189562170501;
+  context.advanceAfterSchedulingSnapshot(0.03);
+  tick();
+
+  assert.deepEqual(clickStarts(context), []);
+
+  engine.stop();
+});
+
 /** A steady-state tick plans clicks without sending unchanged mix values back to the graph. */
 test("a steady-state tick does not synchronize the audio graph", async () => {
   const { context, engine } = harness({ state: "running", currentTime: 0 });

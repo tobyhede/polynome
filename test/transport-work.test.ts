@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createConfiguration } from "../configuration.js";
-import { ENVELOPE, STEP } from "../model.js";
-import { SharedTransport } from "../shared-transport.js";
+import { createConfiguration } from "../configuration.ts";
+import { ENVELOPE, STEP } from "../model.ts";
+import { SharedTransport } from "../shared-transport.ts";
 
 /**
  * What `plan()` produces over a long run, asserted as counts and invariants
@@ -27,10 +27,10 @@ import { SharedTransport } from "../shared-transport.js";
  * See `docs/research/performance-optimisation-and-regression-testing.md`.
  */
 
-/** The engine's own scheduler geometry, restated: it is private to `metronome.js`. */
+/** The engine's own scheduler geometry, restated: it is private to `metronome.ts`. */
 const SCHEDULER_INTERVAL_SECONDS = 0.025;
 const LOOK_AHEAD_SECONDS = 0.12;
-/** `shared-transport.js`'s planning-side lateness tolerance, restated for the window assertion. */
+/** `shared-transport.ts`'s planning-side lateness tolerance, restated for the window assertion. */
 const LATENESS_TOLERANCE_SECONDS = 0.004;
 
 const TICKS = 400;

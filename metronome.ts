@@ -578,12 +578,12 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.voice, event.audioTime, event.musicalBeat);
+        this.#scheduleClick(layer, event.voice, event.audioTime, event.musicalBeat, event.cycleId);
       }
     }
   }
 
-  #scheduleClick(layer, voice, when, musicalBeat) {
+  #scheduleClick(layer, voice, when, musicalBeat, cycleId) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
@@ -597,8 +597,10 @@ export class MetronomeEngine extends EventTarget {
     const now = this.#context.currentTime;
     const maxLateness = Math.min(
       MAX_CLICK_LATENESS_SECONDS,
-      stepDurationSeconds(this.#transport.currentBpm(when, musicalBeat) ?? this.#state.bpm, layer) *
-        MAX_CLICK_LATENESS_STEPS,
+      stepDurationSeconds(
+        this.#transport.currentBpm(when, musicalBeat, cycleId) ?? this.#state.bpm,
+        layer,
+      ) * MAX_CLICK_LATENESS_STEPS,
     );
     if (when < now - maxLateness) return;
 

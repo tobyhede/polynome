@@ -1,9 +1,9 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { createConfiguration } from "../configuration.js";
-import { ENVELOPE } from "../model.js";
-import { MetronomeEngine } from "../metronome.js";
+import { createConfiguration } from "../configuration.ts";
+import { ENVELOPE } from "../model.ts";
+import { MetronomeEngine } from "../metronome.ts";
 
 /**
  * How much work the engine asks the audio graph to do, per second of transport
@@ -17,7 +17,7 @@ import { MetronomeEngine } from "../metronome.js";
  * thread to the rendering thread, and the count is a property of this code
  * rather than of the machine it runs on. It is identical on every runner.
  *
- * The counts are taken against the real `metronome.js`, driven through the
+ * The counts are taken against the real `metronome.ts`, driven through the
  * `options.createContext` seam the engine already exposes, so what is measured
  * is the shipped scheduler and not a restatement of it.
  *
@@ -40,24 +40,43 @@ import { MetronomeEngine } from "../metronome.js";
 /** Long enough to make the click rate representative, short enough to stay quick. */
 const SECONDS = 20;
 
+interface AutomationCounts {
+  total: number;
+  [method: string]: number;
+}
+
+interface WorkCounts {
+  oscillators: number;
+  gains: number;
+  panners: number;
+  connects: number;
+  disconnects: number;
+  starts: number;
+  stops: number;
+  automation: AutomationCounts;
+}
+
 class CountingParam {
-  constructor(counts, value) {
+  declare counts: WorkCounts;
+  declare value: number;
+
+  constructor(counts: WorkCounts, value: number) {
     this.counts = counts;
     this.value = value;
   }
 
-  #record(method) {
+  #record(method: string) {
     this.counts.automation.total += 1;
     this.counts.automation[method] = (this.counts.automation[method] ?? 0) + 1;
   }
 
-  setValueAtTime(value) {
+  setValueAtTime(value: number) {
     this.#record("setValueAtTime");
     this.value = value;
     return this;
   }
 
-  setTargetAtTime(value) {
+  setTargetAtTime(value: number) {
     this.#record("setTargetAtTime");
     this.value = value;
     return this;
@@ -80,11 +99,13 @@ class CountingParam {
 }
 
 class CountingNode {
-  constructor(counts) {
+  declare counts: WorkCounts;
+
+  constructor(counts: WorkCounts) {
     this.counts = counts;
   }
 
-  connect(target) {
+  connect(target: CountingNode) {
     this.counts.connects += 1;
     return target;
   }
@@ -95,14 +116,18 @@ class CountingNode {
 }
 
 class CountingGain extends CountingNode {
-  constructor(counts) {
+  declare gain: CountingParam;
+
+  constructor(counts: WorkCounts) {
     super(counts);
     this.gain = new CountingParam(counts, 1);
   }
 }
 
 class CountingPanner extends CountingNode {
-  constructor(counts) {
+  declare pan: CountingParam;
+
+  constructor(counts: WorkCounts) {
     super(counts);
     this.pan = new CountingParam(counts, 0);
   }
@@ -115,7 +140,15 @@ class CountingPanner extends CountingNode {
  * would pass against a double that could not have caught one.
  */
 class CountingOscillator extends EventTarget {
-  constructor(context) {
+  declare context: CountingAudioContext;
+  declare counts: WorkCounts;
+  declare frequency: CountingParam;
+  declare detune: CountingParam;
+  declare startedAt: number | null;
+  declare stopAt: number | null;
+  declare stopCalls: number;
+
+  constructor(context: CountingAudioContext) {
     super();
     this.context = context;
     this.counts = context.counts;
@@ -126,19 +159,19 @@ class CountingOscillator extends EventTarget {
     this.stopCalls = 0;
   }
 
-  connect(target) {
+  connect(target: CountingNode) {
     this.counts.connects += 1;
     return target;
   }
 
   disconnect() {}
 
-  start(when) {
+  start(when: number) {
     this.counts.starts += 1;
     this.startedAt = when;
   }
 
-  stop(when) {
+  stop(when: number) {
     this.stopCalls += 1;
     this.counts.stops += 1;
     if (this.stopAt === null) this.stopAt = when;
@@ -146,6 +179,13 @@ class CountingOscillator extends EventTarget {
 }
 
 class CountingAudioContext extends EventTarget {
+  declare state: string;
+  declare currentTime: number;
+  declare sampleRate: number;
+  declare counts: WorkCounts;
+  declare destination: CountingNode;
+  declare live: Set<CountingOscillator>;
+
   constructor() {
     super();
     this.state = "running";
@@ -191,7 +231,7 @@ class CountingAudioContext extends EventTarget {
   }
 
   /** Move the render clock and retire every source whose stop time has passed. */
-  advance(seconds) {
+  advance(seconds: number) {
     this.currentTime += seconds;
     for (const node of [...this.live]) {
       if (node.stopAt === null || node.stopAt > this.currentTime) continue;
@@ -213,28 +253,37 @@ class CountingAudioContext extends EventTarget {
   }
 }
 
-const timers = { nextId: 1, intervals: new Map(), timeouts: new Map() };
+interface CountingInterval {
+  callback: () => void;
+  delay: number;
+}
+
+const timers = {
+  nextId: 1,
+  intervals: new Map<number, CountingInterval>(),
+  timeouts: new Map<number, () => void>(),
+};
 
 const windowStub = {
-  setInterval(callback, delay) {
+  setInterval(callback: () => void, delay: number) {
     const id = timers.nextId++;
     timers.intervals.set(id, { callback, delay });
     return id;
   },
-  clearInterval(id) {
+  clearInterval(id: number) {
     timers.intervals.delete(id);
   },
-  setTimeout(callback) {
+  setTimeout(callback: () => void) {
     const id = timers.nextId++;
     timers.timeouts.set(id, callback);
     return id;
   },
-  clearTimeout(id) {
+  clearTimeout(id: number) {
     timers.timeouts.delete(id);
   },
 };
 
-const installGlobal = (name, value) => {
+const installGlobal = (name: string, value: unknown) => {
   const original = Object.getOwnPropertyDescriptor(globalThis, name);
   Object.defineProperty(globalThis, name, {
     value,
@@ -248,7 +297,7 @@ const installGlobal = (name, value) => {
   };
 };
 
-let restoreWindow = null;
+let restoreWindow: (() => void) | null = null;
 
 before(() => {
   restoreWindow = installGlobal("window", windowStub);
@@ -259,7 +308,17 @@ after(() => {
   restoreWindow = null;
 });
 
-const configurationOf = ({ bpm, rhythms, envelope }) =>
+interface ConfigurationInput {
+  bpm: number;
+  rhythms: Array<{
+    signature: { count: number; unit: number };
+    subdivision: number;
+    steps?: string[];
+  }>;
+  envelope: { shape: string; amount: number };
+}
+
+const configurationOf = ({ bpm, rhythms, envelope }: ConfigurationInput) =>
   createConfiguration({
     bpm,
     masterVolume: 0.8,
@@ -272,7 +331,10 @@ const configurationOf = ({ bpm, rhythms, envelope }) =>
  * run needed to exist is built before the counters are zeroed, so every number
  * below is work the engine chose to do *again* on a tick.
  */
-async function runTicks(configuration, requestedTicks) {
+async function runTicks(
+  configuration: ReturnType<typeof createConfiguration>,
+  requestedTicks?: number,
+) {
   timers.intervals.clear();
   timers.timeouts.clear();
   const context = new CountingAudioContext();
@@ -295,7 +357,7 @@ async function runTicks(configuration, requestedTicks) {
 
   // Past every scheduled stop, so every source has had its `ended`.
   context.advance(1);
-  const perSecond = (value) => Number((value / elapsedSeconds).toFixed(1));
+  const perSecond = (value: number) => Number((value / elapsedSeconds).toFixed(1));
   const counts = {
     ...context.counts,
     automation: { ...context.counts.automation },
