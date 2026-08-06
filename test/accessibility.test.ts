@@ -65,24 +65,30 @@ function contrastRatio(foreground, background) {
  * Custom properties resolved to a hex value, following a property declared as
  * `var()` on another through to the literal it ends at.
  *
- * The alias has to be followed rather than skipped, because every check below
- * ignores a token it cannot resolve — so a colour that stopped being a literal
- * would not fail here, it would quietly stop being examined, and the test would
- * report on a stylesheet it had lost sight of. `--accent` is exactly that case:
- * it names a swatch rather than repeating one's hex.
+ * The alias has to be followed rather than skipped, because a token this cannot
+ * resolve is a colour the checks below cannot measure. `--accent` is exactly
+ * that case: it names a swatch rather than repeating one's hex. Resolving the
+ * alias and reporting what is still unresolved are the two halves of the same
+ * guarantee — that a stylesheet this has lost sight of says so.
  *
  * A chain is walked to its end for the same reason, and the seen set is what
  * keeps a pair of properties naming each other from walking forever.
+ *
+ * Both patterns end on a `;` or the end of the block, because the last
+ * declaration in a block is the one nobody writes a semicolon after and it is a
+ * declaration like any other. It is still a terminator rather than nothing:
+ * without one, `#ffffff00` would be read as `#ffffff` and the token would be
+ * collected at an opacity it does not have.
  */
 function colorTokens(css) {
   const tokens = new Map(
-    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-f]{6})\s*;/gi), (match) => [
+    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-f]{6})\s*(?=[;}]|$)/gi), (match) => [
       match[1],
       match[2].toLowerCase(),
     ]),
   );
   const aliases = new Map(
-    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*var\((--[\w-]+)\)\s*;/g), (match) => [
+    Array.from(css.matchAll(/(--[\w-]+)\s*:\s*var\((--[\w-]+)\)\s*(?=[;}]|$)/g), (match) => [
       match[1],
       match[2],
     ]),
@@ -359,16 +365,18 @@ test("each Accent swatch states the contrast it clears on the card", async () =>
 });
 
 /**
- * The palette separates surfaces, text and lines, and the line tokens are dark
- * enough that borders read as hairlines. Tinting text with one looks
- * deliberate and still fails WCAG 1.4.3, so check the ratio rather than the
- * intent. Only `var()` colours are resolvable here; a literal hex is left to
- * the rule that pairs it with its own background.
+ * Every reading colour that fails the ratio, and every one that could not be
+ * read at all. The second kind is a failure rather than a skip because the two
+ * are indistinguishable once the suite is green: a colour nobody measured and a
+ * colour measured and found sound both report as silence. A rule declaring no
+ * `color: var()` is the one genuine nothing here — it has no reading colour to
+ * answer for — and an unresolvable token is not that. It is this check losing
+ * sight of a colour that is still on screen, so it says which selector and which
+ * token went unmeasured.
  */
-test("text colours meet WCAG AA against every surface", async () => {
-  const css = await readFile("styles.css", "utf8");
+function contrastFailures(css, surfaceNames) {
   const tokens = colorTokens(css);
-  const surfaces = SURFACE_TOKENS.map((name) => {
+  const surfaces = surfaceNames.map((name) => {
     const value = tokens.get(name);
     assert.ok(value, `Expected a hex value for the surface token ${name}`);
     return { name, value };
@@ -378,8 +386,13 @@ test("text colours meet WCAG AA against every surface", async () => {
   for (const { selector, declarations } of cssRules(css)) {
     if (decorative(selector)) continue;
     const declared = declarations.match(/(^|[;{\s])color\s*:\s*var\((--[\w-]+)\)/);
-    const foreground = declared && tokens.get(declared[2]);
-    if (!foreground) continue;
+    if (!declared) continue;
+
+    const foreground = tokens.get(declared[2]);
+    if (!foreground) {
+      failures.push(`${selector} { color: var(${declared[2]}) } resolves to no hex value`);
+      continue;
+    }
 
     for (const surface of surfaces) {
       const ratio = contrastRatio(foreground, surface.value);
@@ -391,5 +404,49 @@ test("text colours meet WCAG AA against every surface", async () => {
     }
   }
 
-  assert.deepEqual(failures, []);
+  return failures;
+}
+
+/**
+ * The palette separates surfaces, text and lines, and the line tokens are dark
+ * enough that borders read as hairlines. Tinting text with one looks
+ * deliberate and still fails WCAG 1.4.3, so check the ratio rather than the
+ * intent. Only `var()` colours are resolvable here; a literal hex is left to
+ * the rule that pairs it with its own background.
+ */
+test("text colours meet WCAG AA against every surface", async () => {
+  const css = await readFile("styles.css", "utf8");
+
+  assert.deepEqual(contrastFailures(css, SURFACE_TOKENS), []);
+});
+
+/**
+ * Every token in the stylesheet today happens to carry a trailing semicolon, so
+ * requiring one measured everything and would have gone on doing so right up
+ * until somebody wrote the last declaration in a block without one. What that
+ * costs is not a loud failure but a token nobody can resolve any more, which is
+ * a colour that stops being measured while the suite goes on reporting green.
+ */
+test("a hex token that ends its block is collected", () => {
+  const tokens = colorTokens(":root { --ink: #101010; --paper: #ffffff }");
+
+  assert.equal(tokens.get("--ink"), "#101010");
+  assert.equal(tokens.get("--paper"), "#ffffff");
+});
+
+/**
+ * The ratio check can only measure a colour it can resolve to a hex, and the
+ * tempting thing to do with one it cannot is to move on. That is the failure
+ * mode this test exists to prevent: an unmeasured colour and a colour measured
+ * and found sound are indistinguishable in a passing suite, so the unresolvable
+ * one has to be reported by name.
+ */
+test("a colour naming an unresolvable token is reported, not skipped", () => {
+  const css = ":root { --paper: #ffffff; } .thing { color: var(--absent); }";
+
+  const failures = contrastFailures(css, ["--paper"]);
+
+  assert.equal(failures.length, 1, `Expected the unresolvable colour to fail: ${failures}`);
+  assert.match(failures[0], /\.thing/);
+  assert.match(failures[0], /--absent/);
 });
