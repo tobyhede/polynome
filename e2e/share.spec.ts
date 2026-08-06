@@ -1,14 +1,151 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 import { createConfiguration } from "../configuration.ts";
 import { decodeShareConfigurationFragment, encodeShareConfiguration } from "../share.ts";
 
+const STORED_CONFIGURATION_KEY = "polynome-configuration-v2";
+
 type ShareScratchWindow = Window & {
+  announcementLog?: string[];
   copiedShareUrl?: string;
-  releaseShareDecoding?: () => void;
-  shareDecodeStarted?: boolean;
+  releaseShareDecode?: (index: number) => void;
+  shareDecodeBegun?: (index: number) => boolean;
   sharedData?: ShareData;
 };
+
+/**
+ * Holds Share decoding open, one decode at a time. `DecompressionStream` is the
+ * narrowest seam a decode can be stalled through from outside the application,
+ * and holding two of them open at once is what turns two concurrent Share loads
+ * from a race the runner decides into an interleaving this file chooses: decodes
+ * are numbered in the order they begin, and each one resumes only when its own
+ * number is released.
+ */
+async function stallShareDecoding(page: Page) {
+  await page.addInitScript(() => {
+    const NativeDecompressionStream = window.DecompressionStream;
+    const releases: (() => void)[] = [];
+    const begun: boolean[] = [];
+    const scratch = window as ShareScratchWindow;
+    scratch.releaseShareDecode = (index) => releases[index]?.();
+    scratch.shareDecodeBegun = (index) => begun[index] === true;
+    Object.defineProperty(window, "DecompressionStream", {
+      configurable: true,
+      value: class {
+        readable: ReadableStream;
+        writable: WritableStream;
+
+        constructor(format: CompressionFormat) {
+          const native = new NativeDecompressionStream(format);
+          const index = releases.length;
+          const gate = new Promise<void>((resolve) => {
+            releases.push(resolve);
+          });
+          this.writable = native.writable;
+          this.readable = native.readable.pipeThrough(
+            new TransformStream({
+              async transform(chunk, controller) {
+                begun[index] = true;
+                await gate;
+                controller.enqueue(chunk);
+              },
+            }),
+          );
+        }
+      },
+    });
+  });
+}
+
+const decodeBegun = (page: Page, index: number) =>
+  page.evaluate((at) => (window as ShareScratchWindow).shareDecodeBegun?.(at), index);
+
+const releaseDecode = (page: Page, index: number) =>
+  page.evaluate((at) => (window as ShareScratchWindow).releaseShareDecode?.(at), index);
+
+const storedBpm = (page: Page) =>
+  page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key) ?? "null")?.bpm,
+    STORED_CONFIGURATION_KEY,
+  );
+
+const seedStoredConfiguration = (page: Page, bpm: number) =>
+  page.addInitScript(
+    ([key, seededBpm]) => {
+      localStorage.setItem(
+        key as string,
+        JSON.stringify({ bpm: seededBpm, sequence: { cycles: [{ rhythms: [{}] }] } }),
+      );
+    },
+    [STORED_CONFIGURATION_KEY, bpm],
+  );
+
+/**
+ * The order in which the shell closes, is handed back, and has each message
+ * written into `#status` or `#feedback`. Both regions live inside `<main>`, and
+ * an inert subtree is out of the accessibility tree, so a message written while
+ * the shell is still inert is a live-region mutation with nothing listening —
+ * and lifting `inert` afterwards leaves nothing to announce.
+ *
+ * The shell's state is carried from record to record rather than read off the
+ * document, because handing the shell back and writing the message are one
+ * synchronous block and this callback runs after it: read live, `inert` is
+ * already gone whichever order the two happened in. Records arrive in the order
+ * the mutations did, so this is the ordering itself and not a timing.
+ *
+ * The shell's own transitions are logged beside the messages, and that is what
+ * an assertion can hold the ordering by. A log of messages alone reads
+ * `inert=false` throughout on a page where nothing ever sets `inert`, so it
+ * passes most easily on the page that has had the behaviour removed.
+ *
+ * Two things keep an entry to the mutation that produced it. The text comes off
+ * the record rather than off the region, because the region read back at flush
+ * time holds whatever the last write in the block left, which would stamp the
+ * final message onto every earlier entry. And a write that leaves a region
+ * showing exactly what it already showed is not logged: a render restating the
+ * transport status it was already displaying announces nothing, and logging it
+ * would make the timeline a record of renders rather than of what was said.
+ */
+async function recordAnnouncements(page: Page) {
+  await page.addInitScript(() => {
+    const log: string[] = [];
+    (window as ShareScratchWindow).announcementLog = log;
+    let shellInert = false;
+    const announced: Record<string, string> = {};
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const element =
+          record.target instanceof Element ? record.target : record.target.parentElement;
+        if (!element) continue;
+        if (record.type === "attributes") {
+          if (!element.matches("main")) continue;
+          shellInert = element.hasAttribute("inert");
+          log.push(`shell inert=${shellInert}`);
+          continue;
+        }
+        const region = element.closest("#status, #feedback");
+        if (!region) continue;
+        const text = (
+          record.type === "childList"
+            ? Array.from(record.addedNodes, (node) => node.textContent ?? "").join("")
+            : (record.target as CharacterData).data
+        ).trim();
+        if (!text || announced[region.id] === text) continue;
+        announced[region.id] = text;
+        log.push(`${region.id} inert=${shellInert}: ${text}`);
+      }
+    }).observe(document, {
+      attributeFilter: ["inert"],
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+  });
+}
+
+const announcements = (page: Page) =>
+  page.evaluate(() => (window as ShareScratchWindow).announcementLog ?? []);
 
 test("a Share link replaces and persists the unnamed stopped workspace", async ({ page }) => {
   const payload = await encodeShareConfiguration(
@@ -30,6 +167,16 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
   await expect(
     page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
   ).toHaveValue("175");
+  // The Meter travelled too, and this is the only place that says so through the
+  // browser: the layer names itself 7/8 and lays out one Beat control per
+  // signature unit, so both halves of the Signature are read back off what was
+  // rendered rather than off the payload. The codec seam is covered from Node in
+  // `test/share.test.ts`; what is asserted here is that the link reached the
+  // interface.
+  const voices = page.getByRole("group", { name: "7/8 beat voices" });
+  await expect(voices).toBeVisible();
+  await expect(voices.getByRole("button")).toHaveCount(7);
+  await expect(voices.getByRole("button").first()).toHaveAccessibleName("Beat 1: primary voice");
   await expect(page.getByRole("button", { name: "Play metronome" })).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -53,42 +200,11 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
 
 test("the workspace stays unavailable until a Share link finishes loading", async ({ page }) => {
   const payload = await encodeShareConfiguration(createConfiguration({ bpm: 175 }));
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      "polynome-configuration-v2",
-      JSON.stringify({ bpm: 90, sequence: { cycles: [{ rhythms: [{}] }] } }),
-    );
-    const NativeDecompressionStream = window.DecompressionStream;
-    const decodingGate = new Promise<void>((resolve) => {
-      (window as ShareScratchWindow).releaseShareDecoding = resolve;
-    });
-    Object.defineProperty(window, "DecompressionStream", {
-      configurable: true,
-      value: class {
-        readable: ReadableStream;
-        writable: WritableStream;
-
-        constructor(format: CompressionFormat) {
-          const native = new NativeDecompressionStream(format);
-          this.writable = native.writable;
-          this.readable = native.readable.pipeThrough(
-            new TransformStream({
-              async transform(chunk, controller) {
-                (window as ShareScratchWindow).shareDecodeStarted = true;
-                await decodingGate;
-                controller.enqueue(chunk);
-              },
-            }),
-          );
-        }
-      },
-    });
-  });
+  await seedStoredConfiguration(page, 90);
+  await stallShareDecoding(page);
 
   await page.goto(`/#share=${payload}`);
-  await expect
-    .poll(() => page.evaluate(() => (window as ShareScratchWindow).shareDecodeStarted))
-    .toBe(true);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
 
   const workspace = page.locator("main");
   await expect(workspace).toHaveAttribute("inert", "");
@@ -100,7 +216,7 @@ test("the workspace stays unavailable until a Share link finishes loading", asyn
   await page.keyboard.press("Space");
   await expect(play).toHaveAttribute("aria-pressed", "false");
 
-  await page.evaluate(() => (window as ShareScratchWindow).releaseShareDecoding?.());
+  await releaseDecode(page, 0);
 
   await expect(workspace).not.toHaveAttribute("inert", "");
   await expect(
@@ -108,13 +224,79 @@ test("the workspace stays unavailable until a Share link finishes loading", asyn
   ).toHaveValue("175");
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   await page.waitForTimeout(500);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => JSON.parse(localStorage.getItem("polynome-configuration-v2") ?? "null")?.bpm,
-      ),
-    )
-    .toBe(175);
+  await expect.poll(() => storedBpm(page)).toBe(175);
+});
+
+/**
+ * The two loads below are the pair the application cannot serialize on its own:
+ * a startup load and a `hashchange` load, in flight together and finishing in
+ * whatever order their decoding does. Both tests hold each decode open by number
+ * so the losing one finishes at a moment of this file's choosing.
+ */
+test("a superseded Share load leaves the newer link's workspace alone", async ({ page }) => {
+  // Gzips cleanly, so the stalled decode reaches the Configuration check and
+  // fails there. That is the branch worth superseding: it carries a fallback
+  // captured before the newer link existed, and a message that would land over a
+  // Configuration which loaded correctly.
+  const supersededPayload = await encodeShareConfiguration({ sequence: { cycles: [] } });
+  const newerPayload = await encodeShareConfiguration(createConfiguration({ bpm: 143 }));
+  await seedStoredConfiguration(page, 90);
+  await stallShareDecoding(page);
+
+  await page.goto(`/#share=${supersededPayload}`);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
+  await page.evaluate((payload) => {
+    location.hash = `share=${payload}`;
+  }, newerPayload);
+  await expect.poll(() => decodeBegun(page, 1)).toBe(true);
+
+  await releaseDecode(page, 1);
+
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
+  await expect(bpm).toHaveValue("143");
+  await expect(page.locator("main")).not.toHaveAttribute("inert", "");
+  await expect.poll(() => storedBpm(page)).toBe(143);
+
+  await releaseDecode(page, 0);
+  // A superseded load does nothing, and nothing is what there is to wait for, so
+  // this is the settle a negative needs: long enough for the released decode and
+  // everything chained behind it to have run.
+  await page.waitForTimeout(500);
+
+  await expect(bpm).toHaveValue("143");
+  await expect(page.locator("#feedback")).toBeHidden();
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  expect(await storedBpm(page)).toBe(143);
+});
+
+test("a superseded Share load does not hand back a workspace still loading", async ({ page }) => {
+  const supersededPayload = await encodeShareConfiguration(createConfiguration({ bpm: 175 }));
+  const newerPayload = await encodeShareConfiguration(createConfiguration({ bpm: 143 }));
+  await seedStoredConfiguration(page, 90);
+  await stallShareDecoding(page);
+
+  await page.goto(`/#share=${supersededPayload}`);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
+  await page.evaluate((payload) => {
+    location.hash = `share=${payload}`;
+  }, newerPayload);
+  await expect.poll(() => decodeBegun(page, 1)).toBe(true);
+
+  await releaseDecode(page, 0);
+  await page.waitForTimeout(500);
+
+  const workspace = page.locator("main");
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
+  await expect(workspace).toHaveAttribute("inert", "");
+  await expect(bpm).toHaveValue("90");
+  await expect(page.locator("#feedback")).toBeHidden();
+  expect(await storedBpm(page)).toBe(90);
+
+  await releaseDecode(page, 1);
+
+  await expect(workspace).not.toHaveAttribute("inert", "");
+  await expect(bpm).toHaveValue("143");
+  await expect.poll(() => storedBpm(page)).toBe(143);
 });
 
 test("a Share fragment received by an open page replaces the workspace", async ({ page }) => {
@@ -364,6 +546,102 @@ test("an invalid Share link preserves the stored workspace and reports the failu
   if (!feedbackBox) throw new Error("Visible Share feedback has no bounding box");
   expect(feedbackBox.x + feedbackBox.width).toBeLessThanOrEqual(360);
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("#share=not-a-gzip-payload");
+});
+
+/**
+ * A load that fails adopts the workspace it was handed as its own fallback, so
+ * the Configuration left on screen is the one that was already there and nothing
+ * about it arrived from the link — least of all the Preset it came from. Clearing
+ * the Preset origin regardless leaves a Configuration identical to a stored
+ * Preset reading as unsaved, and + Save then offers, under a blank name, to store
+ * a second copy of the Preset that is already there.
+ */
+test("an invalid Share link leaves an applied Preset still saved", async ({ page }) => {
+  await page.goto("/");
+  const presets = page.getByRole("button", { name: "Presets", exact: true });
+  await presets.click();
+  await page.getByRole("button", { name: /^4\/4 8ths\b/ }).click();
+  await presets.click();
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  await expect(openSave).toHaveAttribute("aria-disabled", "true");
+
+  await page.evaluate(() => {
+    location.hash = "share=not-a-gzip-payload";
+  });
+
+  await expect(page.locator("#feedback")).toHaveText("This share link could not be loaded.");
+  await expect(page.getByRole("status")).toHaveText("This share link could not be loaded.");
+  await expect(
+    page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
+  ).toHaveValue("120");
+  await expect(openSave).toHaveAttribute("aria-disabled", "true");
+  await expect(openSave).toHaveAttribute("title", "No changes to save");
+  await expect(openSave).not.toHaveClass(/\bis-live\b/);
+  await expect(page.locator("#preset-save-reason")).toHaveText("No changes to save");
+});
+
+/**
+ * Issue #34 asks the Share feedback surface for corresponding live-region
+ * announcements, and both regions sit inside the shell a Share load makes inert.
+ * The two tests below hold the ordering that makes the announcement reach the
+ * accessibility tree at all, on each of the paths that can load a link.
+ *
+ * The whole timeline is asserted rather than the two messages being looked for
+ * within it, and that is what makes either test capable of failing. A load that
+ * never closed the shell would report `inert=false` at every point and satisfy
+ * any assertion phrased as "each message carried `inert=false`", so the closing
+ * and the handing back are entries in their own right and the message entries
+ * have to fall after both. Asserted as a whole rather than as a subset, a
+ * message written twice — once into the inert shell and again out of it — is a
+ * timeline that no longer matches, where a subset would still find what it was
+ * looking for.
+ *
+ * It opens on the transport status the markup arrives carrying, logged as the
+ * parser writes it and before any load has begun.
+ */
+const FAILURE_ANNOUNCEMENTS = [
+  "status inert=false: Stopped",
+  "shell inert=true",
+  "shell inert=false",
+  "feedback inert=false: This share link could not be loaded.",
+  "status inert=false: This share link could not be loaded.",
+];
+
+test("an invalid Share link announces its failure outside the inert shell", async ({ page }) => {
+  await recordAnnouncements(page);
+  await seedStoredConfiguration(page, 91);
+
+  await page.goto("/#share=not-a-gzip-payload");
+
+  await expect(page.locator("#feedback")).toHaveText("This share link could not be loaded.");
+  await expect(page.locator("main")).not.toHaveAttribute("inert", "");
+  // The workspace the link failed to replace, which is the other half of what a
+  // failure has to leave behind: the message says so, and this is what it is
+  // saying it about.
+  await expect(
+    page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
+  ).toHaveValue("91");
+  expect(await announcements(page)).toEqual(FAILURE_ANNOUNCEMENTS);
+});
+
+test("an invalid Share fragment on an open page announces outside the inert shell", async ({
+  page,
+}) => {
+  await recordAnnouncements(page);
+  await seedStoredConfiguration(page, 91);
+  await page.goto("/");
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+
+  await page.evaluate(() => {
+    location.hash = "share=not-a-gzip-payload";
+  });
+
+  await expect(page.locator("#feedback")).toHaveText("This share link could not be loaded.");
+  await expect(page.locator("main")).not.toHaveAttribute("inert", "");
+  await expect(
+    page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
+  ).toHaveValue("91");
+  expect(await announcements(page)).toEqual(FAILURE_ANNOUNCEMENTS);
 });
 
 test("a Share link remains recoverable when workspace storage is refused", async ({ page }) => {

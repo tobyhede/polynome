@@ -28,6 +28,26 @@ JSON and values without the Configuration's core structure leave the local
 workspace untouched and report a visible failure. Decompression stops and
 rejects beyond 64 KiB so an untrusted fragment cannot expand without bound.
 
+Nothing holds concurrent loads in order, and the newest link wins. A load still
+decoding when another arrives — a startup load overtaken by a fragment set on
+the open page, or two fragments in quick succession — finishes whenever its own
+decoding does rather than in the order the links were opened. Each load is
+numbered as it begins and does nothing at all once a later one exists, touching
+neither storage, nor the URL, nor the interface, and its failure message is
+discarded with it. The fallback a superseded load carries was captured before
+the newer link existed, so reporting it would replace a Configuration that
+loaded correctly with an older one and announce a link nobody is waiting on any
+more.
+
+The workspace is inert for the duration of a load, so a link cannot be edited
+over while it lands, and it is handed back before the outcome is announced.
+Both the visible failure and the status live region sit inside it, and an inert
+subtree is outside the accessibility tree: a message written into one is a
+live-region change with nothing listening, and lifting the inertness afterwards
+leaves nothing left to announce. The hand-back and the message are one
+synchronous step, so there is no moment in between for input to reach a
+workspace still loading.
+
 The top-menu Share control invokes the native share sheet with the title
 `Polynome` and the URL alone, falling back to clipboard when native sharing is
 absent or fails. Cancelling a native share is silent. The control shares the

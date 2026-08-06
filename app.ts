@@ -241,12 +241,20 @@ async function shareCurrentConfiguration() {
   }
 }
 
-async function loadSharedConfiguration(fallbackConfiguration) {
-  if (typeof location === "undefined" || !isShareConfigurationFragment(location.hash)) {
-    return null;
-  }
+/**
+ * Nothing serialises Share loads. The startup load and a `hashchange` can be in
+ * flight together, and two `hashchange`s in quick succession just as easily, and
+ * they finish in the order their decoding takes rather than the order the reader
+ * asked for them in. Each load claims the next number here and does nothing at
+ * all once a later one exists, so the link opened first cannot land last and
+ * write itself over the newer one — in storage, in the URL, or in the interface.
+ */
+let shareLoadGeneration = 0;
+
+async function loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent) {
   try {
-    const configuration = await decodeShareConfigurationFragment(location.hash);
+    const configuration = await decodeShareConfigurationFragment(fragment);
+    if (!isCurrent()) return null;
     try {
       writeState(configuration);
       history.replaceState(null, "", `${location.pathname}${location.search}`);
@@ -256,6 +264,11 @@ async function loadSharedConfiguration(fallbackConfiguration) {
     }
     return { configuration };
   } catch {
+    // A superseded failure is discarded rather than reported: its fallback was
+    // captured before the newer link existed, so adopting it would replace a
+    // Configuration that loaded correctly with an older one and a message about
+    // a link nobody is waiting on any more.
+    if (!isCurrent()) return null;
     return {
       configuration: fallbackConfiguration,
       feedback: "This share link could not be loaded.",
@@ -263,14 +276,59 @@ async function loadSharedConfiguration(fallbackConfiguration) {
   }
 }
 
+/**
+ * A load that failed adopts the workspace it was handed as its own fallback, so
+ * the Configuration here is the one already in hand and nothing about it arrived
+ * from the link. That is what the identity check separates, and everything the
+ * link would have replaced hangs off it: the run it would have stopped, and the
+ * Preset origin, which is a claim about where this Configuration came from and
+ * stays true when nothing replaced it. Cleared regardless, a Configuration that
+ * still is a stored Preset reads as unsaved, and + Save offers to store a second
+ * copy of it under a blank name.
+ */
 function adoptSharedConfiguration(shared) {
-  if (shared.configuration !== state) engine.stop();
-  state = shared.configuration;
-  description = describeConfiguration(state);
-  presetOrigin = null;
+  if (shared.configuration !== state) {
+    engine.stop();
+    state = shared.configuration;
+    description = describeConfiguration(state);
+    presetOrigin = null;
+  }
   renderInterface();
   if (shared.feedback) showFeedback(shared.feedback);
   else clearFeedback();
+}
+
+/**
+ * The whole arrival of a Share link, and the one route to it: the workspace
+ * closes, the fragment decodes, and the outcome is either adopted or discarded
+ * because a newer link has arrived meanwhile.
+ *
+ * The fragment is read once, before the first await. `location.hash` is free to
+ * change while this decodes, and a load that decoded one link must never consume
+ * or report another.
+ *
+ * `inert` lifts before the outcome is adopted rather than after it. `#status` and
+ * `#feedback` both live inside the shell, and an inert subtree is outside the
+ * accessibility tree, so a message written while it is still inert is a live
+ * region mutation with nothing listening — and lifting `inert` afterwards leaves
+ * nothing left to announce. The two statements share one synchronous block, so
+ * there is no moment in between for input to reach a workspace still loading.
+ */
+async function openSharedConfiguration(fallbackConfiguration) {
+  if (typeof location === "undefined" || !isShareConfigurationFragment(location.hash)) return;
+  const fragment = location.hash;
+  shareLoadGeneration += 1;
+  const generation = shareLoadGeneration;
+  const isCurrent = () => shareLoadGeneration === generation;
+  elements.appShell.inert = true;
+  persistence.flush();
+  const shared = await loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent);
+  // Nothing comes back from a load a newer one has superseded, and that is the
+  // only way nothing comes back: the newer load owns the workspace from that
+  // moment, so this one neither hands it back nor says anything about it.
+  if (!shared) return;
+  elements.appShell.inert = false;
+  adoptSharedConfiguration(shared);
 }
 
 /**
@@ -2646,27 +2704,12 @@ elements.shareConfiguration.hidden = !(
   typeof CompressionStream === "function" && typeof DecompressionStream === "function"
 );
 elements.shareConfiguration.addEventListener("click", shareCurrentConfiguration);
-const loadingInitialShare =
-  typeof location !== "undefined" && isShareConfigurationFragment(location.hash);
-elements.appShell.inert = loadingInitialShare;
+// Started before the first render rather than after it: everything up to the
+// decode runs synchronously, so a link already in the URL closes the workspace
+// before anything is painted into it.
+openSharedConfiguration(state);
 renderInterface();
-loadSharedConfiguration(state)
-  .then((shared) => {
-    if (shared) adoptSharedConfiguration(shared);
-  })
-  .finally(() => {
-    elements.appShell.inert = false;
-  });
 
-window.addEventListener("hashchange", async () => {
-  if (!isShareConfigurationFragment(location.hash)) return;
-  const fallback = state;
-  elements.appShell.inert = true;
-  persistence.flush();
-  try {
-    const shared = await loadSharedConfiguration(fallback);
-    if (shared) adoptSharedConfiguration(shared);
-  } finally {
-    elements.appShell.inert = false;
-  }
+window.addEventListener("hashchange", () => {
+  openSharedConfiguration(state);
 });
