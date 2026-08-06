@@ -38,7 +38,11 @@ import {
 type FakeContextState = "suspended" | "running" | "interrupted" | "closed";
 
 /** How a test wants a context lifecycle operation to settle, or refuse to. */
-type RecoveryBehaviour = "resolve" | "hang" | "reject" | "transition";
+type RecoveryBehaviour = "resolve" | "hang" | "reject" | "transition" | "defer";
+
+interface DeferredRecovery {
+  resolve: () => void;
+}
 
 interface FakeContextOptions {
   state?: FakeContextState;
@@ -229,6 +233,7 @@ class FakeAudioContext extends EventTarget {
   declare oscillators: FakeOscillatorNode[];
   declare resumeCalls: number;
   declare resumeBehaviour: RecoveryBehaviour;
+  declare deferredResumes: DeferredRecovery[];
   declare suspendCalls: number;
   declare suspendBehaviour: RecoveryBehaviour;
 
@@ -249,6 +254,7 @@ class FakeAudioContext extends EventTarget {
     this.oscillators = [];
     this.resumeCalls = 0;
     this.resumeBehaviour = resume;
+    this.deferredResumes = [];
     this.suspendCalls = 0;
     this.suspendBehaviour = suspend;
   }
@@ -327,11 +333,23 @@ class FakeAudioContext extends EventTarget {
   resume() {
     this.resumeCalls += 1;
     if (this.resumeBehaviour === "hang") return new Promise(() => {});
+    if (this.resumeBehaviour === "defer") {
+      return new Promise<void>((resolve) => {
+        this.deferredResumes.push({ resolve });
+      });
+    }
     if (this.resumeBehaviour === "reject") {
       return Promise.reject(new Error("not allowed to start"));
     }
     if (this.resumeBehaviour === "transition") this.setState("running");
     return Promise.resolve();
+  }
+
+  resolveNextResume(nextState?: FakeContextState) {
+    const recovery = this.deferredResumes.shift();
+    assert.ok(recovery, "no deferred resume was requested");
+    if (nextState) this.setState(nextState);
+    recovery.resolve();
   }
 
   suspend() {
@@ -945,6 +963,115 @@ test("an unchanged suspended episode gets only one recovery attempt", async (t) 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(suspended.resumeCalls, 2);
+
+  engine.stop();
+});
+
+test("a stopped run's pending recovery cannot replace a new run on the same context", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const context = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 30 });
+  const contexts = [context, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  context.resumeBehaviour = "hang";
+  context.setState("suspended");
+
+  engine.stop();
+  context.setState("running");
+  context.currentTime = 10;
+  await engine.start(pulsePerSecond());
+  const newRunOrigin = engine.origin;
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.playing, true);
+  assert.equal(engine.origin, newRunOrigin);
+  assert.deepEqual(clickStarts(context), [0.06, 10.06]);
+  assert.deepEqual(contexts, [replacement]);
+
+  engine.stop();
+});
+
+test("one recovery governs a context across suspended and foreground paths", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const context = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 40 });
+  const contexts = [context, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  const origin = engine.origin;
+  context.resumeBehaviour = "defer";
+  context.setState("suspended");
+  context.setState("interrupted");
+  engine.checkAudioAfterForeground();
+
+  context.resolveNextResume("running");
+  await new Promise((resolve) => setImmediate(resolve));
+  while (timers.deadlines.size > 0) runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.playing, true);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(contexts, [replacement]);
+
+  engine.stop();
+});
+
+test("a clock probe hands a visible suspended transition to bounded recovery", async (t) => {
+  t.after(installGlobal("document", { visibilityState: "visible" }));
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const context = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 50 });
+  const contexts = [context, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  const origin = engine.origin;
+  engine.checkAudioAfterForeground();
+  context.resumeBehaviour = "transition";
+  context.setState("suspended");
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(context.state, "running");
+  assert.equal(context.resumeCalls, 1);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(contexts, [replacement]);
+
+  engine.stop();
+});
+
+test("a healthy run ignores the deadline of its completed recovery episode", async () => {
+  timers.callbacks.clear();
+  timers.deadlines.clear();
+  const context = new FakeAudioContext({ state: "running", currentTime: 0 });
+  const replacement = new FakeAudioContext({ state: "running", currentTime: 60 });
+  const contexts = [context, replacement];
+  const engine = new MetronomeEngine({ createContext: () => contexts.shift() });
+
+  await engine.start(pulsePerSecond());
+  const origin = engine.origin;
+  context.resumeBehaviour = "hang";
+  context.setState("interrupted");
+  engine.checkAudioAfterForeground();
+  context.setState("running");
+
+  runNextDeadline();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(engine.playing, true);
+  assert.equal(engine.origin, origin);
+  assert.deepEqual(contexts, [replacement]);
 
   engine.stop();
 });

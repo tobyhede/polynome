@@ -152,11 +152,11 @@ export class MetronomeEngine extends EventTarget {
   #unstartedTicks = 0;
   #reportedStuckContext = false;
   #holdsAudioSession = false;
-  #suspendedRecovery = null;
-  #foregroundRecovery = null;
+  #recovery = null;
   #recoveryAttemptedState = null;
   #softRecoveryContext = null;
   #replacement = null;
+  #runGeneration = 0;
 
   /**
    * WebKit fires `statechange` on every transition. Losing `"running"` during
@@ -270,6 +270,7 @@ export class MetronomeEngine extends EventTarget {
    * must not be handed back and taken again for the sake of one statement.
    */
   stop({ preserveContext = true, emit = true, releaseAudioSession = true } = {}) {
+    this.#runGeneration += 1;
     if (this.#timer !== null) {
       window.clearInterval(this.#timer);
       this.#timer = null;
@@ -280,6 +281,8 @@ export class MetronomeEngine extends EventTarget {
     this.#unstartedTicks = 0;
     this.#reportedStuckContext = false;
     this.#recoveryAttemptedState = null;
+    this.#recovery = null;
+    this.#softRecoveryContext = null;
 
     for (const source of this.#scheduledSources) {
       try {
@@ -350,8 +353,7 @@ export class MetronomeEngine extends EventTarget {
     const context = this.#context;
     const master = this.#master;
 
-    this.#suspendedRecovery = null;
-    this.#foregroundRecovery = null;
+    this.#recovery = null;
     this.#recoveryAttemptedState = null;
     this.#softRecoveryContext = null;
 
@@ -381,19 +383,22 @@ export class MetronomeEngine extends EventTarget {
 
   checkAudioAfterForeground() {
     const context = this.#context;
+    const runGeneration = this.#runGeneration;
     if (!this.#playing || !this.#anchored || !context) {
       return;
     }
 
     if (context.state === "closed") {
-      const recovery = Promise.resolve(this.#replaceAfterForegroundFailure(context)).finally(() => {
-        if (this.#foregroundRecovery === recovery) this.#foregroundRecovery = null;
+      const recovery = Promise.resolve(
+        this.#replaceAfterForegroundFailure(context, null, runGeneration),
+      ).finally(() => {
+        this.#finishRecovery(recovery, context, runGeneration);
       });
-      this.#foregroundRecovery = recovery;
+      this.#recovery = recovery;
       return;
     }
 
-    if (this.#foregroundRecovery) return;
+    if (this.#recovery) return;
 
     if (context.state === "suspended") {
       this.#recoverSuspendedContext(context);
@@ -405,12 +410,13 @@ export class MetronomeEngine extends EventTarget {
       this.#recoveryAttemptedState = "interrupted";
       const recovery = this.#resumeByDeadline(context)
         .catch((recoveryError) => {
-          return this.#replaceAfterForegroundFailure(context, recoveryError);
+          if (context.state !== "interrupted") return null;
+          return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
         })
         .finally(() => {
-          if (this.#foregroundRecovery === recovery) this.#foregroundRecovery = null;
+          this.#finishRecovery(recovery, context, runGeneration);
         });
-      this.#foregroundRecovery = recovery;
+      this.#recovery = recovery;
       return;
     }
 
@@ -422,6 +428,7 @@ export class MetronomeEngine extends EventTarget {
       .then(() => {
         if (
           !this.#playing ||
+          runGeneration !== this.#runGeneration ||
           context !== this.#context ||
           context.state !== "running" ||
           context.currentTime !== sampledTime
@@ -435,6 +442,7 @@ export class MetronomeEngine extends EventTarget {
         }).then(() => {
           if (
             !this.#playing ||
+            runGeneration !== this.#runGeneration ||
             context !== this.#context ||
             context.state !== "running" ||
             context.currentTime !== postGraceTime
@@ -455,6 +463,7 @@ export class MetronomeEngine extends EventTarget {
         if (
           !softRecovered ||
           !this.#playing ||
+          runGeneration !== this.#runGeneration ||
           context !== this.#context ||
           context.state !== "running"
         ) {
@@ -467,6 +476,7 @@ export class MetronomeEngine extends EventTarget {
         }).then(() => {
           if (
             !this.#playing ||
+            runGeneration !== this.#runGeneration ||
             context !== this.#context ||
             context.state !== "running" ||
             context.currentTime !== recoveredTime
@@ -476,20 +486,28 @@ export class MetronomeEngine extends EventTarget {
           return this.#replaceAfterForegroundFailure(
             context,
             new Error("Audio clock is not advancing."),
+            runGeneration,
           );
         });
       })
       .catch((recoveryError) => {
-        return this.#replaceAfterForegroundFailure(context, recoveryError);
+        return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
       })
       .finally(() => {
-        if (this.#foregroundRecovery === recovery) this.#foregroundRecovery = null;
+        this.#finishRecovery(recovery, context, runGeneration);
       });
-    this.#foregroundRecovery = recovery;
+    this.#recovery = recovery;
   }
 
-  #replaceAfterForegroundFailure(context, recoveryError = null) {
-    if (!this.#playing || !this.#state || context !== this.#context) return null;
+  #replaceAfterForegroundFailure(context, recoveryError = null, runGeneration) {
+    if (
+      !this.#playing ||
+      !this.#state ||
+      context !== this.#context ||
+      runGeneration !== this.#runGeneration
+    ) {
+      return null;
+    }
     return this.restartAudio(this.#state).then(
       () => {
         if (recoveryError) {
@@ -500,6 +518,20 @@ export class MetronomeEngine extends EventTarget {
         this.dispatchEvent(new CustomEvent("audioerror", { detail: replacementError }));
       },
     );
+  }
+
+  #finishRecovery(recovery, context, runGeneration) {
+    if (this.#recovery !== recovery) return;
+    this.#recovery = null;
+    if (
+      !this.#playing ||
+      !this.#anchored ||
+      context !== this.#context ||
+      runGeneration !== this.#runGeneration
+    ) {
+      return;
+    }
+    if (context.state !== "running") this.checkAudioAfterForeground();
   }
 
   /**
@@ -582,17 +614,19 @@ export class MetronomeEngine extends EventTarget {
   }
 
   #recoverSuspendedContext(context) {
-    if (this.#suspendedRecovery || this.#recoveryAttemptedState === "suspended") return;
+    if (this.#recovery || this.#recoveryAttemptedState === "suspended") return;
     this.#recoveryAttemptedState = "suspended";
+    const runGeneration = this.#runGeneration;
 
     const recovery = this.#resumeByDeadline(context)
       .catch((recoveryError) => {
-        return this.#replaceAfterForegroundFailure(context, recoveryError);
+        if (context.state !== "suspended") return null;
+        return this.#replaceAfterForegroundFailure(context, recoveryError, runGeneration);
       })
       .finally(() => {
-        if (this.#suspendedRecovery === recovery) this.#suspendedRecovery = null;
+        this.#finishRecovery(recovery, context, runGeneration);
       });
-    this.#suspendedRecovery = recovery;
+    this.#recovery = recovery;
   }
 
   #resumeByDeadline(context) {
