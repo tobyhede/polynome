@@ -13,8 +13,8 @@ import {
   removeSavedPreset,
   sameConfiguration,
   savePreset,
-} from "../configuration.js";
-import { convertedEnvelopeAmount } from "../model.js";
+} from "../configuration.ts";
+import { convertedEnvelopeAmount } from "../model.ts";
 
 /**
  * Key insertion order carries no domain meaning, so a stored Configuration may
@@ -1174,10 +1174,12 @@ test("controls outside the Display mode's own count are rejected", () => {
   });
   const cycle = configuration.sequence.cycles[0];
 
-  for (const [displayMode, offered] of [
+  const counts: [displayMode: string, offered: number][] = [
     ["beat", 2],
     ["subdivision", 6],
-  ]) {
+  ];
+
+  for (const [displayMode, offered] of counts) {
     const { configuration: current } = changeConfiguration(configuration, {
       type: "set-display-mode",
       cycleId: cycle.id,

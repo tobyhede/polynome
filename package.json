@@ -5,21 +5,21 @@
   "type": "module",
   "description": "A tiny polyrhythm and polymeter metronome for the browser.",
   "scripts": {
-    "start": "node server.mjs",
-    "dev": "node server.mjs --reload",
+    "start": "node server.ts",
+    "dev": "node server.ts --reload",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "types": "tsc -p jsconfig.json",
+    "types": "tsc -p tsconfig.json",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='e2e/**' --test-coverage-lines=95 --test-coverage-branches=87 --test-coverage-functions=94",
     "test:browser": "npm run bundle && playwright test",
     "check": "npm run lint && npm run types && npm run test:coverage && npm run test:browser && npm run site",
-    "bundle": "node scripts/bundle.mjs",
-    "shots": "node scripts/shots.mjs",
-    "site": "node scripts/site.mjs"
+    "bundle": "node scripts/bundle.ts",
+    "shots": "node scripts/shots.ts",
+    "site": "node scripts/site.ts"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

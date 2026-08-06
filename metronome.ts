@@ -1,5 +1,5 @@
-import { lookup, SOUND, STEP, stepDurationSeconds } from "./model.js";
-import { SharedTransport } from "./shared-transport.js";
+import { lookup, SOUND, STEP, stepDurationSeconds } from "./model.ts";
+import { SharedTransport } from "./shared-transport.ts";
 
 const LOOK_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
@@ -46,7 +46,7 @@ const RESUME_RETRY_TICKS = Math.ceil(RESUME_RETRY_TIMEOUT_MS / SCHEDULER_INTERVA
  * How late a planned click may be and still be worth sounding: the committing
  * side of the two lateness policies this metronome runs.
  *
- * The planning side is `LATENESS_TOLERANCE_SECONDS` in `shared-transport.js`,
+ * The planning side is `LATENESS_TOLERANCE_SECONDS` in `shared-transport.ts`,
  * an order of magnitude tighter at 4 ms. `plan()` will not emit an event that
  * is already further behind than that, so every event reaching this method
  * started out comfortably inside these limits. What makes them reachable is the
@@ -168,7 +168,7 @@ export class MetronomeEngine extends EventTarget {
   #transport = new SharedTransport();
   #timer = null;
   #anchored = false;
-  #scheduledSources = new Set();
+  #scheduledSources = new Set<AudioScheduledSourceNode>();
   #unstartedTicks = 0;
   #reportedStuckContext = false;
   #ticksSinceResumeRequest = 0;
@@ -191,7 +191,7 @@ export class MetronomeEngine extends EventTarget {
    * `options.createContext` is an optional zero-argument factory returning an
    * AudioContext-like object. Without it the engine behaves exactly as before.
    */
-  constructor(options = {}) {
+  constructor(options: { createContext?: () => any } = {}) {
     super();
     this.#createContext =
       typeof options?.createContext === "function" ? options.createContext : createBrowserContext;
@@ -210,6 +210,9 @@ export class MetronomeEngine extends EventTarget {
   }
 
   async start(state) {
+    // Ahead of the context creation below, which can throw and is rethrown: a
+    // start that fails there leaves the engine holding the state it was asked
+    // to play rather than the previous run's.
     this.#state = state;
     // Before the context exists, so the very first one is created under the
     // session this run means to hold rather than the one it is replacing.
@@ -232,7 +235,6 @@ export class MetronomeEngine extends EventTarget {
     // Clearing the previous run is not the end of playback, so the session it
     // was holding carries straight over into this one.
     this.stop({ preserveContext: true, emit: false, releaseAudioSession: false });
-    this.#state = state;
     this.#playing = true;
     this.#syncNodes();
     try {

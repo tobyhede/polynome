@@ -1,4 +1,4 @@
-import { canonicalPattern, controls, DISPLAY_MODES, repairPattern } from "./grid.js";
+import { canonicalPattern, controls, DISPLAY_MODES, repairPattern } from "./grid.ts";
 import {
   createSequenceTempoCurves,
   ENVELOPE,
@@ -13,7 +13,22 @@ import {
   STEP,
   SUBDIVISION_LIMIT,
   TEMPO_LIMIT,
-} from "./model.js";
+} from "./model.ts";
+
+/**
+ * What arrives from outside this module and has not been checked yet: a parsed
+ * store, a Preset written by an older version, a caller's partial object. It
+ * carries the type `JSON.parse` returns because that is where most of it comes
+ * from and because nothing about it is known.
+ *
+ * Naming the shape instead would assert the guarantee these functions exist to
+ * establish. Every property below is read through a normaliser that supplies
+ * the canonical value when it is missing, of the wrong type, or out of range,
+ * so a declared shape would describe the output and describe the input wrongly
+ * — and the checker would then object to exactly the defensive reads that make
+ * the claim true.
+ */
+type Unvalidated = any;
 
 /**
  * A limit and the choices offered for it are one domain, so the list is built
@@ -53,7 +68,7 @@ function safeIdentifier(candidate, prefix) {
     : makeIdentifier(prefix);
 }
 
-function createRhythm(overrides = {}) {
+function createRhythm(overrides: Unvalidated = {}) {
   const signature = {
     count: Math.round(
       normaliseNumber(
@@ -75,12 +90,12 @@ function createRhythm(overrides = {}) {
     displayMode: DISPLAY_MODES.includes(overrides.displayMode) ? overrides.displayMode : "beat",
     steps: repairPattern(overrides.steps, signature.count, subdivision),
     // A value the Level slider can actually hold. Its step is `MIX_STEP` in
-    // `model.js`, and a default off that grid is rounded onto it by the control
+    // `model.ts`, and a default off that grid is rounded onto it by the control
     // itself without an event, leaving the thumb, this Configuration and the
     // audio graph on three different numbers. Written as the literal it is
     // rather than counted out in steps, because a count is a product and
     // `14 * 0.05` is `0.7000000000000001`, which is the same bug again.
-    // `test/model.test.js` holds every default here to its control's grid.
+    // `test/model.test.ts` holds every default here to its control's grid.
     volume: normaliseNumber(overrides.volume, 0.7, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,
@@ -115,7 +130,7 @@ function normaliseEnvelope(candidate) {
   };
 }
 
-function createCycle(overrides = {}) {
+function createCycle(overrides: Unvalidated = {}) {
   const rhythms = Array.isArray(overrides.rhythms)
     ? overrides.rhythms.map((rhythm) =>
         createRhythm(rhythm && typeof rhythm === "object" ? rhythm : {}),
@@ -162,7 +177,7 @@ function uniqueIdentifiers(cycles) {
  * Cycle arriving after the budget is spent is dropped, having no layer left to
  * be repaired with.
  */
-export function createConfiguration(input) {
+export function createConfiguration(input?: Unvalidated) {
   const source = input && typeof input === "object" ? input : {};
   let remainingRhythms = MAX_RHYTHMS;
   const sourceCycles = Array.isArray(source.sequence?.cycles) ? source.sequence.cycles : [];
@@ -343,7 +358,7 @@ function findPresetNamed(presets, name) {
  * malformed Configurations are repaired. Repeated names follow save semantics:
  * the later snapshot replaces the earlier one.
  */
-export function createSavedPresets(input) {
+export function createSavedPresets(input?: Unvalidated) {
   const candidates = Array.isArray(input) ? input : [];
   return candidates.reduce((presets, candidate) => {
     if (!candidate || typeof candidate !== "object") return presets;

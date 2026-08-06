@@ -8,7 +8,7 @@ import {
   controls,
   DISPLAY_MODES,
   repairPattern,
-} from "../grid.js";
+} from "../grid.ts";
 
 /**
  * The rhythm layers below are written by hand rather than through
@@ -16,7 +16,17 @@ import {
  * and must be testable without it. Every field these functions read is present;
  * the fields a Configuration carries for other reasons are not.
  */
-function layer({ count = 4, subdivision = 1, displayMode = "beat", steps } = {}) {
+function layer({
+  count = 4,
+  subdivision = 1,
+  displayMode = "beat",
+  steps,
+}: {
+  count?: number;
+  subdivision?: number;
+  displayMode?: string;
+  steps?: string[];
+} = {}) {
   return {
     signature: { count, unit: 4 },
     subdivision,

@@ -4,7 +4,7 @@ import {
   createSequenceTempoCurves,
   secondsAtBeat,
   tempoAtBeat,
-} from "./model.js";
+} from "./model.ts";
 
 /**
  * The planning side of the two lateness policies this metronome runs.
@@ -14,7 +14,7 @@ import {
  * At 4 ms that is roughly a couple of hundred frames at 48 kHz: below audible
  * displacement, and deliberately far stricter than the engine's own guard.
  *
- * The engine's `MAX_CLICK_LATENESS_SECONDS` in `metronome.js` is the committing
+ * The engine's `MAX_CLICK_LATENESS_SECONDS` in `metronome.ts` is the committing
  * side, and it is an order of magnitude looser. The two are not in competition
  * and the difference is not an oversight: this one is measured when an event is
  * planned, that one when it is committed, and the render clock moves between

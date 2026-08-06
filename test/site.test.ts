@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildDistribution, distributionVersion } from "../scripts/build.mjs";
+import { buildDistribution, distributionVersion } from "../scripts/build.ts";
 
 const projectRoot = new URL("..", import.meta.url);
 const output = new URL("../site/", import.meta.url);
@@ -63,10 +63,10 @@ test("site distribution versions transitive chunks without manual rewrites", asy
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), 'globalThis.loadFeature = () => import("./feature.js");'),
+    writeFile(join(fixture, "app.ts"), 'globalThis.loadFeature = () => import("./feature.js");'),
     writeFile(join(fixture, "feature.js"), 'export const feature = "discovered";'),
   ]);
 
@@ -162,20 +162,20 @@ test("site distribution versions every reference in the document", async (t) => 
     writeFile(
       join(fixture, "index.html"),
       [
-        '<link rel="modulepreload" href="./app.js" />',
+        '<link rel="modulepreload" href="./app.ts" />',
         '<link rel="preload" href="./styles.css" as="style" />',
         '<link rel="stylesheet" href="./styles.css" />',
-        '<script type="module" src="./app.js"></script>',
+        '<script type="module" src="./app.ts"></script>',
       ].join(""),
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
   ]);
 
   await buildDistribution({ target: "site", version: "everyref", projectRoot: fixture });
   const html = await readFile(join(fixture, "site", "index.html"), "utf8");
 
-  assert.doesNotMatch(html, /["']\.\/app\.js["']/);
+  assert.doesNotMatch(html, /["']\.\/app\.ts["']/);
   assert.doesNotMatch(html, /["']\.\/styles\.css["']/);
   assert.equal(html.match(/\.\/app-everyref\.js/g)?.length, 2);
   assert.equal(html.match(/\.\/styles-everyref\.css/g)?.length, 2);
@@ -187,12 +187,12 @@ test("site distribution refuses a document it cannot rewrite", async (t) => {
   await Promise.all([
     writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" />'),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), "globalThis.fixture = 1;"),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
   ]);
 
   await assert.rejects(
     buildDistribution({ target: "site", version: "nodoc", projectRoot: fixture }),
-    /index\.html has no \.\/app\.js reference/,
+    /index\.html has no \.\/app\.ts reference/,
   );
 });
 
@@ -202,10 +202,10 @@ test("site distribution refuses JavaScript esbuild warns about", async (t) => {
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.js"></script>',
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
-    writeFile(join(fixture, "app.js"), "globalThis.fixture = { rate: 1, rate: 2 };"),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = { rate: 1, rate: 2 };"),
   ]);
 
   await assert.rejects(
@@ -214,9 +214,23 @@ test("site distribution refuses JavaScript esbuild warns about", async (t) => {
   );
 });
 
+/**
+ * The two overloads name the two targets, so a third cannot be written through
+ * them at all — and `build.ts` says as much where it declares them: the caller
+ * its `TypeError` protects against reads a target from an argument vector or an
+ * environment variable, where TypeScript never sees the value. That caller is
+ * what this widening stands in for, and it is the implementation signature it
+ * widens to rather than anything looser.
+ */
+const buildAnyTarget = buildDistribution as (options: {
+  target: string;
+  version?: string;
+  projectRoot?: string | URL;
+}) => Promise<unknown>;
+
 test("unknown distribution target fails with a useful diagnostic", async () => {
   await assert.rejects(
-    buildDistribution({ target: "archive", projectRoot }),
+    buildAnyTarget({ target: "archive", projectRoot }),
     /Unknown distribution target: archive/,
   );
 });

@@ -10,11 +10,11 @@ A deliberately small browser metronome with:
 - independent volume and stereo pan for each rhythm
 - a choice of twelve interface accent colours, remembered per browser
 - sample-accurate Web Audio scheduling from one shared transport clock
-- no runtime dependencies, accounts, analytics, or framework build step
+- no accounts, no analytics, and two runtime dependencies — Preact and `htm`, both bundled into the file you open
 
 ## Open it immediately
 
-With Node.js 22 or newer, run the bundle command, then double-click the generated file:
+With Node.js 22.18 or newer, run the bundle command, then double-click the generated file:
 
 ```bash
 npm ci
@@ -34,7 +34,10 @@ The deployable output is written to `site/`.
 
 ## Run the source version
 
-Requires Node.js 22 or newer only for development tools and the tiny local static server.
+Requires Node.js 22.18 or newer, which is where Node runs a TypeScript file
+without a flag. Nothing compiles: the local server strips the type annotations
+out of each module as it serves it, so the browser loads the same files you
+edit.
 
 ```bash
 npm start
@@ -46,7 +49,28 @@ Then open:
 http://localhost:4173
 ```
 
-The application itself is static and can also be hosted directly on GitHub Pages, Netlify, Cloudflare Pages, or any ordinary web server.
+`npm run dev` serves the same application and reloads the page when a file
+changes. A stylesheet swaps in place instead of reloading, so playback survives
+an edit to the design.
+
+The application has no backend, and the `site/` output above is ordinary static
+files that can be hosted directly on GitHub Pages, Netlify, Cloudflare Pages, or
+any ordinary web server. The source tree is not servable that way, because a
+browser needs the type annotations stripped first, which is what the local
+server is for.
+
+### Trying it on a phone
+
+The server binds `127.0.0.1`, so only this machine can reach it. To open it from
+another device on the same network:
+
+```bash
+HOST=0.0.0.0 npm start
+```
+
+That serves the repository directory to anything that can reach this machine —
+including `.git` and any uncommitted work — so use it on a network you trust and
+stop it when you are done.
 
 ## Test it
 
@@ -131,14 +155,15 @@ between layers and Cycle transitions while tempo changes continuously.
 ```text
 index.html            Interface shell
 styles.css            Responsive visual design
-app.js                UI state, persistence, and interaction
-configuration.js      Editable configuration, presets, and edit availability
-model.js              Pure sequence, cycle, rhythm, and timing model
-shared-transport.js   Stateful sequence event planning and playhead
-metronome.js          Web Audio graph and look-ahead scheduler
-persistence.js        Deferred storage writes and storage-key retirement
-server.mjs            Zero-dependency local static server
-playwright.config.js  Managed Chromium and local test server
+app.ts                UI state, persistence, and interaction
+configuration.ts      Editable configuration, presets, and edit availability
+grid.ts               Meter-relative grid, canonical pattern, and repair
+model.ts              Pure sequence, cycle, rhythm, and timing model
+shared-transport.ts   Stateful sequence event planning and playhead
+metronome.ts          Web Audio graph and look-ahead scheduler
+persistence.ts        Deferred storage writes and storage-key retirement
+server.ts             Local development server; strips types as it serves
+playwright.config.ts  Managed Chromium and local test server
 scripts/              Esbuild-backed single-file and static-site distributions
 fonts/                Self-hosted interface fonts and licenses
 dist/                 Browser-ready one-file application

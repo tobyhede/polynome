@@ -1,7 +1,7 @@
 version: 2
 
 # Every action in this repository is pinned to a commit SHA, which
-# `test/workflow.test.js` enforces. A pin cannot be moved by whoever controls
+# `test/workflow.test.ts` enforces. A pin cannot be moved by whoever controls
 # the tag, which is the point, but it also cannot pick up a fix on its own: the
 # pin that is safe on the day it is written is the pin that is stale a year
 # later, and nothing in the repository would say so. Dependabot is the half
@@ -15,9 +15,10 @@ updates:
     commit-message:
       prefix: ci
 
-  # The application ships no runtime dependencies, so this covers Playwright
-  # and esbuild only. Grouped because a lone bump to either is not worth its
-  # own pull request and its own full browser test run.
+  # The two runtime dependencies are pinned exactly, per ADR-0009, so they move
+  # only when someone moves them; in practice this bumps Playwright, esbuild and
+  # the rest of the development tools. Grouped because a lone bump to any of them
+  # is not worth its own pull request and its own full browser test run.
   - package-ecosystem: npm
     directory: "/"
     schedule:

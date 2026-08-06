@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 test("a high click renders inside its scheduled frame window", async ({ page }) => {
   const rendered = await page.evaluate(
     async ({ sampleRate, when }) => {
-      const { CLICK_ENVELOPE, SOUND_PROFILES, scheduleClickVoice } = await import("/metronome.js");
+      const { CLICK_ENVELOPE, SOUND_PROFILES, scheduleClickVoice } = await import("/metronome.ts");
       const context = new OfflineAudioContext(1, sampleRate / 10, sampleRate);
 
       scheduleClickVoice(context, context.destination, {
@@ -47,7 +47,7 @@ test("Step voices change pitch without changing gain and off stays silent", asyn
   const rendered = await page.evaluate(
     async ({ sampleRate, when }) => {
       const { CLICK_ENVELOPE, SOUND_PROFILES, STEP_PITCH_RATIOS, scheduleClickVoice } =
-        await import("/metronome.js");
+        await import("/metronome.ts");
 
       async function render(voice) {
         const context = new OfflineAudioContext(1, sampleRate / 10, sampleRate);
@@ -82,11 +82,8 @@ test("Step voices change pitch without changing gain and off stays silent", asyn
   const [off, tertiary, secondary, primary] = rendered.clicks;
   expect(off).toMatchObject({ peak: 0, scheduled: false });
   expect(primary.scheduled).toBe(true);
-  for (const [click, expected] of [tertiary, secondary, primary].map((click, index) => [
-    click,
-    rendered.expectedFrequencies[index],
-  ])) {
-    expect(click.frequency).toBeCloseTo(expected, 3);
+  for (const [index, click] of [tertiary, secondary, primary].entries()) {
+    expect(click.frequency).toBeCloseTo(rendered.expectedFrequencies[index], 3);
   }
   expect(tertiary.frequency).toBeLessThan(secondary.frequency);
   expect(secondary.frequency).toBeLessThan(primary.frequency);
@@ -112,7 +109,7 @@ test("Step voices change pitch without changing gain and off stays silent", asyn
 test("a muted layer output renders silence from its first frame", async ({ page }) => {
   const peaks = await page.evaluate(
     async ({ sampleRate, when }) => {
-      const { createLayerOutput, scheduleClickVoice } = await import("/metronome.js");
+      const { createLayerOutput, scheduleClickVoice } = await import("/metronome.ts");
 
       async function render(muted) {
         const context = new OfflineAudioContext(1, sampleRate / 10, sampleRate);
@@ -142,7 +139,7 @@ test("a muted layer output renders silence from its first frame", async ({ page 
 test("layer panning separates the rendered stereo channels", async ({ page }) => {
   const renders = await page.evaluate(
     async ({ sampleRate, when }) => {
-      const { createLayerOutput, scheduleClickVoice } = await import("/metronome.js");
+      const { createLayerOutput, scheduleClickVoice } = await import("/metronome.ts");
 
       async function render(pan) {
         const context = new OfflineAudioContext(2, sampleRate / 10, sampleRate);

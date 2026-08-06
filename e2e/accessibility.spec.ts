@@ -106,7 +106,13 @@ test("the preset panel has no accessibility violations, populated and empty", as
   await bpm.fill(String(Number(await bpm.inputValue()) + 1));
   await bpm.blur();
   const openSave = page.getByRole("button", { name: "+ Save" });
-  await expect(openSave).toBeEnabled();
+  // The chip is never `disabled` — it is marked unavailable so that it keeps its
+  // place in the tab order and can say why it will not act — so `aria-disabled`
+  // is the attribute carrying whether it is being offered, and waiting on it is
+  // waiting on the state this click needs. That is what `saveOffered` in
+  // `e2e/polynome.spec.ts` asserts, and naming the mechanism keeps this test
+  // from resting on a matcher's own reading of the attribute.
+  await expect(openSave).toHaveAttribute("aria-disabled", "false");
   await openSave.click();
   const savePanel = page.getByRole("region", { name: "Save preset" });
   await savePanel.getByRole("textbox", { name: "Preset name" }).fill("Scanned");

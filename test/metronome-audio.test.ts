@@ -1,15 +1,15 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { createConfiguration, describeConfiguration } from "../configuration.js";
-import { SOUND, STEP } from "../model.js";
+import { createConfiguration, describeConfiguration } from "../configuration.ts";
+import { SOUND, STEP } from "../model.ts";
 import {
   CLICK_ENVELOPE,
   SOUND_PROFILES,
   STEP_PITCH_RATIOS,
   MetronomeEngine,
   scheduleClickVoice,
-} from "../metronome.js";
+} from "../metronome.ts";
 
 /**
  * A hand-written AudioContext test double.
@@ -18,52 +18,119 @@ import {
  * silently: a controllable `state`, a `currentTime` that only moves when the
  * test says so, a `resume()` whose settling behaviour is chosen per test, and
  * recording nodes that log what was scheduled and when.
+ *
+ * Every field below is `declare`d rather than written as a bare class field,
+ * because a bare field is not a type annotation. It is real runtime syntax: it
+ * defines the property, as `undefined`, at the point in construction the class
+ * body names it — after `super()` has returned, before the constructor's own
+ * assignments — so restating an inherited field on a subclass would erase what
+ * the base constructor had already stored there. `declare` states the type and
+ * emits nothing, so it provably cannot change what any of these doubles do,
+ * which is the only guarantee worth having in a file Node runs by stripping
+ * annotations it never parses.
  */
 
+/**
+ * The states a context can report. `interrupted` is not in the specification —
+ * it is WebKit's, and it is the state most of these tests exist to explore, so
+ * a union without it would type away the case the double was written for.
+ */
+type FakeContextState = "suspended" | "running" | "interrupted" | "closed";
+
+/** How a test wants `resume()` to settle, or refuse to. */
+type ResumeBehaviour = "resolve" | "hang" | "reject";
+
+interface FakeContextOptions {
+  state?: FakeContextState;
+  currentTime?: number;
+  resume?: ResumeBehaviour;
+}
+
+/**
+ * One recorded automation call. Every method records into the same list so that
+ * their order relative to each other is observable, which is why the fields not
+ * every method carries are optional rather than this being a union of one shape
+ * per method: `cancelScheduledValues` has no value to record.
+ */
+interface AutomationEntry {
+  method:
+    | "setValueAtTime"
+    | "setTargetAtTime"
+    | "exponentialRampToValueAtTime"
+    | "linearRampToValueAtTime"
+    | "cancelScheduledValues";
+  value?: number;
+  when: number;
+  timeConstant?: number;
+}
+
+/**
+ * One committed click, as the hardware would have seen it. Both the requested
+ * and the effective times are kept, because a click whose start was pulled
+ * forward past its own stop is scheduled and silent, and only the pair shows it.
+ */
+interface FakeClick {
+  when: number;
+  contextState: FakeContextState;
+  effectiveStart: number;
+  stopAt: number | null;
+  effectiveStop: number | null;
+}
+
 class FakeAudioParam {
-  constructor(context, name, value) {
+  declare context: FakeAudioContext;
+  declare name: string;
+  declare value: number;
+  declare automation: AutomationEntry[];
+
+  constructor(context: FakeAudioContext, name: string, value: number) {
     this.context = context;
     this.name = name;
     this.value = value;
     this.automation = [];
   }
 
-  setValueAtTime(value, when) {
+  setValueAtTime(value: number, when: number) {
     this.automation.push({ method: "setValueAtTime", value, when });
     return this;
   }
 
-  setTargetAtTime(value, when, timeConstant) {
+  setTargetAtTime(value: number, when: number, timeConstant: number) {
     this.automation.push({ method: "setTargetAtTime", value, when, timeConstant });
     this.context.noteGraphSync();
     return this;
   }
 
-  exponentialRampToValueAtTime(value, when) {
+  exponentialRampToValueAtTime(value: number, when: number) {
     this.automation.push({ method: "exponentialRampToValueAtTime", value, when });
     return this;
   }
 
-  linearRampToValueAtTime(value, when) {
+  linearRampToValueAtTime(value: number, when: number) {
     this.automation.push({ method: "linearRampToValueAtTime", value, when });
     return this;
   }
 
-  cancelScheduledValues(when) {
+  cancelScheduledValues(when: number) {
     this.automation.push({ method: "cancelScheduledValues", when });
     return this;
   }
 }
 
 class FakeAudioNode {
-  constructor(context, kind) {
+  declare context: FakeAudioContext;
+  declare kind: string;
+  declare outputs: FakeAudioNode[];
+  declare disconnections: number;
+
+  constructor(context: FakeAudioContext, kind: string) {
     this.context = context;
     this.kind = kind;
     this.outputs = [];
     this.disconnections = 0;
   }
 
-  connect(target) {
+  connect(target: FakeAudioNode) {
     this.outputs.push(target);
     return target;
   }
@@ -75,21 +142,33 @@ class FakeAudioNode {
 }
 
 class FakeGainNode extends FakeAudioNode {
-  constructor(context) {
+  declare gain: FakeAudioParam;
+
+  constructor(context: FakeAudioContext) {
     super(context, "gain");
     this.gain = new FakeAudioParam(context, "gain", 1);
   }
 }
 
 class FakeStereoPannerNode extends FakeAudioNode {
-  constructor(context) {
+  declare pan: FakeAudioParam;
+
+  constructor(context: FakeAudioContext) {
     super(context, "panner");
     this.pan = new FakeAudioParam(context, "pan", 0);
   }
 }
 
 class FakeOscillatorNode extends EventTarget {
-  constructor(context) {
+  declare context: FakeAudioContext;
+  declare kind: string;
+  declare type: string;
+  declare frequency: FakeAudioParam;
+  declare detune: FakeAudioParam;
+  declare outputs: FakeAudioNode[];
+  declare click: FakeClick | null;
+
+  constructor(context: FakeAudioContext) {
     super();
     this.context = context;
     this.kind = "oscillator";
@@ -100,7 +179,7 @@ class FakeOscillatorNode extends EventTarget {
     this.click = null;
   }
 
-  connect(target) {
+  connect(target: FakeAudioNode) {
     this.outputs.push(target);
     return target;
   }
@@ -109,7 +188,7 @@ class FakeOscillatorNode extends EventTarget {
     this.outputs = [];
   }
 
-  start(when = this.context.currentTime) {
+  start(when: number = this.context.currentTime) {
     // A click is only audible if the render thread was alive when it was
     // committed; the effective times model the spec rule that a start time in
     // the past is pulled forward to `currentTime`.
@@ -123,7 +202,7 @@ class FakeOscillatorNode extends EventTarget {
     this.context.clicks.push(this.click);
   }
 
-  stop(when = this.context.currentTime) {
+  stop(when: number = this.context.currentTime) {
     if (!this.click || this.click.stopAt !== null) return;
     this.click.stopAt = when;
     this.click.effectiveStop = Math.max(when, this.context.currentTime);
@@ -136,7 +215,21 @@ class FakeAudioContext extends EventTarget {
   #snapshotAdvance = 0;
   #snapshotArmed = false;
 
-  constructor({ state = "suspended", currentTime = 0, resume = "resolve" } = {}) {
+  declare state: FakeContextState;
+  declare sampleRate: number;
+  declare destination: FakeAudioNode;
+  declare clicks: FakeClick[];
+  declare gains: FakeGainNode[];
+  declare panners: FakeStereoPannerNode[];
+  declare oscillators: FakeOscillatorNode[];
+  declare resumeCalls: number;
+  declare resumeBehaviour: ResumeBehaviour;
+
+  constructor({
+    state = "suspended",
+    currentTime = 0,
+    resume = "resolve",
+  }: FakeContextOptions = {}) {
     super();
     this.state = state;
     this.currentTime = currentTime;
@@ -166,7 +259,7 @@ class FakeAudioContext extends EventTarget {
     return this.#clock;
   }
 
-  set currentTime(seconds) {
+  set currentTime(seconds: number) {
     this.#clock = seconds;
   }
 
@@ -176,7 +269,7 @@ class FakeAudioContext extends EventTarget {
    * Whether that manufactures lateness depends entirely on whether the engine
    * reads `currentTime` before or after the sync, which is the point.
    */
-  advanceDuringNextGraphSync(seconds) {
+  advanceDuringNextGraphSync(seconds: number) {
     this.#graphSyncAdvance = seconds;
   }
 
@@ -191,7 +284,7 @@ class FakeAudioContext extends EventTarget {
    * Reads that feed parameter automation are graph-sync housekeeping rather
    * than a scheduling snapshot, so `noteGraphSync` disarms them again.
    */
-  advanceAfterSchedulingSnapshot(seconds) {
+  advanceAfterSchedulingSnapshot(seconds: number) {
     this.#snapshotAdvance = seconds;
     this.#snapshotArmed = false;
   }
@@ -231,7 +324,7 @@ class FakeAudioContext extends EventTarget {
   }
 
   /** Move to a new state exactly as WebKit does: fire `statechange` every time. */
-  setState(next) {
+  setState(next: FakeContextState) {
     if (this.state === next) return;
     this.state = next;
     this.dispatchEvent(new Event("statechange"));
@@ -300,7 +393,7 @@ after(() => {
 /**
  * The engine's stuck-context threshold, restated.
  *
- * `SCHEDULER_INTERVAL_MS` is private to `metronome.js`, so the boundary these
+ * `SCHEDULER_INTERVAL_MS` is private to `metronome.ts`, so the boundary these
  * tests aim at is derived here exactly as the engine derives it. The mirror is
  * self-checking: a test that reports one tick early and one that reports on
  * time cannot both hold if the two derivations ever disagree.
@@ -321,7 +414,7 @@ const tick = (times = 1) => {
 
 const schedulerRunning = () => timers.callbacks.size > 0;
 
-const harness = (contextOptions = {}) => {
+const harness = (contextOptions: FakeContextOptions = {}) => {
   timers.callbacks.clear();
   const context = new FakeAudioContext(contextOptions);
   const engine = new MetronomeEngine({ createContext: () => context });
@@ -383,13 +476,14 @@ const fiftyMillisecondGrid = () =>
   configurationOf(300, [{ signature: { count: 4, unit: 8 }, subdivision: 4 }]);
 
 /** Audio times are sums of binary fractions; a nanosecond is not a defect. */
-const roundSeconds = (value) => Math.round(value * 1e6) / 1e6;
+const roundSeconds = (value: number) => Math.round(value * 1e6) / 1e6;
 
 /** The instants the engine committed each audible click to start at. */
-const clickStarts = (context) => context.audibleClicks().map((click) => roundSeconds(click.when));
+const clickStarts = (context: FakeAudioContext) =>
+  context.audibleClicks().map((click) => roundSeconds(click.when));
 
 /** The spacing a listener actually hears between consecutive clicks. */
-const gapsBetween = (starts) =>
+const gapsBetween = (starts: number[]) =>
   starts.slice(1).map((start, index) => roundSeconds(start - starts[index]));
 
 /** Voices one `scheduleClickVoice` call each, in their own contexts. */
@@ -545,7 +639,7 @@ test("every sound profile carries the same tuning shape", () => {
   }
 });
 
-test("the Step pitch table answers only to the vocabulary model.js defines", () => {
+test("the Step pitch table answers only to the vocabulary model.ts defines", () => {
   assert.deepEqual(
     Object.keys(STEP_PITCH_RATIOS).sort(),
     [STEP.PRIMARY, STEP.SECONDARY, STEP.TERTIARY].sort(),
@@ -582,7 +676,7 @@ test("an injected audio context factory supplies the whole audio graph", async (
 });
 
 /** Every automated value the master gain was given, oldest first. */
-const masterGainAutomation = (context) =>
+const masterGainAutomation = (context: FakeAudioContext) =>
   context.gains[0].gain.automation
     .filter((entry) => entry.method !== "cancelScheduledValues")
     .map((entry) => entry.value);
@@ -1012,7 +1106,7 @@ test("a start that cannot build a context hands the session straight back", asyn
   timers.callbacks.clear();
   // The browser refusing another AudioContext: the session is already claimed
   // by the time the refusal lands, and nothing downstream will release it —
-  // `app.js` reports the rejection and does not call `stop()`.
+  // `app.ts` reports the rejection and does not call `stop()`.
   const refusal = new Error("cannot construct another AudioContext");
   const engine = new MetronomeEngine({
     createContext: () => {
@@ -1245,7 +1339,7 @@ test("without a factory the engine still reports an unsupported Web Audio API", 
  * What the interface reads off a run in progress: which Cycle and repetition it
  * is in, which Pattern position each layer is on, and the tempo sounding right
  * now. All three answer `null` unless a run is playing on a context that has
- * actually been anchored to a start time, because `app.js` falls back to the
+ * actually been anchored to a start time, because `app.ts` falls back to the
  * stored tempo on exactly that reading — a run that has not sounded yet has no
  * position to report, and reporting one would put the playhead on a beat
  * nobody has heard.

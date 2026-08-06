@@ -1,4 +1,4 @@
-import { MetronomeEngine } from "./metronome.js";
+import { MetronomeEngine } from "./metronome.ts";
 import {
   changeConfiguration,
   createConfiguration,
@@ -11,7 +11,7 @@ import {
   removeSavedPreset,
   sameConfiguration,
   savePreset,
-} from "./configuration.js";
+} from "./configuration.ts";
 import {
   lookup,
   panLabel,
@@ -22,9 +22,9 @@ import {
   MIX_STEP,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
-} from "./model.js";
-import { controlCounts, controlIndexAt, controls } from "./grid.js";
-import { createPersistence, readStoredValue } from "./persistence.js";
+} from "./model.ts";
+import { controlCounts, controlIndexAt, controls } from "./grid.ts";
+import { createPersistence, readStoredValue } from "./persistence.ts";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
 // resolves all three specifiers this pulls in.
@@ -55,52 +55,46 @@ const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
  * of `focus`, `value`, `style`, or `dataset`. Narrowing happens once, here,
  * rather than at each of the several dozen places these are read: this object
  * is already the single list of what the interface resolves from the shell,
- * and `test/accessibility.test.js` asserts every id below exists in
+ * and `test/accessibility.test.ts` asserts every id below exists in
  * `index.html`, so the tag each name is asserted against is checked too.
  */
 const elements = {
-  heading: /** @type {HTMLHeadingElement} */ (document.querySelector("#app-heading")),
-  play: /** @type {HTMLButtonElement} */ (document.querySelector("#play-button")),
-  playIcon: /** @type {HTMLSpanElement} */ (document.querySelector("#play-icon")),
-  bpm: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-input")),
-  bpmSlider: /** @type {HTMLInputElement} */ (document.querySelector("#bpm-slider")),
-  bpmDown: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-down")),
-  bpmUp: /** @type {HTMLButtonElement} */ (document.querySelector("#bpm-up")),
-  bpmReadout: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-readout")),
-  bpmLabel: /** @type {HTMLLabelElement} */ (document.querySelector("#bpm-readout label")),
-  bpmTicks: /** @type {HTMLDivElement} */ (document.querySelector("#bpm-ticks")),
-  presetsToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-toggle")),
-  presetPanel: /** @type {HTMLElement} */ (document.querySelector("#preset-panel")),
-  presetList: /** @type {HTMLDivElement} */ (document.querySelector("#preset-list")),
-  presetCount: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count")),
-  presetCountNoun: /** @type {HTMLSpanElement} */ (document.querySelector("#preset-count-noun")),
-  presetsClose: /** @type {HTMLButtonElement} */ (document.querySelector("#presets-close")),
-  presetSave: /** @type {HTMLFormElement} */ (document.querySelector("#preset-save")),
-  presetSavePanel: /** @type {HTMLElement} */ (document.querySelector("#save-panel")),
-  presetSaveOpen: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-open")),
-  presetSaveReason: /** @type {HTMLElement} */ (document.querySelector("#preset-save-reason")),
-  presetSaveClose: /** @type {HTMLButtonElement} */ (document.querySelector("#preset-save-close")),
-  presetSaveSubmit: /** @type {HTMLButtonElement} */ (
-    document.querySelector("#preset-save-submit")
-  ),
-  presetSaveIconSave: /** @type {SVGElement} */ (document.querySelector("#preset-save-icon-save")),
-  presetSaveIconReplace: /** @type {SVGElement} */ (
-    document.querySelector("#preset-save-icon-replace")
-  ),
-  presetName: /** @type {HTMLInputElement} */ (document.querySelector("#preset-name")),
-  helpToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#help-toggle")),
-  helpPanel: /** @type {HTMLElement} */ (document.querySelector("#help-panel")),
-  accentToggle: /** @type {HTMLButtonElement} */ (document.querySelector("#accent-toggle")),
-  accentPanel: /** @type {HTMLElement} */ (document.querySelector("#accent-panel")),
-  accentSwatches: /** @type {HTMLElement} */ (document.querySelector("#accent-swatches")),
-  accentCaptionName: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-name")),
-  accentCaptionHex: /** @type {HTMLElement} */ (document.querySelector("#accent-caption-hex")),
-  accentCaptionContrast: /** @type {HTMLElement} */ (
-    document.querySelector("#accent-caption-contrast")
-  ),
-  cycles: /** @type {HTMLElement} */ (document.querySelector("#cycles")),
-  addCycle: /** @type {HTMLButtonElement} */ (document.querySelector("#add-cycle")),
-  status: /** @type {HTMLParagraphElement} */ (document.querySelector("#status")),
+  heading: document.querySelector("#app-heading") as HTMLHeadingElement,
+  play: document.querySelector("#play-button") as HTMLButtonElement,
+  playIcon: document.querySelector("#play-icon") as HTMLSpanElement,
+  bpm: document.querySelector("#bpm-input") as HTMLInputElement,
+  bpmSlider: document.querySelector("#bpm-slider") as HTMLInputElement,
+  bpmDown: document.querySelector("#bpm-down") as HTMLButtonElement,
+  bpmUp: document.querySelector("#bpm-up") as HTMLButtonElement,
+  bpmReadout: document.querySelector("#bpm-readout") as HTMLDivElement,
+  bpmLabel: document.querySelector("#bpm-readout label") as HTMLLabelElement,
+  bpmTicks: document.querySelector("#bpm-ticks") as HTMLDivElement,
+  presetsToggle: document.querySelector("#presets-toggle") as HTMLButtonElement,
+  presetPanel: document.querySelector("#preset-panel") as HTMLElement,
+  presetList: document.querySelector("#preset-list") as HTMLDivElement,
+  presetCount: document.querySelector("#preset-count") as HTMLSpanElement,
+  presetCountNoun: document.querySelector("#preset-count-noun") as HTMLSpanElement,
+  presetsClose: document.querySelector("#presets-close") as HTMLButtonElement,
+  presetSave: document.querySelector("#preset-save") as HTMLFormElement,
+  presetSavePanel: document.querySelector("#save-panel") as HTMLElement,
+  presetSaveOpen: document.querySelector("#preset-save-open") as HTMLButtonElement,
+  presetSaveReason: document.querySelector("#preset-save-reason") as HTMLElement,
+  presetSaveClose: document.querySelector("#preset-save-close") as HTMLButtonElement,
+  presetSaveSubmit: document.querySelector("#preset-save-submit") as HTMLButtonElement,
+  presetSaveIconSave: document.querySelector("#preset-save-icon-save") as SVGElement,
+  presetSaveIconReplace: document.querySelector("#preset-save-icon-replace") as SVGElement,
+  presetName: document.querySelector("#preset-name") as HTMLInputElement,
+  helpToggle: document.querySelector("#help-toggle") as HTMLButtonElement,
+  helpPanel: document.querySelector("#help-panel") as HTMLElement,
+  accentToggle: document.querySelector("#accent-toggle") as HTMLButtonElement,
+  accentPanel: document.querySelector("#accent-panel") as HTMLElement,
+  accentSwatches: document.querySelector("#accent-swatches") as HTMLElement,
+  accentCaptionName: document.querySelector("#accent-caption-name") as HTMLElement,
+  accentCaptionHex: document.querySelector("#accent-caption-hex") as HTMLElement,
+  accentCaptionContrast: document.querySelector("#accent-caption-contrast") as HTMLElement,
+  cycles: document.querySelector("#cycles") as HTMLElement,
+  addCycle: document.querySelector("#add-cycle") as HTMLButtonElement,
+  status: document.querySelector("#status") as HTMLParagraphElement,
 };
 
 /**
@@ -117,7 +111,7 @@ const elements = {
  * @param {string} selector
  */
 function focusWithin(root, selector) {
-  /** @type {HTMLElement | null | undefined} */ (root?.querySelector(selector))?.focus();
+  (root?.querySelector(selector) as HTMLElement | null | undefined)?.focus();
 }
 
 const engine = new MetronomeEngine();
@@ -237,9 +231,7 @@ function storedSavedPresets() {
  * this same set.
  */
 function accentSwatches() {
-  return /** @type {HTMLElement[]} */ (
-    Array.from(elements.accentSwatches.querySelectorAll("[data-accent]"))
-  );
+  return Array.from(elements.accentSwatches.querySelectorAll<HTMLElement>("[data-accent]"));
 }
 
 function accentNames() {
@@ -334,7 +326,7 @@ const persistence = createPersistence({
   clearTimer: (timer) => window.clearTimeout(timer),
 });
 
-function applyEdit(edit, options = {}) {
+function applyEdit(edit, options: { render?: boolean; deferConsequence?: boolean } = {}) {
   const result = changeConfiguration(state, edit);
   state = result.configuration;
   description = describeConfiguration(state);
@@ -813,9 +805,7 @@ function layoutSteps() {
   // Batching also makes the answer independent of the order rhythms are visited
   // in, since none of them is measured against another's freshly applied rows.
   const plans = [];
-  for (const steps of /** @type {NodeListOf<HTMLElement>} */ (
-    elements.cycles.querySelectorAll(".steps")
-  )) {
+  for (const steps of elements.cycles.querySelectorAll(".steps") as NodeListOf<HTMLElement>) {
     const signatureUnit = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
@@ -1175,7 +1165,7 @@ function RhythmCard({ rhythm, cycle }) {
 
       <!-- The controls each signature unit holds are carried for layoutSteps(),
            which reads the number to choose how many units share a row. Both
-           counts come from grid.js rather than being derived here: what the row
+           counts come from grid.ts rather than being derived here: what the row
            fits is controls, and how many of them a signature unit holds is the
            Display mode's decision, made once. The Subdivision was carried a
            second time as a custom property the gap clamp calculated with; that
@@ -1343,7 +1333,7 @@ function RhythmSettings({ rhythm }) {
 
 // Controls are grouped a signature unit at a time so a narrow screen can only
 // ever break between units. Which unit a control falls in is the control's own,
-// from `grid.js`, so nothing here strides the pattern to work it out; every
+// from `grid.ts`, so nothing here strides the pattern to work it out; every
 // group is full and no row is left ragged, because a run never crosses a unit.
 //
 // Where a signature unit starts is marked by a dot the stylesheet draws on `.beat`
@@ -1372,7 +1362,7 @@ function SignatureUnits({ rhythm }) {
  * one place Polynome says it. Subdivision Mode addresses a pattern position and
  * says "Step", which is the interface's word for it rather than the glossary's.
  *
- * Presentation, so it lives here: `grid.js` is read by `configuration.js` and
+ * Presentation, so it lives here: `grid.ts` is read by `configuration.ts` and
  * has no business holding a string neither of them will ever show.
  */
 function controlNoun(rhythm) {
@@ -1643,9 +1633,9 @@ elements.accentToggle.addEventListener("click", () => {
   renderPanels();
 });
 elements.accentSwatches.addEventListener("click", (event) => {
-  const swatch = /** @type {HTMLElement} */ (event.target).closest("[data-accent]");
+  const swatch = (event.target as HTMLElement).closest("[data-accent]");
   if (!swatch) return;
-  const name = /** @type {HTMLElement} */ (swatch).dataset.accent;
+  const name = (swatch as HTMLElement).dataset.accent;
   applyAccent(name);
   writeAccent(name);
   // Only the panels are redrawn: the Accent is a custom property every rule
@@ -1667,7 +1657,7 @@ elements.helpToggle.addEventListener("click", () => {
   renderPanels();
 });
 elements.bpm.addEventListener("change", (event) =>
-  changeTempo(/** @type {HTMLInputElement} */ (event.target).value),
+  changeTempo((event.target as HTMLInputElement).value),
 );
 /**
  * The slider reports whatever tempo the pointer is over and the Configuration
@@ -1683,7 +1673,7 @@ elements.bpmSlider.addEventListener("input", (event) => {
   // an input event here is the render's own write coming back, or a gesture the
   // `disabled` attribute did not catch. Either way it is not an edit.
   if (engine.playing) return;
-  const dragged = /** @type {HTMLInputElement} */ (event.target).value;
+  const dragged = (event.target as HTMLInputElement).value;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
   // everything the tempo is spoken by in step with the thumb: the number in the
@@ -1794,10 +1784,10 @@ function startTempoHold(delta) {
   tick(HOLD_DELAY_MS);
 }
 
-const tempoKeys = /** @type {[HTMLButtonElement, number][]} */ ([
+const tempoKeys = [
   [elements.bpmDown, -1],
   [elements.bpmUp, 1],
-]);
+] as [HTMLButtonElement, number][];
 for (const [stepper, delta] of tempoKeys) {
   stepper.addEventListener("pointerdown", (event) => {
     // Only the primary button of the primary pointer holds. The right button is
@@ -1840,10 +1830,8 @@ for (const [stepper, delta] of tempoKeys) {
   stepper.addEventListener("keyup", endTempoHold);
 }
 elements.presetList.addEventListener("click", (event) => {
-  const target = /** @type {HTMLElement} */ (event.target);
-  const deleteButton = /** @type {HTMLElement | null} */ (
-    target.closest("[data-delete-preset-id]")
-  );
+  const target = event.target as HTMLElement;
+  const deleteButton = target.closest("[data-delete-preset-id]") as HTMLElement | null;
   if (deleteButton) {
     const presetId = deleteButton.dataset.deletePresetId;
     const preset = savedPresets.find(({ id }) => id === presetId);
@@ -1876,7 +1864,7 @@ elements.presetList.addEventListener("click", (event) => {
     return;
   }
 
-  const button = /** @type {HTMLElement | null} */ (target.closest("[data-preset-id]"));
+  const button = target.closest("[data-preset-id]") as HTMLElement | null;
   if (!button) return;
   const preset = describePresets(state, savedPresets).find(
     ({ id }) => id === button.dataset.presetId,
@@ -2051,9 +2039,9 @@ elements.addCycle.addEventListener("click", () => {
 });
 
 elements.cycles.addEventListener("click", (event) => {
-  const actionElement = /** @type {HTMLElement | null} */ (
-    /** @type {HTMLElement} */ (event.target).closest("[data-action]")
-  );
+  const actionElement = (event.target as HTMLElement).closest(
+    "[data-action]",
+  ) as HTMLElement | null;
   if (!actionElement) return;
   const context = findContext(actionElement);
   if (!context) return;
@@ -2188,10 +2176,10 @@ elements.cycles.addEventListener("click", (event) => {
 });
 
 elements.cycles.addEventListener("dblclick", (event) => {
-  const target = /** @type {HTMLElement} */ (event.target);
+  const target = event.target as HTMLElement;
   if (target.matches('[data-field="pan"]')) {
     event.preventDefault();
-    const pan = /** @type {HTMLInputElement} */ (target);
+    const pan = target as HTMLInputElement;
     pan.value = "0";
     pan.dispatchEvent(new Event("input", { bubbles: true }));
     return;
@@ -2202,17 +2190,15 @@ elements.cycles.addEventListener("dblclick", (event) => {
 });
 
 elements.cycles.addEventListener("keydown", (event) => {
-  const option = /** @type {HTMLElement | null} */ (
-    /** @type {HTMLElement} */ (event.target).closest(".subdivision-option")
-  );
+  const option = (event.target as HTMLElement).closest(".subdivision-option") as HTMLElement | null;
   if (!option) {
     if (event.key === "Escape" && openSubdivisionMenu) dismissSubdivisionMenu();
     return;
   }
 
-  const options = /** @type {HTMLElement[]} */ ([
+  const options = [
     ...option.closest(".subdivision-menu").querySelectorAll(".subdivision-option"),
-  ]);
+  ] as HTMLElement[];
   const index = options.indexOf(option);
   let nextIndex = null;
   if (event.key === "ArrowDown" || event.key === "ArrowRight")
@@ -2236,15 +2222,14 @@ elements.cycles.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!openSubdivisionMenu || /** @type {HTMLElement} */ (event.target).closest(".notation-picker"))
-    return;
+  if (!openSubdivisionMenu || (event.target as HTMLElement).closest(".notation-picker")) return;
   openSubdivisionMenu = null;
   renderCycles();
 });
 
 // The arming click reaches here too, so a delete button is what keeps it armed.
 document.addEventListener("click", (event) => {
-  if (/** @type {HTMLElement} */ (event.target).closest("[data-delete-preset-id]")) return;
+  if ((event.target as HTMLElement).closest("[data-delete-preset-id]")) return;
   dismissPendingDelete();
 });
 document.addEventListener("keydown", (event) => {
@@ -2263,21 +2248,13 @@ document.addEventListener("keydown", (event) => {
  * reference to, so every later render of this readout goes into a node that is
  * no longer in the document. Changing the node's data leaves the renderer's
  * reference pointing at what the reader is actually reading.
- *
- * @param {Element} element
- * @param {string} text
  */
-function writeRenderedText(element, text) {
-  const readout = /** @type {Text} */ (element.firstChild);
+function writeRenderedText(element: Element, text: string) {
+  const readout = element.firstChild as Text;
   readout.data = text;
 }
 
-/**
- * @param {Element} rhythmElement
- * @param {string} field
- * @param {string} text
- */
-function writeReadout(rhythmElement, field, text) {
+function writeReadout(rhythmElement: Element, field: string, text: string) {
   writeRenderedText(rhythmElement.querySelector(`[data-output="${field}"]`), text);
 }
 
@@ -2300,8 +2277,7 @@ function writeReadout(rhythmElement, field, text) {
 const BALANCE_SLIDERS = 'input[data-field="pan"]';
 let balanceSliderDragging = false;
 elements.cycles.addEventListener("pointerdown", (event) => {
-  if (/** @type {HTMLElement} */ (event.target).matches(BALANCE_SLIDERS))
-    balanceSliderDragging = true;
+  if ((event.target as HTMLElement).matches(BALANCE_SLIDERS)) balanceSliderDragging = true;
 });
 for (const type of ["pointerup", "pointercancel", "keydown"]) {
   elements.cycles.addEventListener(type, () => {
@@ -2329,7 +2305,7 @@ function showSettledValue(slider, value) {
 }
 
 elements.cycles.addEventListener("input", (event) => {
-  const target = /** @type {HTMLInputElement} */ (event.target);
+  const target = event.target as HTMLInputElement;
   const field = target.dataset.field;
   if (!field || !["volume", "pan"].includes(field)) return;
   const context = findContext(target);
@@ -2370,7 +2346,7 @@ elements.cycles.addEventListener("input", (event) => {
 });
 
 elements.cycles.addEventListener("change", (event) => {
-  const target = /** @type {HTMLInputElement | HTMLSelectElement} */ (event.target);
+  const target = event.target as HTMLInputElement | HTMLSelectElement;
   const field = target.dataset.field;
   if (!field || ["volume", "pan"].includes(field)) return;
   const context = findContext(target);
@@ -2427,9 +2403,7 @@ engine.addEventListener("playstate", () => {
   renderTransport();
   if (engine.playing) startAnimation();
 });
-engine.addEventListener("audioerror", (event) =>
-  showError(/** @type {CustomEvent} */ (event).detail),
-);
+engine.addEventListener("audioerror", (event) => showError((event as CustomEvent).detail));
 document.addEventListener("keydown", (event) => {
   if (
     event.code === "KeyP" &&

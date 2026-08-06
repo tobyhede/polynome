@@ -1,4 +1,4 @@
-import { STEP } from "./model.js";
+import { STEP } from "./model.ts";
 
 const STEP_VOICES = Object.freeze(Object.values(STEP));
 

@@ -1,11 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { STEP } from "../model.js";
-import { SharedTransport } from "../shared-transport.js";
+import { STEP } from "../model.ts";
+import { SharedTransport } from "../shared-transport.ts";
 
 let rhythmId = 0;
-const createLayer = (overrides = {}) => {
+/**
+ * A rhythm layer of the shape `createConfiguration` produces, so that a test
+ * asking for a property of one gets a layer that has it. `muted` is carried
+ * through and defaulted the way `configuration.ts` defaults it, because a
+ * helper that silently dropped it would hand a test about mute an unmuted
+ * layer and let it pass without ever reaching the behaviour it names.
+ */
+const createLayer = (
+  overrides: {
+    id?: string;
+    signature?: { count: number; unit: number };
+    subdivision?: number;
+    muted?: boolean;
+    steps?: string[];
+  } = {},
+) => {
   const signature = overrides.signature || { count: 4, unit: 4 };
   const subdivision = overrides.subdivision || 1;
   const length = signature.count * subdivision;
@@ -14,12 +29,24 @@ const createLayer = (overrides = {}) => {
     id: overrides.id || `rhythm-${++rhythmId}`,
     signature,
     subdivision,
+    muted: Boolean(overrides.muted),
     steps: Array.from(
       { length },
       (_, index) => supplied[index] || (index === 0 ? STEP.PRIMARY : STEP.SECONDARY),
     ),
   };
 };
+
+/**
+ * A shape the transport is meant to refuse, widened to the one its methods
+ * declare. The signatures already rule these out, so no typed call can pose the
+ * question at all — but the input these guards exist for arrives from storage or
+ * from a Configuration written before the Sequence wrapper, where nothing was
+ * checked, and the refusal under test is the runtime one. Widening happens here,
+ * at the one call boundary, so that every other call in the file stays checked
+ * against the real signature.
+ */
+const refused = (shape: object) => shape as Parameters<SharedTransport["start"]>[0];
 
 const sequence = (bpm, rhythms, repetitions = 1) => ({
   bpm,
@@ -34,15 +61,18 @@ test("legacy flat rhythm shapes are not valid shared-transport input", () => {
   assert.throws(
     () =>
       new SharedTransport().start(
-        {
+        refused({
           bpm: 60,
           cycles: [{ id: "legacy-cycle", repetitions: 1, rhythms: [rhythm] }],
-        },
+        }),
         0,
       ),
     TypeError,
   );
-  assert.throws(() => new SharedTransport().start({ bpm: 60, layers: [rhythm] }, 0), TypeError);
+  assert.throws(
+    () => new SharedTransport().start(refused({ bpm: 60, layers: [rhythm] }), 0),
+    TypeError,
+  );
 });
 
 test("cycles play sequentially after their complete repetitions and the sequence loops", () => {
@@ -576,7 +606,10 @@ test("Step-voice updates reject legacy flat rhythm shapes", () => {
 
   transport.start(sequence(60, [rhythm]), 0);
 
-  assert.throws(() => transport.updateStepVoices({ bpm: 60, layers: [rhythm] }), TypeError);
+  assert.throws(
+    () => transport.updateStepVoices(refused({ bpm: 60, layers: [rhythm] })),
+    TypeError,
+  );
 });
 
 test("overlapping polls plan each absolute step only once", () => {
@@ -692,6 +725,12 @@ test("visual pattern position aligns with a planned fractional event boundary", 
   );
 });
 
+/**
+ * Mute is a gain of zero applied when a click is committed, in `metronome.ts`.
+ * Nothing about it belongs to planning, so a muted layer keeps every event it
+ * would otherwise have had: unmuting mid-run resumes in phase rather than
+ * starting a rhythm that was never being counted.
+ */
 test("mute does not change a rhythm layer event timeline", () => {
   const layer = createLayer({
     id: "muted",
@@ -700,6 +739,11 @@ test("mute does not change a rhythm layer event timeline", () => {
     steps: [STEP.PRIMARY],
   });
   const transport = new SharedTransport();
+
+  // The layer this asserts against has to be the muted one. Compared against an
+  // unmuted layer the assertion below holds for a reason that says nothing
+  // about mute, and would go on holding if mute did silence the planner.
+  assert.equal(layer.muted, true);
 
   transport.start(sequence(60, [layer]), 50);
 
@@ -733,7 +777,7 @@ test("a sequence with no active cycles schedules nothing and reports no position
   assert.deepEqual(transport.plan(10.5, 12), []);
   assert.equal(transport.position(10.5), null);
   assert.equal(transport.patternPosition("first", 10.5), null);
-  // No timing means no tempo to report either, which is the reading `app.js`
+  // No timing means no tempo to report either, which is the reading `app.ts`
   // falls back to the stored tempo on.
   assert.equal(transport.currentBpm(10.5), null);
 });

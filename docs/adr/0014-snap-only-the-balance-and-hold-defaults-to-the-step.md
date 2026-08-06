@@ -9,7 +9,7 @@ survives of `TEMPO_SNAP` is an interval, renamed `TEMPO_TICK_INTERVAL` and kept
 because the tick row under the tempo slider is drawn from it and for no other
 reason. `snapToMark` goes with the marks; `snapBalance` is what is left.
 Alongside that, each slider's `step` becomes an exported constant in
-[`model.js`](../../model.js) — `TEMPO_STEP` and the `MIX_STEP` the Level and
+[`model.ts`](../../model.ts) — `TEMPO_STEP` and the `MIX_STEP` the Level and
 Balance share — and every default the Configuration hands out has to lie on the
 grid its control's step defines.
 

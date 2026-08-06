@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+/**
+ * A few tests have to carry a value from one `page.evaluate` to the next — the
+ * Text node a render produced, or a running count of mutations — and the page's
+ * `window` is the only thing that outlives a single evaluation. The properties
+ * are the spec's own scratch space: nothing in the application writes or reads
+ * them, so they are named in this alias rather than declared onto the global
+ * `Window`, where they would read as interface the source is entitled to use.
+ */
+type ScratchWindow = Window & {
+  renderedReadout?: ChildNode;
+  renderedEnvelopeTempo?: ChildNode;
+  presetListRebuilds?: number;
+};
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
@@ -372,22 +386,29 @@ test("an open Cycle envelope follows a Starting BPM edit", async ({ page }) => {
   const tempo = drawer.locator("output");
   await expect(tempo).toHaveText("120 → 100");
   await tempo.evaluate((output) => {
-    window.renderedEnvelopeTempo = output.firstChild;
+    const scratch: ScratchWindow = window;
+    scratch.renderedEnvelopeTempo = output.firstChild;
   });
 
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   await slider.focus();
   await page.keyboard.press("ArrowRight");
   await expect(tempo).toHaveText("125 → 105");
-  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
-    true,
-  );
+  expect(
+    await tempo.evaluate((output) => {
+      const scratch: ScratchWindow = window;
+      return output.firstChild === scratch.renderedEnvelopeTempo;
+    }),
+  ).toBe(true);
 
   await page.getByRole("button", { name: "Increase tempo" }).click();
   await expect(tempo).toHaveText("126 → 106");
-  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
-    true,
-  );
+  expect(
+    await tempo.evaluate((output) => {
+      const scratch: ScratchWindow = window;
+      return output.firstChild === scratch.renderedEnvelopeTempo;
+    }),
+  ).toBe(true);
 });
 
 /**
@@ -566,7 +587,7 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   const ticks = page.locator("#bpm-ticks");
   const lit = () =>
     page.evaluate(() =>
-      [...document.querySelectorAll("#bpm-ticks span.is-passed")].map((mark) =>
+      [...document.querySelectorAll<HTMLElement>("#bpm-ticks span.is-passed")].map((mark) =>
         Number(mark.dataset.bpm),
       ),
     );
@@ -574,8 +595,8 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   // a pair of tempos is what the assertions below are actually about.
   const band = () =>
     page.evaluate(async () => {
-      const { TEMPO_LIMIT } = await import("/model.js");
-      const row = document.querySelector("#bpm-ticks");
+      const { TEMPO_LIMIT } = await import("/model.ts");
+      const row = document.querySelector<HTMLElement>("#bpm-ticks");
       const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
       const bpm = (property) => {
         const percentage = row.style.getPropertyValue(property);
@@ -692,8 +713,8 @@ test("the band is the stretch travelled, not the tempos a Flat or a limit leaves
   const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
   const band = () =>
     page.evaluate(async () => {
-      const { TEMPO_LIMIT } = await import("/model.js");
-      const row = document.querySelector("#bpm-ticks");
+      const { TEMPO_LIMIT } = await import("/model.ts");
+      const row = document.querySelector<HTMLElement>("#bpm-ticks");
       const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
       const bpm = (property) => {
         const percentage = row.style.getPropertyValue(property);
@@ -800,15 +821,17 @@ test("the readout holds its size and its marks while an envelope moves the tempo
   // than as tempos: an unchanged string is the strongest form of "did not move".
   const reading = () =>
     page.evaluate(() => {
-      const row = document.querySelector("#bpm-ticks");
+      const row = document.querySelector<HTMLElement>("#bpm-ticks");
       return {
-        bpm: Number(document.querySelector("#bpm-input").value),
+        bpm: Number(document.querySelector<HTMLInputElement>("#bpm-input").value),
         band: [
           row.style.getPropertyValue("--band-start"),
           row.style.getPropertyValue("--band-end"),
         ],
         lit: row.querySelectorAll("span.is-passed").length,
-        size: document.querySelector("#bpm-readout").style.getPropertyValue("--bpm-size"),
+        size: document
+          .querySelector<HTMLElement>("#bpm-readout")
+          .style.getPropertyValue("--bpm-size"),
       };
     });
 
@@ -910,7 +933,7 @@ async function draggedValues(page, slider, positions) {
  */
 test("a tempo drag reaches every tempo the slider steps to", async ({ page }) => {
   const { limit, step } = await page.evaluate(async () => {
-    const { TEMPO_LIMIT, TEMPO_STEP } = await import("/model.js");
+    const { TEMPO_LIMIT, TEMPO_STEP } = await import("/model.ts");
     return { limit: TEMPO_LIMIT, step: TEMPO_STEP };
   });
   const expected = Array.from(
@@ -970,7 +993,7 @@ test("the tick row and the tempo controls' bounds are the range the model names"
   page,
 }) => {
   const { limit, interval } = await page.evaluate(async () => {
-    const { TEMPO_LIMIT, TEMPO_TICK_INTERVAL } = await import("/model.js");
+    const { TEMPO_LIMIT, TEMPO_TICK_INTERVAL } = await import("/model.ts");
     return { limit: TEMPO_LIMIT, interval: TEMPO_TICK_INTERVAL };
   });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
@@ -1349,19 +1372,20 @@ for (const [field, control, expected] of [
     await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
     const readout = `[data-output="${field}"]`;
     await page.evaluate((selector) => {
-      window.renderedReadout = document.querySelector(selector).firstChild;
+      const scratch: ScratchWindow = window;
+      scratch.renderedReadout = document.querySelector(selector).firstChild;
     }, readout);
 
     await page.getByRole("slider", { name: control }).fill("0.4");
 
     expect(
-      await page.evaluate(
-        (selector) => ({
-          survived: document.querySelector(selector).firstChild === window.renderedReadout,
+      await page.evaluate((selector) => {
+        const scratch: ScratchWindow = window;
+        return {
+          survived: document.querySelector(selector).firstChild === scratch.renderedReadout,
           text: document.querySelector(selector).textContent,
-        }),
-        readout,
-      ),
+        };
+      }, readout),
     ).toEqual({ survived: true, text: expected });
   });
 }
@@ -1424,7 +1448,7 @@ for (const { name, control, minimum, maximum, unreachable } of [
   test(`a ${name} drag reaches every position the slider steps to`, async ({ page }) => {
     await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
     const step = await page.evaluate(async () => {
-      const { MIX_STEP } = await import("/model.js");
+      const { MIX_STEP } = await import("/model.ts");
       return Math.round(MIX_STEP * 100);
     });
     const expected = [];
@@ -1653,7 +1677,7 @@ test("the current control follows a display mode change during playback", async 
       const count = Number(element.dataset.pulseCount) + 1;
       element.dataset.pulseCount = String(count);
       if (count !== 2) return;
-      document.querySelector('[data-display-mode="subdivision"]').click();
+      document.querySelector<HTMLElement>('[data-display-mode="subdivision"]').click();
       requestAnimationFrame(() => {
         document.body.dataset.currentAfterDisplayMode =
           document.querySelector(".step.is-current")?.getAttribute("aria-label") ?? "absent";
@@ -2100,9 +2124,10 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
   await expect(heading).toBeHidden();
 
   await page.evaluate(() => {
-    window.presetListRebuilds = 0;
+    const scratch: ScratchWindow = window;
+    scratch.presetListRebuilds = 0;
     new MutationObserver((records) => {
-      window.presetListRebuilds += records.length;
+      scratch.presetListRebuilds += records.length;
     }).observe(document.querySelector("#preset-list"), { childList: true });
   });
 
@@ -2113,7 +2138,12 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
     page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
   ).toHaveValue("150");
 
-  expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
+  expect(
+    await page.evaluate(() => {
+      const scratch: ScratchWindow = window;
+      return scratch.presetListRebuilds;
+    }),
+  ).toBe(0);
 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Watched")).toBeVisible();
@@ -2191,9 +2221,10 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
   await expect(example).toHaveAttribute("aria-pressed", "true");
 
   await page.evaluate(() => {
-    window.presetListRebuilds = 0;
+    const scratch: ScratchWindow = window;
+    scratch.presetListRebuilds = 0;
     new MutationObserver((records) => {
-      window.presetListRebuilds += records.length;
+      scratch.presetListRebuilds += records.length;
     }).observe(document.querySelector("#preset-list"), { childList: true, subtree: true });
   });
 
@@ -2204,7 +2235,12 @@ test("an open preset panel is not rebuilt when only the selection changes", asyn
   await expect(example).toHaveAttribute("aria-pressed", "false");
   await expect(example).not.toHaveClass(/\bis-selected\b/);
   await expect(presetButton(page, "Watched")).toBeVisible();
-  expect(await page.evaluate(() => window.presetListRebuilds)).toBe(0);
+  expect(
+    await page.evaluate(() => {
+      const scratch: ScratchWindow = window;
+      return scratch.presetListRebuilds;
+    }),
+  ).toBe(0);
 });
 
 /**
@@ -2613,7 +2649,7 @@ test("a dot marks each beat, clear of the row below even when it pulses", async 
  * The 150ms is the dot's own 90ms transition settling, not a guess at how long
  * a runner takes.
  */
-for (const motion of ["no-preference", "reduce"]) {
+for (const motion of ["no-preference", "reduce"] as const) {
   test(`the dot still pulses after a re-render with motion ${motion}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: motion });
     // The re-render. Every beat below is a node reconciliation has just written.
@@ -2716,8 +2752,12 @@ test("the beat dot pulses on its own onset, not through the whole beat", async (
   expect(nextBeat[1], "beat two did not pulse on its own onset").not.toBe(resting[1]);
   expect(nextBeat[0], "beat one pulsed on beat two's onset").toBe(resting[0]);
 
-  // Grows rather than merely recolours.
-  const scaleOf = (dot) => Number(dot.match(/matrix\(([\d.]+)/)[1]);
+  // Grows rather than merely recolours. An untransformed dot computes to `none`
+  // rather than an identity matrix, and reading that as scale 1 is what keeps a
+  // dot that stopped growing failing on the growth this line asserts — indexing
+  // a null match would throw a TypeError instead, reporting a real regression as
+  // a broken harness.
+  const scaleOf = (dot) => Number(dot.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
   expect(scaleOf(atOnset[0])).toBeGreaterThan(scaleOf(resting[0]));
 });
 
@@ -2745,7 +2785,7 @@ test("the BPM label closes on the number as the tempo enlarges it", async ({ pag
       // about 3px shorter at this size — enough to measure the two tempos
       // against two different faces, and to move a gap this small either way.
       await document.fonts.ready;
-      const input = document.querySelector("#bpm-input");
+      const input = document.querySelector<HTMLInputElement>("#bpm-input");
       const style = getComputedStyle(input);
       const fontPx = parseFloat(style.fontSize);
       const context = document.createElement("canvas").getContext("2d");
@@ -2989,7 +3029,7 @@ test("non-primary mouse presses do not change or repeat the tempo", async ({ pag
 
   const key = await up.boundingBox();
   await page.mouse.move(key.x + key.width / 2, key.y + key.height / 2);
-  for (const button of ["right", "middle"]) {
+  for (const button of ["right", "middle"] as const) {
     await page.mouse.down({ button });
     await page.waitForTimeout(700);
     await page.mouse.up({ button });
@@ -3184,7 +3224,7 @@ test("the tempo keys are the play bar's height and stay a tap target", async ({ 
     for (const [name, key] of [
       ["−", measured.down],
       ["+", measured.up],
-    ]) {
+    ] as const) {
       expect(key.height, `${name} is not the play bar's height at ${width}px`).toBeCloseTo(
         measured.play.height,
         1,

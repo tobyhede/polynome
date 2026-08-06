@@ -67,6 +67,30 @@ async function workflowFiles() {
 }
 
 /**
+ * A step that runs `actions/checkout`. Anchored to the start of a line, and
+ * allowing only indentation and a list item's `- ` before the key, so that a
+ * `#` ahead of it rules the line out: a comment can say anything, and
+ * `# uses: actions/checkout@v4` beside a step that checks nothing out would
+ * otherwise be counted as a checkout — inflating the count that reports how
+ * many steps were examined, and asserting the option below against a step that
+ * never takes a credential in the first place.
+ */
+const CHECKOUT_STEP = /^[ \t]*(?:-[ \t]+)?uses:[ \t]*actions\/checkout(?=[@ \t]|$)/m;
+
+/**
+ * The `persist-credentials: false` input, as an active property rather than as
+ * text somewhere in the step. Written as a comment it reads exactly like the
+ * line that switches the option off while switching nothing off at all, which
+ * is the one way a step could both persist the token and satisfy this.
+ *
+ * The value has to end the line, because YAML begins a comment only at a `#`
+ * preceded by whitespace: `persist-credentials: false#note` is the string
+ * `false#note`, not the boolean, so it is not this option being set and is
+ * rejected. A `#` after a space is an ordinary trailing comment and is allowed.
+ */
+const PERSIST_CREDENTIALS_FALSE = /^[ \t]*persist-credentials:[ \t]*false(?:[ \t]+#.*)?[ \t]*$/m;
+
+/**
  * `actions/checkout` writes the workflow token into `.git/config` as an auth
  * header unless told not to. Neither job here pushes anything — the deploy job
  * authenticates to Pages through its own OIDC token — but the test job runs
@@ -80,11 +104,11 @@ test("every workflow checkout step refuses to persist credentials", async () => 
   for (const file of await workflowFiles()) {
     const workflow = await readFile(join(workflows, file), "utf8");
     for (const step of steps(workflow)) {
-      if (!/uses:\s*actions\/checkout[@\s]/.test(step)) continue;
+      if (!CHECKOUT_STEP.test(step)) continue;
       checkouts += 1;
       assert.match(
         step,
-        /persist-credentials:\s*false/,
+        PERSIST_CREDENTIALS_FALSE,
         `${file} checks out without persist-credentials: false in step:\n${step}`,
       );
     }

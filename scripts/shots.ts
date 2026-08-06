@@ -12,7 +12,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices } from "@playwright/test";
 
-import { inMatrixOrder, priorShots } from "./shots-manifest.mjs";
+import { inMatrixOrder, priorShots } from "./shots-manifest.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const shotsRoot = resolve(root, "shots");
@@ -119,7 +119,7 @@ const STATES = [
 ];
 
 function parseArguments(argv) {
-  const options = {};
+  const options: Record<string, string> = {};
   for (const entry of argv) {
     const match = /^--([\w-]+)(?:=(.*))?$/.exec(entry);
     if (!match) throw new Error(`Unrecognised argument: ${entry}`);
@@ -157,7 +157,7 @@ async function waitForServer(url, signal) {
 
 async function startServer(port) {
   const signal = { exited: false };
-  const child = spawn("node", ["server.mjs"], {
+  const child = spawn("node", ["server.ts"], {
     cwd: root,
     env: { ...process.env, PORT: String(port) },
     stdio: ["ignore", "ignore", "inherit"],
@@ -168,9 +168,8 @@ async function startServer(port) {
   // `settle`, not `resolve`: this module imports `resolve` from node:path, and
   // shadowing it here would hand any later path work in this scope the wrong
   // binding without a word of complaint.
-  /** @type {() => Promise<void>} */
   const stop = () =>
-    new Promise((settle) => {
+    new Promise<void>((settle) => {
       if (signal.exited) return settle();
       child.on("exit", settle);
       child.kill("SIGTERM");

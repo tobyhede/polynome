@@ -7,7 +7,7 @@ export const STEP = Object.freeze({
 
 /**
  * Which click a rhythm layer plays. The name is the vocabulary and lives here;
- * what each one is tuned to — frequency, waveform, duration — is `metronome.js`
+ * what each one is tuned to — frequency, waveform, duration — is `metronome.ts`
  * and its `SOUND_PROFILES`, keyed by these values.
  *
  * The split is the same one `STEP` and `STEP_PITCH_RATIOS` make: a name a
@@ -36,7 +36,7 @@ export function lookup(entries) {
 }
 
 /**
- * The shared musical vocabulary. `model.js` is the single definition; every
+ * The shared musical vocabulary. `model.ts` is the single definition; every
  * other module imports these rather than restating the literals.
  *
  * Tempo names the shared primary beat rate. Every rhythm layer receives one
@@ -64,7 +64,7 @@ export const TEMPO_LIMIT = Object.freeze({ minimum: 30, maximum: 300 });
  * readout said 72% and the audio graph played 0.72, and nothing could catch it
  * while the step existed only as a string in the markup with no name for a test
  * to reach for. The grid is domain vocabulary for that reason, and
- * `test/model.test.js` holds every default the application ships against it.
+ * `test/model.test.ts` holds every default the application ships against it.
  *
  * `index.html` cannot import, so the tempo slider's `step="5"` is still written
  * there as a literal; the same test reads the shell and holds the two together.
@@ -325,7 +325,7 @@ export function normaliseMeterUnit(value, fallback = 4) {
  * A Cycle span is the least common multiple of its Meter counts. Those counts
  * are whole numbers the count range clamps, so every value and intermediate
  * product here is an exact integer and only the conversion to seconds is a
- * floating-point division. `test/model.test.js` holds the widest span the range
+ * floating-point division. `test/model.test.ts` holds the widest span the range
  * permits and the margin it leaves.
  */
 function greatestCommonDivisor(left, right) {
@@ -404,12 +404,12 @@ export function subdivisionLabel(subdivision, unit) {
 }
 
 /**
- * The interval the tick row under the tempo slider is drawn at. `app.js` builds
+ * The interval the tick row under the tempo slider is drawn at. `app.ts` builds
  * the row from this and `TEMPO_LIMIT`, and the row is a scale: major ticks carry
  * their own number, so it is how a reader knows where on the range the thumb is
  * sitting. `TEMPO_STEP` divides this interval and the range spans a whole number
  * of them, so every mark drawn is a tempo the slider can stop on and the first
- * and last sit on the slider's own ends; `test/model.test.js` holds both.
+ * and last sit on the slider's own ends; `test/model.test.ts` holds both.
  *
  * The row was once the drawn form of a snap. A drag stopped on these tempos —
  * restoring what a `<datalist>` on the slider had done for free before the

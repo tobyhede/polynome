@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # `test/workflow.test.js` checks what this repository decided about its
+      # `test/workflow.test.ts` checks what this repository decided about its
       # own workflows — pinned actions, no persisted credentials. actionlint
       # checks what GitHub will accept: unknown keys, expressions referring to
       # contexts a trigger does not provide, a `runs-on` label that does not
@@ -49,6 +49,15 @@ jobs:
           tar --extract --gzip --file "${archive}" actionlint
           ./actionlint -color
           rm -f actionlint "${archive}"
+      # `.nvmrc` names one exact release rather than a major, because `nvm use`
+      # resolves a bare major against whichever 22.x a developer happens to have
+      # installed and nvm cannot express a lower bound. The release it names is
+      # the floor `engines.node` declares, so this job runs the oldest Node the
+      # repository claims to support instead of the newest 22.x. That is the
+      # trade this pin makes: the floor is the claim most likely to be wrong and
+      # otherwise nothing would test it, and the cost is that a regression
+      # appearing only in a later 22.x is not caught here.
+      # `test/dependencies.test.ts` asserts the two stay consistent.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -99,7 +108,7 @@ jobs:
         run: npm run site
       # `include-hidden-files` restores what v4 of this action changed: dotfiles
       # are excluded by default now, and the site build writes `.nojekyll` (see
-      # `scripts/build.mjs`). Without this the deploy would quietly ship a site
+      # `scripts/build.ts`). Without this the deploy would quietly ship a site
       # that no longer opts out of Jekyll, on a path that only runs on `main`.
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

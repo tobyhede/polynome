@@ -14,8 +14,9 @@ function rootPath(projectRoot) {
  * Esbuild warns about source that parses but cannot mean what it says: a
  * duplicate key, an unknown CSS property, a `typeof` comparison no value
  * satisfies. Every build here runs silent so the console stays quiet, which
- * would also make those warnings vanish — and this project has no linter, so
- * they are the only analysis it gets beyond `node --check`. Refuse the
+ * would also make those warnings vanish. Biome and `tsc` read the source, but
+ * neither resolves the module graph or the stylesheet, so these are the only
+ * analysis the assembled bundle gets. Refuse the
  * artifact instead, because a warning that merely prints is one a green build
  * hides.
  */
@@ -69,22 +70,72 @@ function withoutImportMap(source) {
 }
 
 /**
+ * A `<script>` or `<style>` element holds raw text, and the tokenizer ends that
+ * text at the first `</script` or `</style` — an ASCII case-insensitive match,
+ * decided on the character stream alone, with no notion of the JavaScript
+ * string literal or CSS declaration the sequence might sit inside. Inlining a
+ * bundle is the one place in this build where the bundle's own bytes can close
+ * the element around them and spill the remainder into the document as markup.
+ * Escaping the solidus breaks the match while denoting the same character in
+ * both languages: `\/` is an identity escape in a JavaScript string, and CSS
+ * treats a reverse solidus before anything but a newline as a valid escape
+ * whose escaped code point is the character that follows it. The HTML standard
+ * recommends escaping for the same reason, under "restrictions for contents of
+ * script elements".
+ *
+ * Esbuild covers most of this already, so applying it changes neither artifact
+ * as they stand. It is here because the cover is partial and conditional in
+ * ways nothing in this repository records or tests. On the JavaScript side the
+ * escaping is tied to `platform: "browser"` and to esbuild's `inline-script`
+ * feature, either of which turns it off, and it does not reach the path comment
+ * esbuild prints above each bundled module — a module under a directory whose
+ * name ends in `<` ends the element from a comment. On the CSS side it reaches
+ * string tokens only: a custom property's value is an arbitrary token sequence
+ * that esbuild passes through verbatim, so `--raw: a</style>b` survives the
+ * bundler intact and ends the element, which is what the test for this holds.
+ *
+ * The alternatives are worse, for reasons worth recording. Escaping the `<` as
+ * `\<` does not work at all: it leaves the `<` standing immediately before
+ * `/style`, and the tokenizer reads characters, not escapes. The hex form `\3c`
+ * does break the sequence, but how much of the input it consumes depends on
+ * what follows — up to six hex digits, then one whitespace code point swallowed
+ * as its terminator — and esbuild rewrites it to `\<`, which puts the sequence
+ * back. Escaping a letter of the name instead, as `</st\yle`, is the one form
+ * that leaves the token stream untouched, and it is also the least durable: an
+ * escape a name does not need is dropped wherever the CSS is printed again, as
+ * esbuild's own printer does, and dropping it restores the sequence. `\/`
+ * survives that round trip because an ident beginning with a solidus has to be
+ * serialised with the solidus escaped.
+ *
+ * So the escape is not free of context. Inside a string or a url token `\/`
+ * denotes the solidus and the value is unchanged; in a bare token sequence it
+ * begins an ident instead, so `<` `/` `style` becomes `<` `/style`. The code
+ * points survive and the declaration still parses; the boundary between the
+ * solidus and the name does not. Nor does this make an inline script safe in
+ * general — the standard names `<!--` and `<script` alongside `</script`, and
+ * neither esbuild nor this escapes those.
+ */
+function withoutRawTextTerminator(body, tagName) {
+  return body.replace(new RegExp(`</(?=${tagName})`, "gi"), "<\\/");
+}
+
+/**
  * A document may name one asset several times — a preload hint beside the tag
  * that uses it — so every occurrence is rewritten, not the first. Anchoring
- * between the quotes keeps `./app.js` from matching part of a longer path and
+ * between the quotes keeps `./app.ts` from matching part of a longer path and
  * leaves the quote characters alone, so one pattern serves `href` and `src`.
  */
 function referenceTo(specifier) {
   return new RegExp(`(?<=["'])\\./${specifier.replaceAll(".", "\\.")}(?=["'])`, "g");
 }
 
-async function buildSingleFile(root) {
+async function buildSingleFile(root): Promise<{ target: "single-file"; output: string }> {
   const cssSource = await readFile(join(root, "styles.css"), "utf8");
   const [html, javascriptResult, cssResult] = await Promise.all([
     readFile(join(root, "index.html"), "utf8"),
     build({
       absWorkingDir: root,
-      entryPoints: ["app.js"],
+      entryPoints: ["app.ts"],
       bundle: true,
       format: "iife",
       platform: "browser",
@@ -122,14 +173,14 @@ async function buildSingleFile(root) {
   let artifact = replaceRequired(
     withoutImportMap(html),
     /\s*<link\s+rel=["']stylesheet["']\s+href=["']\.\/styles\.css["']\s*\/?\s*>/,
-    `\n    <style>\n${css}    </style>`,
+    `\n    <style>\n${withoutRawTextTerminator(css, "style")}    </style>`,
     "./styles.css stylesheet",
   );
   artifact = replaceRequired(
     artifact,
-    /\s*<script\s+type=["']module["']\s+src=["']\.\/app\.js["']\s*>\s*<\/script>/,
-    `\n    <script>\n${javascript}    </script>`,
-    "./app.js module script",
+    /\s*<script\s+type=["']module["']\s+src=["']\.\/app\.ts["']\s*>\s*<\/script>/,
+    `\n    <script>\n${withoutRawTextTerminator(javascript, "script")}    </script>`,
+    "./app.ts module script",
   );
 
   const output = join(root, "dist");
@@ -157,7 +208,10 @@ export function distributionVersion(requestedVersion, environmentRevision) {
   return version;
 }
 
-async function buildSite(root, requestedVersion) {
+async function buildSite(
+  root,
+  requestedVersion,
+): Promise<{ target: "site"; version: string; output: string }> {
   const version = distributionVersion(requestedVersion, process.env.GITHUB_SHA);
   const output = join(root, "site");
   const html = await readFile(join(root, "index.html"), "utf8");
@@ -165,7 +219,7 @@ async function buildSite(root, requestedVersion) {
   await rm(output, { recursive: true, force: true });
   const result = await build({
     absWorkingDir: root,
-    entryPoints: ["app.js", "styles.css"],
+    entryPoints: ["app.ts", "styles.css"],
     outdir: output,
     bundle: true,
     format: "esm",
@@ -201,9 +255,9 @@ async function buildSite(root, requestedVersion) {
   );
   siteHtml = replaceRequired(
     siteHtml,
-    referenceTo("app.js"),
+    referenceTo("app.ts"),
     `./app-${version}.js`,
-    "./app.js reference",
+    "./app.ts reference",
   );
   await mkdir(output, { recursive: true });
   await Promise.all([
@@ -222,12 +276,32 @@ async function buildSite(root, requestedVersion) {
  * owns dependency discovery and JavaScript/CSS/asset rewriting for both
  * targets; callers only choose the artifact they need.
  *
- * @param {object} [options]
- * @param {"single-file" | "site"} [options.target]
- * @param {string} [options.version]
- * @param {string | URL} [options.projectRoot]
+ * The two targets are separate signatures because they answer with different
+ * things: only the site carries a version, and a caller that asked for one
+ * artifact should not have to narrow away the other. The implementation still
+ * admits any string, so the `TypeError` below keeps a reachable case — the
+ * caller it protects against reads its target from an argument vector or an
+ * environment variable, where TypeScript cannot see it.
  */
-export async function buildDistribution({ target, version, projectRoot } = {}) {
+export async function buildDistribution(options: {
+  target: "single-file";
+  version?: string;
+  projectRoot?: string | URL;
+}): Promise<{ target: "single-file"; output: string }>;
+export async function buildDistribution(options: {
+  target: "site";
+  version?: string;
+  projectRoot?: string | URL;
+}): Promise<{ target: "site"; version: string; output: string }>;
+export async function buildDistribution({
+  target,
+  version,
+  projectRoot,
+}: {
+  target?: string;
+  version?: string;
+  projectRoot?: string | URL;
+} = {}) {
   const root = rootPath(projectRoot);
   if (target === "single-file") return buildSingleFile(root);
   if (target === "site") return buildSite(root, version);

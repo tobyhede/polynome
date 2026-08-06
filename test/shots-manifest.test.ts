@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { inMatrixOrder, priorShots } from "../scripts/shots-manifest.mjs";
+import { inMatrixOrder, priorShots } from "../scripts/shots-manifest.ts";
 
 // Real directories rather than a stubbed filesystem: the behaviour under test
 // is which read failures are ordinary and which are not, and only the real
@@ -59,7 +59,7 @@ test("a manifest that cannot be read is reported, not taken for a first run", as
 
     await assert.rejects(
       () => priorShots(directory, new Set()),
-      (error) => {
+      (error: Error) => {
         assert.match(error.message, /manifest/i);
         assert.ok(error.cause instanceof SyntaxError, "keeps the parse failure as the cause");
         return true;

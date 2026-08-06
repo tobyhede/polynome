@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 /**
  * Accessible names are easy to write and hard to notice when they never reach
  * assistive technology. These tests read the shipped markup — the static shell
- * and the templates `app.js` renders — rather than any recreation of it.
+ * and the templates `app.ts` renders — rather than any recreation of it.
  */
 
 const GENERIC_TAGS = new Set(["span", "div"]);
@@ -116,7 +116,7 @@ function* cssRules(css) {
 /**
  * Yields every start tag with its raw attribute text. Attribute values are
  * skipped over so a `>` inside one cannot end the tag early, and only
- * attribute *names* are inspected, which keeps the value an `app.js` template
+ * attribute *names* are inspected, which keeps the value an `app.ts` template
  * interpolates from mattering.
  *
  * A value is skipped in whichever form it is written: quoted, as `index.html`
@@ -161,7 +161,7 @@ function* genericsNamedByAriaLabel(source) {
  * half a tag: every attribute past the comparison disappears, the `aria-label`
  * among them, and the check reports nothing while looking like it ran.
  *
- * The fixture below stands in for a line of `app.js` as the scanner reads it,
+ * The fixture below stands in for a line of `app.ts` as the scanner reads it,
  * so its placeholder has to survive as characters rather than be interpolated.
  */
 test("a `>` inside an interpolated attribute value does not end the tag", () => {
@@ -177,7 +177,7 @@ test("a `>` inside an interpolated attribute value does not end the tag", () => 
 test("no generic element is named with aria-label", async () => {
   const offenders = [];
 
-  for (const file of ["index.html", "app.js"]) {
+  for (const file of ["index.html", "app.ts"]) {
     const source = await readFile(file, "utf8");
     for (const { tag, line } of genericsNamedByAriaLabel(source)) {
       offenders.push(`${file}:${line} <${tag}>`);
@@ -188,14 +188,14 @@ test("no generic element is named with aria-label", async () => {
 });
 
 /**
- * `app.js` resolves its controls once at module scope and never null-checks
+ * `app.ts` resolves its controls once at module scope and never null-checks
  * them, so an id that the shell stops emitting fails as a TypeError deep in a
  * render rather than at startup. Visually hidden label spans are the easiest
  * to drop by accident, because removing one changes nothing on screen.
  */
-test("every element app.js resolves by id exists in the shell", async () => {
+test("every element app.ts resolves by id exists in the shell", async () => {
   const [app, html] = await Promise.all([
-    readFile("app.js", "utf8"),
+    readFile("app.ts", "utf8"),
     readFile("index.html", "utf8"),
   ]);
   const ids = Array.from(
@@ -203,7 +203,7 @@ test("every element app.js resolves by id exists in the shell", async () => {
     (match) => match[1],
   );
 
-  assert.ok(ids.length, "Expected app.js to resolve controls by id");
+  assert.ok(ids.length, "Expected app.ts to resolve controls by id");
   const missing = ids.filter((id) => !new RegExp(`\\sid="${id}"`).test(html));
   assert.deepEqual(missing, []);
 });

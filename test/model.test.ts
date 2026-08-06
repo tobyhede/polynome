@@ -27,13 +27,13 @@ import {
   stepDurationSeconds,
   subdivisionLabel,
   tempoAtBeat,
-} from "../model.js";
+} from "../model.ts";
 import {
   changeConfiguration,
   createConfiguration,
   createStoredPresets,
   describeConfiguration,
-} from "../configuration.js";
+} from "../configuration.ts";
 
 const closeTo = (actual, expected, tolerance = 1e-9) => {
   assert.ok(
@@ -184,7 +184,7 @@ test("envelope tempo at a progress fraction distinguishes a step from a ramp", (
  * and the other spends it on its name.
  */
 test("a change of envelope shape carries the magnitude across", () => {
-  const cases = [
+  const cases: [envelope: { shape: string; amount: number }, shape: string, expected: number][] = [
     [{ shape: "flat", amount: 0 }, "up", 20],
     [{ shape: "flat", amount: 0 }, "peak", 20],
     [{ shape: "flat", amount: -35 }, "up", 35],
@@ -424,7 +424,7 @@ const rhythmsOf = (configuration) =>
  * written in: whole bpm for the tempo, hundredths for the two mix sliders. The
  * bounds are the `min` the control carries, because that is what the standard's
  * stepping counts from; each control's own copy of its grid is asserted below —
- * the tempo's from the shell, the two mix sliders' from the `app.js` template
+ * the tempo's from the shell, the two mix sliders' from the `app.ts` template
  * that renders them, named here by the `data-field` that finds them there.
  */
 const STEPPED_CONTROLS = [
@@ -551,7 +551,7 @@ test("every default the application ships sits on its control's grid", () => {
  * those steps from the minimum, so a shell that disagreed about either would put
  * the slider on a different set of tempos than the check above tests defaults
  * against. The maximum is the range's other end rather than part of the grid,
- * and `e2e/polynome.spec.js` holds both bounds against `TEMPO_LIMIT` from the
+ * and `e2e/polynome.spec.ts` holds both bounds against `TEMPO_LIMIT` from the
  * rendered control.
  */
 test("the shell's tempo slider carries the grid the model names", async () => {
@@ -564,7 +564,7 @@ test("the shell's tempo slider carries the grid the model names", async () => {
 });
 
 /**
- * The other two stepped controls are rendered by `app.js`, so their grid is
+ * The other two stepped controls are rendered by `app.ts`, so their grid is
  * written there and the check above measures every default against the copy of
  * it in `STEPPED_CONTROLS`. Nothing else holds those two copies together.
  *
@@ -578,18 +578,18 @@ test("the shell's tempo slider carries the grid the model names", async () => {
  * above went on measuring from where it used to be — and the values it measures
  * would all still pass.
  *
- * Read as text because `app.js` reaches for the document as it loads, which is
+ * Read as text because `app.ts` reaches for the document as it loads, which is
  * the same reason the shell above is.
  */
 test("the grid the rendered mix sliders carry is the one the model names", async () => {
-  const source = await readFile(fileURLToPath(new URL("../app.js", import.meta.url)), "utf8");
+  const source = await readFile(fileURLToPath(new URL("../app.ts", import.meta.url)), "utf8");
   const rendered = STEPPED_CONTROLS.filter(({ field }) => field);
 
-  assert.equal(rendered.length, 2, "Expected the Level and the Balance to be rendered by app.js");
+  assert.equal(rendered.length, 2, "Expected the Level and the Balance to be rendered by app.ts");
   for (const control of rendered) {
     const slider = source.match(new RegExp(`<input[^>]*data-field="${control.field}"[^>]*>`));
 
-    assert.ok(slider, `Expected app.js to render ${control.name}`);
+    assert.ok(slider, `Expected app.ts to render ${control.name}`);
     assert.match(
       slider[0],
       /\sstep=\$\{String\(MIX_STEP\)\}/,

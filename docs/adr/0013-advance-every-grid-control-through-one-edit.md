@@ -29,13 +29,13 @@ the count of controls that Display mode offers.
 
 ## Consequences
 
-- `grid.js` holds a rhythm layer's meter-relative grid: the canonical pattern,
-  repair, the runs a Display mode lays out, and the inverse the visual playhead
-  needs. It imports [`model.js`](../../model.js) and nothing else, so both
-  [`configuration.js`](../../configuration.js) and [`app.js`](../../app.js) read
-  it. The nine places that stated the signature-unit-to-position relation independently —
-  six in `app.js`, one of them by writing a DOM attribute and reading it back —
-  become one.
+- [`grid.ts`](../../grid.ts) holds a rhythm layer's meter-relative grid: the
+  canonical pattern, repair, the runs a Display mode lays out, and the inverse
+  the visual playhead needs. It imports [`model.ts`](../../model.ts) and
+  nothing else, so both [`configuration.ts`](../../configuration.ts) and
+  [`app.ts`](../../app.ts) read it. The nine places that stated the
+  signature-unit-to-position relation independently — six in `app.js`, one of
+  them by writing a DOM attribute and reading it back — become one.
 - `canonicalSteps` and `resizeSteps` move there as `canonicalPattern` and
   `repairPattern`. This amends [ADR-0012](0012-reset-the-pattern-on-a-meter-or-subdivision-edit.md),
   which names both by function and file. What that decision asserts is unchanged:
@@ -45,7 +45,7 @@ the count of controls that Display mode offers.
 - An edit stops being self-describing. `{type: "advance-beat-voice", beat: 3}`
   could be read on its own; `{type: "advance-control-voice", control: 3}` needs
   the layer to say whether that is a signature unit or a pattern position. That
-  is cheap here because edits are transient — [`persistence.js`](../../persistence.js)
+  is cheap here because edits are transient — [`persistence.ts`](../../persistence.ts)
   writes the Configuration and never the edits, and nothing logs or replays them
   — but it is a real loss of legibility at the one interface a reader is most
   likely to be looking at when something is wrong.
@@ -55,8 +55,8 @@ the count of controls that Display mode offers.
   stops it rewriting the pulses of a signature unit inside the Meter.
 - The interface emits one `data-action`, `control`, and one `data-control`
   attribute in place of `beat`/`step` and their two indices. `GridControl` takes
-  no mode; what a control is called is composed in `app.js`, because
-  `grid.js` is read by `configuration.js` and has no business holding a string
+  no mode; what a control is called is composed in `app.ts`, because
+  `grid.ts` is read by `configuration.ts` and has no business holding a string
   neither of them will ever show.
 - `data-steps-per-beat` becomes `data-controls-per-signature-unit`, and
   `data-beats` becomes `data-signature-units`; both are sourced from

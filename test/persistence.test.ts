@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createPersistence, readStoredValue } from "../persistence.js";
+import { createPersistence, readStoredValue } from "../persistence.ts";
 
 const createStorage = (entries = {}) => {
   const items = new Map(Object.entries(entries));
@@ -206,6 +206,14 @@ test("no older key's value is adopted into the current one", () => {
   const raw = readStoredValue({
     storage,
     key: "polynome-configuration",
+    // `supersededKeys` is not a typo for `retiredKeys`: the whole point is that
+    // `readStoredValue` does not accept it, and the checker saying so is the
+    // guard working. Renaming it to an option the module does read would satisfy
+    // the checker and quietly turn this into a test of retirement instead. The
+    // suppression inverts the moment anyone makes value-adoption real — an
+    // accepted `supersededKeys` makes this line a compile failure, which is the
+    // "fails here rather than shipping quietly" the docblock above asks for.
+    // @ts-expect-error
     supersededKeys: ["polynome-redesign"],
   });
 
@@ -243,7 +251,9 @@ test("a storage that throws reads as null", () => {
     },
   };
 
-  let raw;
+  // Left unassigned rather than initialised to null, so a `readStoredValue`
+  // that never ran cannot pass the assertion below by default.
+  let raw: string | null;
   assert.doesNotThrow(() => {
     raw = readStoredValue({
       storage: unavailable,

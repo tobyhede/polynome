@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    // `es2023` for the copying array methods — `toSorted` and its siblings —
+    // which Node has had since 20 and which the browsers this ships to have had
+    // since before the OKLCH colours in `styles.css` were an option. The floor
+    // is what the runtimes offer, not what the emitted syntax needs; `target`
+    // stays at es2022 because nothing here is emitted at all.
+    "lib": ["es2022", "es2023", "dom", "dom.iterable"],
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true,
+    // The e2e specs reach the application the way the browser does, through the
+    // development server, so a `page.evaluate` body imports `/model.ts` — a URL
+    // resolved against the served root, not a path resolved against the file
+    // doing the importing. The checker has no server, so it is told the same
+    // thing the server knows: the served root is this directory. Only a literal
+    // leading slash matches, and nothing outside `e2e/` writes one.
+    "paths": {
+      "/*": ["./*"]
+    }
+  },
+  "include": ["*.ts", "scripts/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "site"]
+}
