@@ -2,15 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createConfiguration } from "../configuration.ts";
-import { decodeSharePayload, encodeShareConfiguration } from "../share.ts";
+import {
+  createShareConfigurationUrl,
+  decodeShareConfiguration,
+  decodeShareConfigurationFragment,
+  encodeShareConfiguration,
+  isShareConfigurationFragment,
+} from "../share.ts";
 
-async function gzipPayload(text: string) {
-  const compressed = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
-  const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
+test("a Share link owns its URL fragment grammar", async () => {
+  const url = await createShareConfigurationUrl(
+    "https://polynome.example/metronome",
+    createConfiguration({ bpm: 135 }),
+  );
+  const fragment = new URL(url).hash;
+
+  assert.match(url, /^https:\/\/polynome\.example\/metronome#share=[A-Za-z0-9_-]+$/);
+  assert.equal(isShareConfigurationFragment(fragment), true);
+  assert.equal((await decodeShareConfigurationFragment(fragment)).bpm, 135);
+  assert.equal(isShareConfigurationFragment("#help"), false);
+});
 
 test("a Share payload carries the Configuration without generated identifiers", async () => {
   const original = createConfiguration({
@@ -26,7 +37,7 @@ test("a Share payload carries the Configuration without generated identifiers", 
   });
 
   const payload = await encodeShareConfiguration(original);
-  const shared = await decodeSharePayload(payload);
+  const shared = await decodeShareConfiguration(payload);
 
   assert.equal(shared.bpm, 135);
   assert.equal(shared.sequence.cycles[0].repetitions, 2);
@@ -41,17 +52,13 @@ test("a Share payload carries the Configuration without generated identifiers", 
 });
 
 test("a Share payload rejects JSON that is not recognizably a Configuration", async () => {
-  const payload = await gzipPayload(JSON.stringify({ unrelated: true }));
+  const payload = await encodeShareConfiguration({ sequence: { cycles: [] } });
 
-  await assert.rejects(decodeSharePayload(payload), /not a Configuration/);
-});
-
-test("a Share payload rejects malformed compressed JSON", async () => {
-  await assert.rejects(decodeSharePayload(await gzipPayload('{"bpm":120')));
+  await assert.rejects(decodeShareConfiguration(payload), /not a Configuration/);
 });
 
 test("a Share payload rejects malformed gzip data", async () => {
-  await assert.rejects(decodeSharePayload("bm90LWd6aXA"));
+  await assert.rejects(decodeShareConfiguration("bm90LWd6aXA"));
 });
 
 test("a Share payload stops decompression beyond 64 KiB", async () => {
@@ -60,5 +67,5 @@ test("a Share payload stops decompression beyond 64 KiB", async () => {
     padding: "x".repeat(70 * 1024),
   });
 
-  await assert.rejects(decodeSharePayload(payload), /64 KiB/);
+  await assert.rejects(decodeShareConfiguration(payload), /64 KiB/);
 });

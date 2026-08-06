@@ -25,7 +25,11 @@ import {
 } from "./model.ts";
 import { controlCounts, controlIndexAt, controls } from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
-import { decodeSharePayload, encodeShareConfiguration } from "./share.ts";
+import {
+  createShareConfigurationUrl,
+  decodeShareConfigurationFragment,
+  isShareConfigurationFragment,
+} from "./share.ts";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
 // resolves all three specifiers this pulls in.
@@ -194,23 +198,29 @@ function showFeedback(message) {
   elements.status.textContent = message;
 }
 
+function clearFeedback() {
+  elements.feedback.textContent = "";
+  elements.feedback.hidden = true;
+  elements.status.textContent = engine.playing ? "Playing" : "Stopped";
+}
+
 function shareUrlBase() {
-  if (typeof location === "undefined" || !["http:", "https:"].includes(location.protocol)) {
-    return null;
-  }
-  return `${location.origin}${location.pathname}`;
+  if (typeof location === "undefined") return null;
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+  return url.href;
 }
 
 async function shareCurrentConfiguration() {
   try {
     const base = shareUrlBase();
     if (base === null) return;
-    const payload = await encodeShareConfiguration(state);
-    const url = `${base}#share=${payload}`;
+    const url = await createShareConfigurationUrl(base, state);
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ title: "Polynome", url });
-        elements.status.textContent = "Configuration shared";
+        clearFeedback();
         return;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -231,31 +241,36 @@ async function shareCurrentConfiguration() {
   }
 }
 
-async function loadSharedState(fallback) {
-  if (typeof location === "undefined" || !location.hash.startsWith("#share=")) {
-    return { configuration: fallback };
+async function loadSharedConfiguration(fallbackConfiguration) {
+  if (typeof location === "undefined" || !isShareConfigurationFragment(location.hash)) {
+    return null;
   }
   try {
-    const configuration = await decodeSharePayload(location.hash.slice("#share=".length));
+    const configuration = await decodeShareConfigurationFragment(location.hash);
     try {
       writeState(configuration);
-      history.replaceState(null, "", location.pathname);
-      return { configuration, status: "Shared configuration loaded" };
+      history.replaceState(null, "", `${location.pathname}${location.search}`);
     } catch {
-      return {
-        configuration,
-        status: "Shared configuration could not be saved in this browser",
-        feedback: "Shared configuration could not be saved in this browser",
-      };
+      // The fragment remains the recoverable copy when this browser cannot
+      // persist the Configuration or consume the URL safely.
     }
+    return { configuration };
   } catch {
-    history.replaceState(null, "", location.pathname);
     return {
-      configuration: fallback,
-      status: "This share link could not be loaded.",
+      configuration: fallbackConfiguration,
       feedback: "This share link could not be loaded.",
     };
   }
+}
+
+function adoptSharedConfiguration(shared) {
+  if (shared.configuration !== state) engine.stop();
+  state = shared.configuration;
+  description = describeConfiguration(state);
+  presetOrigin = null;
+  renderInterface();
+  if (shared.feedback) showFeedback(shared.feedback);
+  else clearFeedback();
 }
 
 /**
@@ -2533,6 +2548,7 @@ engine.addEventListener("playstate", () => {
 });
 engine.addEventListener("audioerror", (event) => showError((event as CustomEvent).detail));
 document.addEventListener("keydown", (event) => {
+  if (elements.appShell.inert) return;
   if (
     event.code === "KeyP" &&
     event.altKey &&
@@ -2627,21 +2643,30 @@ applyAccent(loadAccent());
 // have moved. It is rendered once here and again wherever `savedPresets` does.
 renderPresetCount();
 elements.shareConfiguration.hidden = !(
-  typeof CompressionStream === "function" &&
-  typeof DecompressionStream === "function" &&
-  shareUrlBase() !== null
+  typeof CompressionStream === "function" && typeof DecompressionStream === "function"
 );
 elements.shareConfiguration.addEventListener("click", shareCurrentConfiguration);
+const loadingInitialShare =
+  typeof location !== "undefined" && isShareConfigurationFragment(location.hash);
+elements.appShell.inert = loadingInitialShare;
 renderInterface();
-loadSharedState(state).then((startup) => {
-  if (!startup.status) return;
-  state = startup.configuration;
-  description = describeConfiguration(state);
-  presetOrigin = null;
-  renderInterface();
-  elements.status.textContent = startup.status;
-  if (startup.feedback) {
-    elements.feedback.textContent = startup.feedback;
-    elements.feedback.hidden = false;
+loadSharedConfiguration(state)
+  .then((shared) => {
+    if (shared) adoptSharedConfiguration(shared);
+  })
+  .finally(() => {
+    elements.appShell.inert = false;
+  });
+
+window.addEventListener("hashchange", async () => {
+  if (!isShareConfigurationFragment(location.hash)) return;
+  const fallback = state;
+  elements.appShell.inert = true;
+  persistence.flush();
+  try {
+    const shared = await loadSharedConfiguration(fallback);
+    if (shared) adoptSharedConfiguration(shared);
+  } finally {
+    elements.appShell.inert = false;
   }
 });

@@ -1,5 +1,11 @@
 import { createConfiguration } from "./configuration.ts";
 
+const SHARE_FRAGMENT_PREFIX = "#share=";
+// A fragment is untrusted input and gzip can expand a short URL into far more
+// data than the Configuration domain could use. This ceiling bounds the work
+// and memory spent before JSON parsing while leaving ample room for the largest
+// Configuration the interface can create; see
+// [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
 const MAX_DECOMPRESSED_BYTES = 64 * 1024;
 
 function bytesToBase64Url(bytes: Uint8Array) {
@@ -15,6 +21,11 @@ function base64UrlToBytes(payload: string) {
 }
 
 function withoutIdentifiers(configuration) {
+  // Cycle and Rhythm-layer identifiers coordinate interface edits; they carry
+  // no musical identity across browsers. Omitting them shortens the link and
+  // lets Configuration repair issue identifiers owned by the recipient rather
+  // than presenting a sender's implementation detail as durable data; see
+  // [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
   return {
     ...configuration,
     sequence: {
@@ -34,7 +45,7 @@ export async function encodeShareConfiguration(configuration) {
   return bytesToBase64Url(bytes);
 }
 
-export async function decodeSharePayload(payload: string) {
+export async function decodeShareConfiguration(payload: string) {
   const compressed = new Blob([base64UrlToBytes(payload)]).stream();
   const decompressed = compressed.pipeThrough(new DecompressionStream("gzip"));
   const reader = decompressed.getReader();
@@ -64,4 +75,20 @@ export async function decodeSharePayload(payload: string) {
     throw new TypeError("Share payload is not a Configuration");
   }
   return createConfiguration(candidate);
+}
+
+export function isShareConfigurationFragment(fragment: string) {
+  return fragment.startsWith(SHARE_FRAGMENT_PREFIX);
+}
+
+export async function createShareConfigurationUrl(baseUrl: string, configuration) {
+  const payload = await encodeShareConfiguration(configuration);
+  return `${baseUrl}${SHARE_FRAGMENT_PREFIX}${payload}`;
+}
+
+export function decodeShareConfigurationFragment(fragment: string) {
+  if (!isShareConfigurationFragment(fragment)) {
+    throw new TypeError("Fragment does not contain a shared Configuration");
+  }
+  return decodeShareConfiguration(fragment.slice(SHARE_FRAGMENT_PREFIX.length));
 }

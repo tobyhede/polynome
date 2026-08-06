@@ -164,6 +164,7 @@ model.ts              Pure sequence, cycle, rhythm, and timing model
 shared-transport.ts   Stateful sequence event planning and playhead
 metronome.ts          Web Audio graph and look-ahead scheduler
 persistence.ts        Deferred storage writes and storage-key retirement
+share.ts              Shared Configuration URL encoding and bounded decoding
 server.ts             Local development server; strips types as it serves
 playwright.config.ts  Managed Chromium and local test server
 scripts/              Esbuild-backed single-file and static-site distributions
@@ -182,4 +183,4 @@ e2e/                  Playwright browser interaction tests
   no undo.
 - Changes to sequence timing or structure restart the shared transport when playing; Step-voice and mix edits do not.
 - Clicks are synthesized rather than sampled.
-- No swing, MIDI, curved tempo easing, or shareable URLs yet.
+- No swing, MIDI, or curved tempo easing yet.
