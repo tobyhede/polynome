@@ -203,14 +203,29 @@ export function createTempoCurve(incomingBpm, envelope, beatLength) {
   const { shape } = readEnvelope(envelope);
   const targetBpm = envelopeTarget(inheritedBpm, envelope);
   const startBpm = shape === ENVELOPE.FLAT ? targetBpm : inheritedBpm;
-
-  return Object.freeze({
+  const boundedBeatLength = Math.max(0, beatLength);
+  const curve = {
     shape,
     inheritedBpm,
     startBpm,
     targetBpm,
-    beatLength: Math.max(0, beatLength),
-  });
+    beatLength: boundedBeatLength,
+  };
+
+  if (shape === ENVELOPE.PEAK) {
+    // These immutable halves are part of the curve rather than scratch values
+    // created by every scheduler-side conversion. The gain is avoiding garbage
+    // on the scheduler's thread; the timing arithmetic is already inexpensive.
+    const midpoint = boundedBeatLength / 2;
+    const amount = targetBpm - startBpm;
+    return Object.freeze({
+      ...curve,
+      rise: createTempoCurve(startBpm, { shape: ENVELOPE.UP, amount }, midpoint),
+      fall: createTempoCurve(targetBpm, { shape: ENVELOPE.DOWN, amount }, midpoint),
+    });
+  }
+
+  return Object.freeze(curve);
 }
 
 export function tempoAtBeat(curve, beat) {
@@ -224,17 +239,8 @@ export function secondsAtBeat(curve, beat) {
   const boundedBeat = clamp(beat, 0, curve.beatLength);
   if (curve.shape === "peak") {
     const midpoint = curve.beatLength / 2;
-    const rise = createTempoCurve(
-      curve.startBpm,
-      { shape: "up", amount: curve.targetBpm - curve.startBpm },
-      midpoint,
-    );
+    const { rise, fall } = curve;
     if (boundedBeat <= midpoint) return secondsAtBeat(rise, boundedBeat);
-    const fall = createTempoCurve(
-      curve.targetBpm,
-      { shape: "down", amount: curve.targetBpm - curve.startBpm },
-      midpoint,
-    );
     return secondsAtBeat(rise, midpoint) + secondsAtBeat(fall, boundedBeat - midpoint);
   }
   const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;
@@ -247,18 +253,9 @@ export function beatAtSeconds(curve, seconds) {
   const boundedSeconds = clamp(seconds, 0, duration);
   if (curve.shape === "peak") {
     const midpoint = curve.beatLength / 2;
-    const rise = createTempoCurve(
-      curve.startBpm,
-      { shape: "up", amount: curve.targetBpm - curve.startBpm },
-      midpoint,
-    );
+    const { rise, fall } = curve;
     const riseDuration = secondsAtBeat(rise, midpoint);
     if (boundedSeconds <= riseDuration) return beatAtSeconds(rise, boundedSeconds);
-    const fall = createTempoCurve(
-      curve.targetBpm,
-      { shape: "down", amount: curve.targetBpm - curve.startBpm },
-      midpoint,
-    );
     return midpoint + beatAtSeconds(fall, boundedSeconds - riseDuration);
   }
   const slope = (curve.targetBpm - curve.startBpm) / curve.beatLength;

@@ -138,10 +138,12 @@ export class SharedTransport {
             }
 
             events.push({
+              cycleId: cycle.id,
               layerId: rhythm.id,
               absoluteStep:
                 (sequenceIndex * cycle.repetitions + repetition) * stepsPerSpan + localStep,
               patternPosition,
+              musicalBeat,
               voice,
               audioTime,
             });
@@ -211,15 +213,20 @@ export class SharedTransport {
     return absoluteStep % rhythm.steps.length;
   }
 
-  currentBpm(currentTime) {
+  currentBpm(currentTime, musicalBeat = null, cycleId = null) {
     if (!this.#timing) return null;
     if (currentTime < this.#origin) return this.#timing.cycles[0].curve.startBpm;
     const elapsed = (currentTime - this.#origin) % this.#timing.sequenceDuration;
-    const cycle = this.#timing.cycles.find(
-      (candidate) => elapsed < candidate.offset + candidate.duration,
-    );
+    const cycle =
+      cycleId === null
+        ? this.#timing.cycles.find((candidate) => elapsed < candidate.offset + candidate.duration)
+        : this.#timing.cycles.find((candidate) => candidate.id === cycleId);
     if (!cycle) return this.#timing.bpm;
-    const beat = beatAtSeconds(cycle.curve, elapsed - cycle.offset);
+    // A planned event carries both the Cycle and its cycle-relative beat, so
+    // floating-point rounding at a boundary cannot pair that beat with the
+    // preceding Cycle's curve. Interface reads omit both and derive them from
+    // wall time.
+    const beat = musicalBeat ?? beatAtSeconds(cycle.curve, elapsed - cycle.offset);
     return tempoAtBeat(cycle.curve, beat);
   }
 }

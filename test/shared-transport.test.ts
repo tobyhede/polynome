@@ -361,30 +361,38 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
 
   assert.deepEqual(transport.plan(9.9, 14), [
     {
+      cycleId: "cycle",
       layerId: "four-four-k1",
       absoluteStep: 0,
       patternPosition: 0,
+      musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 10,
     },
     {
+      cycleId: "cycle",
       layerId: "four-four-k1",
       absoluteStep: 1,
       patternPosition: 1,
+      musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 11,
     },
     {
+      cycleId: "cycle",
       layerId: "four-four-k1",
       absoluteStep: 2,
       patternPosition: 2,
+      musicalBeat: 2,
       voice: STEP.SECONDARY,
       audioTime: 12,
     },
     {
+      cycleId: "cycle",
       layerId: "four-four-k1",
       absoluteStep: 3,
       patternPosition: 3,
+      musicalBeat: 3,
       voice: STEP.SECONDARY,
       audioTime: 13,
     },
@@ -527,23 +535,29 @@ test("rhythm events expose every audible Step voice by name", () => {
 
   assert.deepEqual(transport.plan(0, 3), [
     {
+      cycleId: "cycle",
       layerId: "voices",
       absoluteStep: 0,
       patternPosition: 0,
+      musicalBeat: 0,
       voice: STEP.TERTIARY,
       audioTime: 0,
     },
     {
+      cycleId: "cycle",
       layerId: "voices",
       absoluteStep: 1,
       patternPosition: 1,
+      musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 1,
     },
     {
+      cycleId: "cycle",
       layerId: "voices",
       absoluteStep: 2,
       patternPosition: 2,
+      musicalBeat: 2,
       voice: STEP.PRIMARY,
       audioTime: 2,
     },
@@ -591,9 +605,11 @@ test("Step-voice edits preserve transport position and affect future events", ()
   assert.equal(transport.origin, 10);
   assert.deepEqual(transport.plan(10.4, 11.1), [
     {
+      cycleId: "cycle",
       layerId: "live-voice",
       absoluteStep: 1,
       patternPosition: 1,
+      musicalBeat: 1,
       voice: STEP.TERTIARY,
       audioTime: 11,
     },
@@ -625,9 +641,11 @@ test("overlapping polls plan each absolute step only once", () => {
 
   assert.deepEqual(transport.plan(5.98, 6.6), [
     {
+      cycleId: "cycle",
       layerId: "steady",
       absoluteStep: 3,
       patternPosition: 3,
+      musicalBeat: 3,
       voice: STEP.SECONDARY,
       audioTime: 6.5,
     },
@@ -646,16 +664,20 @@ test("a late poll discards missed events without restarting transport phase", ()
 
   assert.deepEqual(transport.plan(12.2, 13.1), [
     {
+      cycleId: "cycle",
       layerId: "phase",
       absoluteStep: 5,
       patternPosition: 1,
+      musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 12.5,
     },
     {
+      cycleId: "cycle",
       layerId: "phase",
       absoluteStep: 6,
       patternPosition: 2,
+      musicalBeat: 2,
       voice: STEP.SECONDARY,
       audioTime: 13,
     },
@@ -678,9 +700,11 @@ test("a transport run retains its starting timing snapshot", () => {
 
   assert.deepEqual(transport.plan(19.9, 22), [
     {
+      cycleId: "cycle",
       layerId: "snapshot",
       absoluteStep: 0,
       patternPosition: 0,
+      musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 20,
     },
@@ -749,9 +773,11 @@ test("mute does not change a rhythm layer event timeline", () => {
 
   assert.deepEqual(transport.plan(49.9, 51), [
     {
+      cycleId: "cycle",
       layerId: "muted",
       absoluteStep: 0,
       patternPosition: 0,
+      musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 50,
     },
@@ -850,9 +876,11 @@ test("starting a new transport run resets origin and scheduling position togethe
   assert.equal(transport.origin, 70);
   assert.deepEqual(transport.plan(69.9, 71), [
     {
+      cycleId: "cycle",
       layerId: "restart",
       absoluteStep: 0,
       patternPosition: 0,
+      musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 70,
     },

@@ -164,6 +164,7 @@ export class MetronomeEngine extends EventTarget {
   #master = null;
   #layers = new Map();
   #state = null;
+  #nodesDirty = false;
   #playing = false;
   #transport = new SharedTransport();
   #timer = null;
@@ -214,6 +215,7 @@ export class MetronomeEngine extends EventTarget {
     // start that fails there leaves the engine holding the state it was asked
     // to play rather than the previous run's.
     this.#state = state;
+    this.#nodesDirty = true;
     // Before the context exists, so the very first one is created under the
     // session this run means to hold rather than the one it is replacing.
     this.#claimAudioSession();
@@ -309,6 +311,7 @@ export class MetronomeEngine extends EventTarget {
 
   async restart(state) {
     this.#state = state;
+    this.#nodesDirty = true;
     if (!this.#playing) {
       this.#syncNodes();
       return;
@@ -345,6 +348,7 @@ export class MetronomeEngine extends EventTarget {
 
   updateMix(state) {
     this.#state = state;
+    this.#nodesDirty = true;
     if (this.#context) this.#syncNodes();
   }
 
@@ -454,7 +458,7 @@ export class MetronomeEngine extends EventTarget {
   }
 
   #syncNodes() {
-    if (!this.#context || !this.#master || !this.#state) return;
+    if (!this.#nodesDirty || !this.#context || !this.#master || !this.#state) return;
 
     // MASTER_GAIN is fixed, so on a running graph this ramps the value to
     // itself and changes nothing. It is here for the one case that is not a
@@ -487,6 +491,8 @@ export class MetronomeEngine extends EventTarget {
       );
       nodes.panner.pan.setTargetAtTime(layer.pan, this.#context.currentTime, 0.01);
     }
+
+    this.#nodesDirty = false;
   }
 
   /**
@@ -561,15 +567,6 @@ export class MetronomeEngine extends EventTarget {
   #schedule() {
     if (!this.#playing || !this.#context || !this.#state) return;
 
-    // Syncing the graph is the engine's own overhead and it costs render time,
-    // which on a phone waking from an interruption is not a rounding error.
-    // Reading the clock first would charge that cost to the events about to be
-    // planned: they would be planned against a clock that had already moved on,
-    // committed late through no fault of their own, and the stale horizon would
-    // be written back as the transport's scheduling position, shortening the
-    // look-ahead by the same amount. Sync first, then take the snapshot.
-    this.#syncNodes();
-
     const now = this.#context.currentTime;
     const horizon = now + LOOK_AHEAD_SECONDS;
 
@@ -581,12 +578,12 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.voice, event.audioTime);
+        this.#scheduleClick(layer, event.voice, event.audioTime, event.musicalBeat, event.cycleId);
       }
     }
   }
 
-  #scheduleClick(layer, voice, when) {
+  #scheduleClick(layer, voice, when, musicalBeat, cycleId) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
@@ -600,8 +597,10 @@ export class MetronomeEngine extends EventTarget {
     const now = this.#context.currentTime;
     const maxLateness = Math.min(
       MAX_CLICK_LATENESS_SECONDS,
-      stepDurationSeconds(this.#transport.currentBpm(when) ?? this.#state.bpm, layer) *
-        MAX_CLICK_LATENESS_STEPS,
+      stepDurationSeconds(
+        this.#transport.currentBpm(when, musicalBeat, cycleId) ?? this.#state.bpm,
+        layer,
+      ) * MAX_CLICK_LATENESS_STEPS,
     );
     if (when < now - maxLateness) return;
 

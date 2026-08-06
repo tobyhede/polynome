@@ -1282,29 +1282,71 @@ test("a slow grid stops nudging 50 ms late, long before a quarter of its step", 
   engine.stop();
 });
 
-/**
- * Syncing the audio graph is real work on a real render thread, and on a phone
- * waking from an interruption it is not cheap. Whatever it costs is the
- * engine's own overhead, not lateness in the events it is about to plan, so a
- * tick has to plan against the clock the sync leaves behind rather than the one
- * it started with.
- */
-test("a tick whose graph sync burns clock time still schedules on the grid", async () => {
+test("a cycle-boundary event uses its own envelope when deciding marginal lateness", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+  const configuration = createConfiguration({
+    bpm: 30,
+    sequence: {
+      cycles: [
+        {
+          repetitions: 1,
+          envelope: { shape: "up", amount: 120 },
+          rhythms: [
+            {
+              signature: { count: 1, unit: 4 },
+              subdivision: 1,
+              steps: [STEP.OFF],
+            },
+          ],
+        },
+        {
+          repetitions: 1,
+          envelope: { shape: "flat", amount: 0 },
+          rhythms: [
+            {
+              signature: { count: 1, unit: 4 },
+              subdivision: 5,
+              steps: [STEP.PRIMARY, STEP.OFF, STEP.OFF, STEP.OFF, STEP.OFF],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  await engine.start(configuration);
+  assert.deepEqual(clickStarts(context), []);
+
+  // The second Cycle begins at 150 BPM. Thirty milliseconds is beyond a
+  // quarter of its 80 ms grid step, so its downbeat must be dropped. Binary
+  // rounding puts the event's audio time infinitesimally before the Cycle
+  // boundary; reading beat zero against the preceding 30→150 curve would
+  // instead grant the event that curve's 30 BPM, 50 ms lateness allowance.
+  context.currentTime = 0.8647189562170501;
+  context.advanceAfterSchedulingSnapshot(0.03);
+  tick();
+
+  assert.deepEqual(clickStarts(context), []);
+
+  engine.stop();
+});
+
+/** A steady-state tick plans clicks without sending unchanged mix values back to the graph. */
+test("a steady-state tick does not synchronize the audio graph", async () => {
   const { context, engine } = harness({ state: "running", currentTime: 0 });
 
   await engine.start(fiftyMillisecondGrid());
   assert.deepEqual(clickStarts(context), [0.06, 0.11]);
 
-  // The sync costs more than the entire look-ahead window.
+  // If the tick touches a mix AudioParam, the fake graph consumes more than the
+  // entire look-ahead window and the two events below disappear.
   context.currentTime = 0.12;
   context.advanceDuringNextGraphSync(0.14);
   tick();
 
-  // Nothing is clamped and nothing is abandoned: the events the tick can still
-  // reach are the ones from 0.26 on, and each lands exactly on its grid time.
   const starts = clickStarts(context);
-  assert.deepEqual(starts, [0.06, 0.11, 0.26, 0.31, 0.36]);
-  assert.deepEqual(gapsBetween(starts), [0.05, 0.15, 0.05, 0.05]);
+  assert.deepEqual(starts, [0.06, 0.11, 0.16, 0.21]);
+  assert.deepEqual(gapsBetween(starts), [0.05, 0.05, 0.05]);
 
   engine.stop();
 });

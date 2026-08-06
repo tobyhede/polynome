@@ -147,7 +147,10 @@ function referenceTo(specifier) {
   return new RegExp(`(?<=["'])\\./${specifier.replaceAll(".", "\\.")}(?=["'])`, "g");
 }
 
-async function buildSingleFile(root): Promise<{ target: "single-file"; output: string }> {
+async function buildSingleFile(
+  root,
+  outputRoot,
+): Promise<{ target: "single-file"; output: string }> {
   const cssSource = await readFile(join(root, "styles.css"), "utf8");
   const [html, javascriptResult, cssResult] = await Promise.all([
     readFile(join(root, "index.html"), "utf8"),
@@ -201,7 +204,7 @@ async function buildSingleFile(root): Promise<{ target: "single-file"; output: s
     "./app.ts module script",
   );
 
-  const output = join(root, "dist");
+  const output = join(outputRoot, "dist");
   await mkdir(output, { recursive: true });
   await writeFile(join(output, "polynome.html"), artifact);
   return { target: "single-file", output: join(output, "polynome.html") };
@@ -228,10 +231,11 @@ export function distributionVersion(requestedVersion, environmentRevision) {
 
 async function buildSite(
   root,
+  outputRoot,
   requestedVersion,
 ): Promise<{ target: "site"; version: string; output: string }> {
   const version = distributionVersion(requestedVersion, process.env.GITHUB_SHA);
-  const output = join(root, "site");
+  const output = join(outputRoot, "site");
   const html = await readFile(join(root, "index.html"), "utf8");
 
   await rm(output, { recursive: true, force: true });
@@ -305,23 +309,28 @@ export async function buildDistribution(options: {
   target: "single-file";
   version?: string;
   projectRoot?: string | URL;
+  outputRoot?: string | URL;
 }): Promise<{ target: "single-file"; output: string }>;
 export async function buildDistribution(options: {
   target: "site";
   version?: string;
   projectRoot?: string | URL;
+  outputRoot?: string | URL;
 }): Promise<{ target: "site"; version: string; output: string }>;
 export async function buildDistribution({
   target,
   version,
   projectRoot,
+  outputRoot,
 }: {
   target?: string;
   version?: string;
   projectRoot?: string | URL;
+  outputRoot?: string | URL;
 } = {}) {
   const root = rootPath(projectRoot);
-  if (target === "single-file") return buildSingleFile(root);
-  if (target === "site") return buildSite(root, version);
+  const destinationRoot = outputRoot === undefined ? root : rootPath(outputRoot);
+  if (target === "single-file") return buildSingleFile(root, destinationRoot);
+  if (target === "site") return buildSite(root, destinationRoot, version);
   throw new TypeError(`Unknown distribution target: ${target}`);
 }
