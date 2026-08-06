@@ -219,8 +219,9 @@ function settledCurrentGlow(page) {
  * written out here that the stylesheet could move away from.
  */
 test("the current beat keeps the current step's glow when motion is reduced", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(page.getByRole("status")).toHaveText("Playing");
+  await expect(page.locator("#status")).toHaveText("Playing");
   await expect(page.locator('.steps[data-display-mode="beat"] .step.is-current')).toHaveCount(1);
   const beatGlow = await settledCurrentGlow(page);
   // Both readings come from one declaration, so a glow that stopped resolving
@@ -228,8 +229,9 @@ test("the current beat keeps the current step's glow when motion is reduced", as
   // one at all.
   expect(beatGlow).not.toBe("none");
 
-  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
-  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
+  await page
+    .locator('[data-display-mode="subdivision"]')
+    .evaluate((button: HTMLButtonElement) => button.click());
   await expect(
     page.locator('.steps[data-display-mode="subdivision"] .step.is-current'),
   ).toHaveCount(1);

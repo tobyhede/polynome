@@ -59,7 +59,9 @@ const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
  * `index.html`, so the tag each name is asserted against is checked too.
  */
 const elements = {
+  appShell: document.querySelector(".app-shell") as HTMLElement,
   heading: document.querySelector("#app-heading") as HTMLHeadingElement,
+  transport: document.querySelector(".transport") as HTMLElement,
   play: document.querySelector("#play-button") as HTMLButtonElement,
   playIcon: document.querySelector("#play-icon") as HTMLSpanElement,
   restartAudio: document.querySelector("#restart-audio") as HTMLButtonElement,
@@ -159,6 +161,7 @@ let pendingDeletePresetId = null;
 let openSubdivisionMenu = null;
 let animationFrame = null;
 let runBpm = null;
+let playMode = false;
 
 function loadState() {
   let raw = null;
@@ -1452,12 +1455,21 @@ function rhythmLabel(rhythm) {
 
 function updatePlayButton() {
   const playing = engine.playing;
+  const enteringPlayMode = playing && !playMode;
+  playMode = playing;
+  elements.appShell.classList.toggle("is-play-mode", playing);
   elements.play.classList.toggle("is-playing", playing);
   elements.play.setAttribute("aria-pressed", String(playing));
   elements.play.setAttribute("aria-label", playing ? "Stop metronome" : "Play metronome");
   elements.playIcon.textContent = playing ? "■" : "▶";
   elements.restartAudio.hidden = !playing;
   elements.status.textContent = playing ? "Playing" : "Stopped";
+  if (enteringPlayMode) {
+    // The active-step pass removes every inactive Cycle in the same turn. Let
+    // that focused layout settle before asking the window for its final scroll
+    // position, or scroll anchoring can restore the pre-filter position.
+    requestAnimationFrame(() => elements.transport.scrollIntoView({ block: "start" }));
+  }
 }
 
 function updateActiveSteps() {
@@ -1480,13 +1492,16 @@ function updateActiveSteps() {
   }
 
   const position = engine.activePosition();
+  const activeCycleId =
+    position?.cycleId ?? state.sequence.cycles.find((cycle) => cycle.repetitions > 0)?.id;
   for (const cycle of state.sequence.cycles) {
     const cycleElement = elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"]`);
     if (!cycleElement) continue;
-    const active = cycle.id === position?.cycleId;
+    const active = cycle.id === activeCycleId;
+    cycleElement.classList.toggle("is-active-cycle", active);
     cycleElement.querySelector(".cycle-card")?.classList.toggle("is-current", active);
     cycleElement.querySelectorAll(".repeat-dot").forEach((element, index) => {
-      element.classList.toggle("is-current", active && index === position.repetitionIndex);
+      element.classList.toggle("is-current", active && index === position?.repetitionIndex);
     });
     for (const rhythm of cycle.rhythms) {
       const card = cycleElement.querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"]`);
@@ -1530,7 +1545,8 @@ function updateActiveSteps() {
 
 function startAnimation() {
   if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-  animationFrame = requestAnimationFrame(updateActiveSteps);
+  animationFrame = null;
+  updateActiveSteps();
 }
 
 function showError(error) {

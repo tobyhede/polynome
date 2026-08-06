@@ -136,6 +136,65 @@ test("playback toggles from the button and Space key", async ({ page }) => {
   await expect(status).toHaveText("Stopped");
 });
 
+test("playback focuses the interface on the tempo and active Cycle", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Rhythm" }).click();
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+  await page.getByRole("button", { name: "Edit Cycle 1 envelope" }).click();
+
+  const shell = page.locator(".app-shell");
+  const cycles = page.locator(".cycle-group");
+  const firstCycleDrawer = cycles.first().locator(".cycle-settings");
+  const openRhythmDrawer = cycles.first().locator(".rhythm-settings:not([hidden])");
+  await expect(firstCycleDrawer).toBeVisible();
+  await expect(openRhythmDrawer).toBeVisible();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  await expect(shell).toHaveClass(/\bis-play-mode\b/);
+  await expect(page.locator(".page-header")).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Polynome" })).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "Application panels" })).toBeHidden();
+  await expect(cycles.filter({ visible: true })).toHaveCount(1);
+  await expect(cycles.first()).toBeVisible();
+  await expect(cycles.first().locator(".rhythm-card")).toHaveCount(2);
+  await expect(shell.locator(".edit-button:visible")).toHaveCount(0);
+  await expect(shell.locator(".remove-button:visible")).toHaveCount(0);
+  await expect(shell.locator(".add-rhythm:visible")).toHaveCount(0);
+  await expect(firstCycleDrawer).toBeHidden();
+  await expect(openRhythmDrawer).toBeHidden();
+  const restart = page.getByRole("button", { name: "Restart Audio" });
+  const firstRestartPosition = await restart.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { bottom: window.innerHeight - rect.bottom, left: rect.left };
+  });
+  expect(firstRestartPosition.bottom).toBeCloseTo(16, 0);
+
+  await expect
+    .poll(() =>
+      page.locator(".transport").evaluate((element) => element.getBoundingClientRect().top),
+    )
+    .toBeCloseTo(0, 0);
+  const transportTop = await page
+    .locator(".transport")
+    .evaluate((element) => element.getBoundingClientRect().top);
+  expect(Math.abs(transportTop)).toBeLessThanOrEqual(1);
+
+  await expect(cycles.nth(1)).toBeVisible({ timeout: 5_000 });
+  await expect(cycles.first()).toBeHidden();
+  const secondRestartPosition = await restart.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { bottom: window.innerHeight - rect.bottom, left: rect.left };
+  });
+  expect(secondRestartPosition).toEqual(firstRestartPosition);
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(shell).not.toHaveClass(/\bis-play-mode\b/);
+  await expect(page.locator(".page-header")).toBeVisible();
+  await expect(cycles).toHaveCount(2);
+  await expect(cycles.first().locator(".edit-button").first()).toBeVisible();
+  await expect(firstCycleDrawer).toBeVisible();
+  await expect(openRhythmDrawer).toBeVisible();
+});
+
 test("healthy foreground lifecycle signals preserve the Transport run", async ({ page }) => {
   await page
     .getByRole("group", { name: "Cycle repetitions" })
@@ -327,7 +386,9 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
  * the row breaks in the one place that means anything — and the mark keeps the
  * first row's company rather than centring itself against both.
  */
-test("repetition dots break into two rows of four on a narrow viewport", async ({ page }) => {
+test("repetition dots use two editing rows and one compact playing row on a narrow viewport", async ({
+  page,
+}) => {
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
@@ -355,6 +416,17 @@ test("repetition dots break into two rows of four on a narrow viewport", async (
     scroll: document.documentElement.scrollWidth,
   }));
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  const playingDots = await page.locator(".repeat-dot").evaluateAll((dots) =>
+    dots.map((dot) => {
+      const rect = dot.getBoundingClientRect();
+      return { top: Math.round(rect.top), width: Math.round(rect.width) };
+    }),
+  );
+  expect(new Set(playingDots.map(({ top }) => top)).size).toBe(1);
+  expect(playingDots).toHaveLength(8);
+  expect(playingDots.every(({ width }) => width < 29)).toBe(true);
 });
 
 /**
@@ -663,7 +735,9 @@ test("playback shows live rounded BPM without changing the saved Configuration",
   // The live number is the playback indicator and stays at full strength.
   await expect(live).toHaveCSS("opacity", "1");
   await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(96);
-  await saveNotOffered(page);
+  // Play mode hides the header, including the save chip, but playback still
+  // must not change the Configuration state the chip reports when it returns.
+  await expect(page.locator("#preset-save-open")).toHaveAttribute("aria-disabled", "true");
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(number).not.toHaveAttribute("readonly", "");
@@ -874,6 +948,7 @@ test("the band is the stretch travelled, not the tempos a Flat or a limit leaves
 test("a run with no envelope keeps its BPM label through playback", async ({ page }) => {
   const label = page.locator("#bpm-readout label");
   await expect(label).toHaveText("BPM");
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(page.getByLabel("Current tempo in beats per minute")).toHaveAttribute(
@@ -884,13 +959,20 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
 
   // Given an envelope mid-run the slot changes hands, and giving it back
   // returns the word — the reading follows the Sequence, not the transport.
-  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
-  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await cycleDrawer(page)
+    .locator('[data-action="envelope-shape"]', { hasText: "Up" })
+    .evaluate((button: HTMLButtonElement) => button.click());
   await expect(label).toHaveText("120");
 
-  await cycleDrawer(page).getByRole("button", { name: "Flat" }).click();
-  await envelopeAmount(page).fill("0");
-  await envelopeAmount(page).blur();
+  await cycleDrawer(page)
+    .locator('[data-action="envelope-shape"]', { hasText: "Flat" })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await cycleDrawer(page)
+    .locator('[data-field="envelope-amount"]')
+    .evaluate((input: HTMLInputElement) => {
+      input.value = "0";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   await expect(label).toHaveText("BPM");
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
@@ -1436,13 +1518,16 @@ test("a Meter committed during playback announces the Meter, not the restart", a
   // Not `getByRole("status")`: an open rhythm's level and balance outputs carry
   // that role too, so only the transport's own region is addressed by id.
   const status = page.locator("#status");
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(status).toHaveText("Playing");
 
-  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
-  await page.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("5");
+  await page.locator('[data-field="signature-count"]').evaluate((select: HTMLSelectElement) => {
+    select.value = "5";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 
-  await expect(page.getByRole("button", { name: "Edit 5/4", exact: true })).toBeVisible();
+  await expect(page.locator('[data-field="signature-count"]')).toHaveValue("5");
   await expect(status).toHaveText("Meter 5/4");
 });
 
@@ -1828,9 +1913,8 @@ test("the playhead redraws where a display mode change moved it", async ({ page 
   );
 
   await card
-    .getByRole("group", { name: "Steps" })
-    .getByRole("button", { name: "Beat", exact: true })
-    .click();
+    .locator('[data-display-mode="beat"]')
+    .evaluate((button: HTMLButtonElement) => button.click());
 
   await expect(controls).toHaveCount(4);
   await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
@@ -1886,6 +1970,10 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(firstDot).toHaveClass(/\bis-current\b/);
 
+  // Play mode only presents the active Cycle. Stop before editing the second,
+  // then begin a new run to assert the surviving Cycle's live indicator.
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+
   const disableSecond = secondRepetitions.getByRole("button", { name: "Disable Cycle 2" });
   await disableSecond.focus();
   await disableSecond.click();
@@ -1905,6 +1993,7 @@ test("disabling a cycle preserves focus and the sole active cycle indicator", as
     page.locator(".cycle-group.is-inactive").filter({ has: secondRepetitions }),
   ).toBeVisible();
   await expect(lockedFirstDot).toBeEnabled();
+  await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(lockedFirstDot).toHaveClass(/\bis-current\b/);
   await expect(lockedFirstDot).toHaveCSS("opacity", "1");
   expect(await lockedFirstDot.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(

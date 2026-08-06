@@ -40,7 +40,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   "dist/polynome.html": { raw: 282_000 },
   /** The bundled script alone, which is the half that grows from source. */
   "site/app-local.js": { raw: 165_000, gzip: 40_000 },
-  "site/styles-local.css": { raw: 30_200 },
+  "site/styles-local.css": { raw: 30_800 },
 });
 
 /**
