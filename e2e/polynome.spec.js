@@ -178,6 +178,11 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
   await expect(mark).toBeVisible();
   await expect(mark).toHaveAccessibleName("Edit Cycle envelope, falling 20 bpm over 1 repetition");
   await expect(mark.locator("polyline")).toHaveAttribute("points", "2,4 32,15");
+  const border = (element) => {
+    const style = getComputedStyle(element);
+    return [style.borderTopWidth, style.borderTopStyle, style.borderTopColor];
+  };
+  expect(await mark.evaluate(border)).toEqual(await page.locator(".step").first().evaluate(border));
   // It carries no text, and it is not one of the repetition controls.
   await expect(mark).toHaveText("");
   await expect(
@@ -358,6 +363,31 @@ test("a Flat is one number where a ramp is the pair it crosses", async ({ page }
   await amount.fill("0");
   await amount.blur();
   await expect(drawer.locator("output")).toHaveText("120");
+});
+
+test("an open Cycle envelope follows a Starting BPM edit", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const drawer = cycleDrawer(page);
+  await drawer.getByRole("button", { name: "Down" }).click();
+  const tempo = drawer.locator("output");
+  await expect(tempo).toHaveText("120 → 100");
+  await tempo.evaluate((output) => {
+    window.renderedEnvelopeTempo = output.firstChild;
+  });
+
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(tempo).toHaveText("125 → 105");
+  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
+    true,
+  );
+
+  await page.getByRole("button", { name: "Increase tempo" }).click();
+  await expect(tempo).toHaveText("126 → 106");
+  expect(await tempo.evaluate((output) => output.firstChild === window.renderedEnvelopeTempo)).toBe(
+    true,
+  );
 });
 
 /**

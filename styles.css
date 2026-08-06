@@ -1088,7 +1088,7 @@ h1.is-glitching {
   flex: none;
   width: 44px;
   height: 36px;
-  border-color: var(--line);
+  border: 1.5px solid color-mix(in oklab, var(--accent), transparent 52%);
 }
 
 .envelope-mark svg {

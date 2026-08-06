@@ -762,6 +762,21 @@ function renderCycles() {
 }
 
 /**
+ * A tempo drag skips the full Cycle render, but the result shown by every Cycle
+ * envelope is derived from the Starting BPM too. Update those rendered values
+ * without reconciling the grids under the pointer. As with the mix readouts,
+ * changing the existing Text node keeps Preact's reference attached to the node
+ * that remains in the document.
+ */
+function renderCycleTempos() {
+  const outputs = elements.cycles.querySelectorAll(".cycle-settings output");
+  description.cycles.forEach((cycle, index) => {
+    const output = outputs[index];
+    if (output) writeRenderedText(output, cycle.tempo);
+  });
+}
+
+/**
  * One bar of sixteenths on one row is the step-sequencer convention the TR-808
  * lineage settled on, and it is the longest row that still reads at a glance.
  */
@@ -1676,6 +1691,7 @@ elements.bpmSlider.addEventListener("input", (event) => {
   // bound, and the type size and glitch the tempo drives.
   renderTransport();
   renderPresetPanel();
+  renderCycleTempos();
 });
 /**
  * A slider drag and a held stepper key both defer the transport consequence, so
@@ -1722,6 +1738,7 @@ function stepTempo(delta) {
   );
   renderTransport();
   renderPresetPanel();
+  renderCycleTempos();
   return result.consequence !== "none";
 }
 
@@ -2247,15 +2264,21 @@ document.addEventListener("keydown", (event) => {
  * no longer in the document. Changing the node's data leaves the renderer's
  * reference pointing at what the reader is actually reading.
  *
+ * @param {Element} element
+ * @param {string} text
+ */
+function writeRenderedText(element, text) {
+  const readout = /** @type {Text} */ (element.firstChild);
+  readout.data = text;
+}
+
+/**
  * @param {Element} rhythmElement
  * @param {string} field
  * @param {string} text
  */
 function writeReadout(rhythmElement, field, text) {
-  const readout = /** @type {Text} */ (
-    rhythmElement.querySelector(`[data-output="${field}"]`).firstChild
-  );
-  readout.data = text;
+  writeRenderedText(rhythmElement.querySelector(`[data-output="${field}"]`), text);
 }
 
 /**
