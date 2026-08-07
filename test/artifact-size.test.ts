@@ -39,7 +39,9 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
-   * The last raise carried that refusal past the unchanged-edit short circuit,
+   * The last raise added the Help entry explaining what Polymeter and
+   * Polyrhythm count, measuring 294,757 bytes. The raise before it carried
+   * that refusal past the unchanged-edit short circuit,
    * so a denominator a ratio layer already stores is refused by name rather
    * than reported as an ordinary no-op, measuring 294,471 bytes after rebase.
    * The raise
@@ -59,7 +61,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 294_500 },
+  "dist/polynome.html": { raw: 294_800 },
   /** The bundled script alone, which is the half that grows from source. */
   "site/app-local.js": { raw: 174_250, gzip: 42_400 },
   "site/styles-local.css": { raw: 30_900 },

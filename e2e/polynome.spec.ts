@@ -3990,6 +3990,17 @@ test("saving keeps focus on a control rather than dropping it", async ({ page })
   await expect(presetButton(page, "Watched")).toBeFocused();
 });
 
+test("Help explains what Polymeter and Polyrhythm count", async ({ page }) => {
+  await page.getByRole("button", { name: "Help" }).click();
+
+  const entries = page.getByRole("region", { name: "Help" }).locator(".help-grid > p");
+  await expect(entries).toHaveCount(9);
+  await expect(entries.nth(8).locator("strong")).toHaveText("Polymeter and polyrhythm");
+  await expect(entries.nth(8).locator("span")).toHaveText(
+    "Polymeter gives every Rhythm layer the same Primary-beat rate, while their Meter spans may differ. Polyrhythm fits every layer into one Meter of the first Rhythm layer. BPM continues to count that first layer's Primary beats, so it is the pulse to count.",
+  );
+});
+
 /**
  * Three panels and two rules. Presets and Save are halves of one subject and sit
  * together — the save leaves focus on the new Preset, which requires the list to
