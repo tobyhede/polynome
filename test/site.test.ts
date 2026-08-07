@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,70 @@ import { buildDistribution, distributionVersion } from "../scripts/build.ts";
 
 const projectRoot = new URL("..", import.meta.url);
 const output = new URL("../site/", import.meta.url);
+
+/**
+ * The Content-Security-Policy assertions below, and their counterparts in
+ * `test/bundle.test.ts`, both need to read an emitted document the way a browser
+ * does. The three helpers are written out in each file rather than imported from
+ * `scripts/build.ts`, and that is the whole point of them: a test that computed
+ * its expectation by calling the build's own hashing would agree with the build
+ * about a wrong answer, because the two would move together. What must be proved
+ * is that the hash in the policy is the hash of what the element actually holds,
+ * so the element's text is read out of the artifact here and the digest is taken
+ * here. See [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
+ */
+const inlineDigest = (body: string) =>
+  `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
+
+/**
+ * Every inline element of one name, read as the tokenizer reads it: from the
+ * open tag to the first `</name` followed by whitespace, `/` or `>`. The scan
+ * resumes after that end tag rather than anywhere inside the body, because a
+ * bundled `<script` in a string literal is text and not a second open tag —
+ * which matters in the single-file artifact, where the body is the whole
+ * application.
+ *
+ * An element carrying `src` is skipped: it holds no text, and what a hash would
+ * cover is not what the browser executes.
+ */
+function inlineBodies(html: string, tagName: string) {
+  const open = new RegExp(`<${tagName}(\\s[^>]*)?>`, "gi");
+  const close = new RegExp(`</${tagName}(?=[\\t\\n\\f\\r />]|$)`, "gi");
+  const bodies = [];
+  let index = 0;
+  while (index < html.length) {
+    open.lastIndex = index;
+    const start = open.exec(html);
+    if (!start) break;
+    const bodyStart = start.index + start[0].length;
+    close.lastIndex = bodyStart;
+    const end = close.exec(html);
+    if (!/\ssrc\s*=/i.test(start[1] ?? "")) {
+      bodies.push(html.slice(bodyStart, end ? end.index : html.length));
+    }
+    index = end ? close.lastIndex : html.length;
+  }
+  return bodies;
+}
+
+/** The policy as a browser would read it off the document, and nothing else. */
+function policyOf(html: string) {
+  const content = html.match(
+    /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"\s*\/?>/i,
+  )?.[1];
+  assert.ok(content, "Expected a Content-Security-Policy meta element");
+  return content;
+}
+
+/** The policy split the way the parser splits it, so a directive can be held by name. */
+function directivesOf(policy: string) {
+  return new Map(
+    policy.split(";").map((directive) => {
+      const [name, ...sources] = directive.trim().split(/\s+/);
+      return [name, sources];
+    }),
+  );
+}
 
 test("site distribution versions every emitted asset and its references", async () => {
   await buildDistribution({ target: "site", version: "deadbeefcafebab", projectRoot });
@@ -63,7 +128,7 @@ test("site distribution versions transitive chunks without manual rewrites", asy
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.ts"), 'globalThis.loadFeature = () => import("./feature.js");'),
@@ -91,7 +156,7 @@ test("site distribution can write outside the source tree", async (t) => {
   await Promise.all([
     writeFile(
       join(sourceRoot, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(sourceRoot, "styles.css"), "body {}"),
     writeFile(join(sourceRoot, "app.ts"), "globalThis.fixture = 1;"),
@@ -193,6 +258,7 @@ test("site distribution versions every reference in the document", async (t) => 
     writeFile(
       join(fixture, "index.html"),
       [
+        '<meta charset="UTF-8" />',
         '<link rel="modulepreload" href="./app.ts" />',
         '<link rel="preload" href="./styles.css" as="style" />',
         '<link rel="stylesheet" href="./styles.css" />',
@@ -216,7 +282,10 @@ test("site distribution refuses a document it cannot rewrite", async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), "polynome-site-document-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await Promise.all([
-    writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" />'),
+    writeFile(
+      join(fixture, "index.html"),
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" />',
+    ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
   ]);
@@ -233,7 +302,7 @@ test("site distribution refuses JavaScript esbuild warns about", async (t) => {
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.ts"), "globalThis.fixture = { rate: 1, rate: 2 };"),
@@ -263,5 +332,120 @@ test("unknown distribution target fails with a useful diagnostic", async () => {
   await assert.rejects(
     buildAnyTarget({ target: "archive", projectRoot }),
     /Unknown distribution target: archive/,
+  );
+});
+
+/**
+ * GitHub Pages serves what is in the directory and sets no response headers, so
+ * a `<meta http-equiv>` is the only place a policy can go. The hash is the part
+ * that cannot be written by hand: the inline script it covers is the Accent
+ * bootstrap, which is source like any other, and a hash that stopped matching
+ * would not fail anything — the browser would refuse the script, the stylesheet
+ * would paint the default, and the page would look very nearly right. So the
+ * expectation here is derived from the emitted document rather than restated,
+ * and the whole policy is held as one string: a directive quietly added or
+ * dropped is the change this is here to catch.
+ */
+test("the site policy hashes the inline script the artifact actually ships", async () => {
+  await buildDistribution({ target: "site", version: "cspsite", projectRoot });
+  const html = await readFile(new URL("index.html", output), "utf8");
+  const scripts = inlineBodies(html, "script");
+
+  assert.equal(scripts.length, 1, "Expected the Accent bootstrap to be the only inline script");
+  assert.deepEqual(inlineBodies(html, "style"), [], "Expected the site to link its stylesheet");
+  assert.equal(
+    policyOf(html),
+    [
+      "default-src 'none'",
+      `script-src 'self' ${inlineDigest(scripts[0])}`,
+      "style-src 'self'",
+      "font-src 'self'",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; "),
+  );
+});
+
+/**
+ * The regression guard, and the reason the exercise is worth doing at all. A
+ * policy is loosened one keyword at a time by whoever is unblocking themselves
+ * at the time, and every one of these turns the document back into one where an
+ * injected `<script>` runs. `'unsafe-inline'` is the whole policy undone;
+ * `'unsafe-eval'` reopens the string-to-code route the bundle has none of; a
+ * `default-src` that is not `'none'` silently supplies a fallback to every
+ * directive nobody thought to write down.
+ */
+test("the site policy admits no route to executing injected markup", async () => {
+  await buildDistribution({ target: "site", projectRoot });
+  const policy = policyOf(await readFile(new URL("index.html", output), "utf8"));
+  const directives = directivesOf(policy);
+
+  assert.deepEqual(directives.get("default-src"), ["'none'"]);
+  for (const keyword of ["'unsafe-inline'", "'unsafe-eval'", "'unsafe-hashes'"]) {
+    assert.ok(
+      !directives.get("script-src")?.includes(keyword),
+      `script-src admits ${keyword}: ${policy}`,
+    );
+  }
+  assert.ok(!/'unsafe-/.test(policy), `Policy admits an unsafe keyword: ${policy}`);
+});
+
+/**
+ * `frame-ancestors` is one of three directives a document-supplied policy is
+ * required to ignore, alongside `report-uri` and `sandbox`. Written here it
+ * would read as clickjacking protection to everyone who saw it and would do
+ * nothing at all, which is worse than the absence: the absence is at least
+ * visible to whoever goes looking for it. The header GitHub Pages will not send
+ * is the only place it works, so this holds the directive out rather than in.
+ */
+test("the site policy carries no directive a meta element would ignore", async () => {
+  await buildDistribution({ target: "site", projectRoot });
+  const policy = policyOf(await readFile(new URL("index.html", output), "utf8"));
+
+  for (const ignored of ["frame-ancestors", "report-uri", "sandbox"]) {
+    assert.ok(!policy.includes(ignored), `Policy states ${ignored}, which a meta element ignores`);
+  }
+});
+
+/**
+ * A policy governs what is fetched after the parser reaches it, so a meta
+ * element that arrived after the stylesheet link or the bootstrap would leave
+ * exactly those two ungoverned while still reading, to anyone auditing the
+ * document, as a page with a policy. It sits immediately after the character
+ * encoding declaration, which is the one thing that has to come first.
+ */
+test("the site policy is declared before anything it governs", async () => {
+  await buildDistribution({ target: "site", projectRoot });
+  const html = await readFile(new URL("index.html", output), "utf8");
+  const policyAt = html.search(/<meta\s+http-equiv="Content-Security-Policy"/i);
+  const charsetAt = html.search(/<meta\s+charset=/i);
+
+  assert.ok(charsetAt >= 0 && charsetAt < policyAt, "Expected the encoding declaration first");
+  assert.ok(policyAt < html.indexOf("<link"), "Expected the policy before the stylesheet link");
+  assert.ok(policyAt < html.indexOf("<script"), "Expected the policy before the first script");
+});
+
+/**
+ * The policy is spliced in after the encoding declaration, so a document without
+ * one has nowhere to put it — and the failure would otherwise be an artifact
+ * that ships with no policy at all, which no later assertion about a served page
+ * would notice. It joins the family of rewrites this build refuses rather than
+ * skips.
+ */
+test("the site build refuses a document with no character encoding declaration", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-site-charset-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+    ),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
+  ]);
+
+  await assert.rejects(
+    buildDistribution({ target: "site", version: "nocharset", projectRoot: fixture }),
+    /index\.html has no character encoding declaration/,
   );
 });
