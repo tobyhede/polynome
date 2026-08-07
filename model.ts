@@ -94,6 +94,11 @@ export const ENVELOPE = Object.freeze({
   PEAK: "peak",
 });
 
+export const TIMING_MODE = Object.freeze({
+  POLYMETER: "polymeter",
+  POLYRHYTHM: "polyrhythm",
+});
+
 /**
  * Reached with a shape a stored Configuration supplies, so it is a `lookup` for
  * the reason that helper exists: `ENVELOPE_LIMIT.toString` on a plain object
@@ -341,18 +346,19 @@ export function cycleSpanBeats(cycle) {
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  return rhythms
-    .map((rhythm) =>
-      Math.round(
-        normaliseNumber(
-          rhythm.signature?.count,
-          4,
-          METER_COUNT_LIMIT.minimum,
-          METER_COUNT_LIMIT.maximum,
-        ),
+  const counts = rhythms.map((rhythm) =>
+    Math.round(
+      normaliseNumber(
+        rhythm.signature?.count,
+        4,
+        METER_COUNT_LIMIT.minimum,
+        METER_COUNT_LIMIT.maximum,
       ),
-    )
-    .reduce(leastCommonMultiple);
+    ),
+  );
+  return cycle?.timingMode === TIMING_MODE.POLYRHYTHM
+    ? counts[0]
+    : counts.reduce(leastCommonMultiple);
 }
 
 export function cycleSpanSeconds(bpm, cycle) {

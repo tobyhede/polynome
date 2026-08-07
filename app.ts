@@ -22,6 +22,7 @@ import {
   MIX_STEP,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
+  TIMING_MODE,
 } from "./model.ts";
 import { controlCounts, controlIndexAt, controls } from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
@@ -1253,16 +1254,33 @@ function envelopeAmountValue(text) {
 }
 
 /**
- * Three controls and nothing else. The unit is stated once, in the group label,
+ * Four controls and nothing else. The unit is stated once, in the group label,
  * which is why neither control after it repeats it — and why there is no range
  * hint, no badge and no prose: the shape, the number and the result are the
  * whole of what an envelope is.
  */
 function CycleSettings({ cycle, cycleTitle, tempo }) {
+  const timingLabelId = `cycle-${cycle.id}-timing-label`;
   const shapeLabelId = `cycle-${cycle.id}-envelope-label`;
   const { shape, amount } = cycle.envelope;
   return html`
     <div class="timing-settings">
+      <div class="segmented-control" role="group" aria-labelledby=${timingLabelId}>
+        <span id=${timingLabelId}>Poly</span>
+        <div>${Object.values(TIMING_MODE).map(
+          (candidate) => html`
+          <button
+            type="button"
+            class="segment-button${candidate === cycle.timingMode ? " is-selected" : ""}"
+            data-action="timing-mode"
+            data-timing-mode=${candidate}
+            aria-label=${candidate === TIMING_MODE.POLYMETER ? "Polymeter" : "Polyrhythm"}
+            aria-pressed=${String(candidate === cycle.timingMode)}
+          >${candidate === TIMING_MODE.POLYMETER ? "meter" : "rhythm"}</button>
+        `,
+        )}</div>
+      </div>
+
       <div class="segmented-control" role="group" aria-labelledby=${shapeLabelId}>
         <span id=${shapeLabelId}>BPM Envelope</span>
         <div>${Object.values(ENVELOPE).map(
@@ -2312,6 +2330,13 @@ elements.cycles.addEventListener("click", (event) => {
       });
       break;
     }
+    case "timing-mode":
+      applyEdit({
+        type: "set-cycle-timing-mode",
+        cycleId: cycle.id,
+        timingMode: actionElement.dataset.timingMode,
+      });
+      break;
     case "remove-cycle": {
       const result = applyEdit({ type: "remove-cycle", cycleId: cycle.id });
       if (result.reason !== null) return;

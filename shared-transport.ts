@@ -1,5 +1,6 @@
 import {
   STEP,
+  TIMING_MODE,
   beatAtSeconds,
   createSequenceTempoCurves,
   secondsAtBeat,
@@ -46,14 +47,23 @@ export class SharedTransport {
     let offset = 0;
     const tempoCycles = createSequenceTempoCurves(bpm, sourceCycles);
     const timingCycles = sourceCycles.map((cycle, cycleIndex) => {
-      const rhythms = cycle.rhythms.map((rhythm) => ({
-        id: rhythm.id,
-        signature: { ...rhythm.signature },
-        subdivision: rhythm.subdivision,
-        steps: [...rhythm.steps],
-      }));
       const { beatLength, curve } = tempoCycles[cycleIndex];
       const spanBeats = beatLength / cycle.repetitions;
+      const rhythms = cycle.rhythms.map((rhythm) => {
+        const polyrhythm = cycle.timingMode === TIMING_MODE.POLYRHYTHM;
+        const stepsPerSpan = polyrhythm
+          ? rhythm.signature.count * rhythm.subdivision
+          : spanBeats * rhythm.subdivision;
+        const beatsPerStep = polyrhythm ? spanBeats / stepsPerSpan : 1 / rhythm.subdivision;
+        return {
+          id: rhythm.id,
+          signature: { ...rhythm.signature },
+          subdivision: rhythm.subdivision,
+          steps: [...rhythm.steps],
+          beatsPerStep,
+          stepsPerSpan,
+        };
+      });
       const duration = secondsAtBeat(curve, beatLength);
       const timingCycle = {
         id: cycle.id,
@@ -115,17 +125,17 @@ export class SharedTransport {
         if (cycleOrigin + cycle.duration < candidateFromTime) continue;
 
         for (const rhythm of cycle.rhythms) {
-          const stepsPerSpan = cycle.spanBeats * rhythm.subdivision;
+          const { beatsPerStep, stepsPerSpan } = rhythm;
           const totalSteps = stepsPerSpan * cycle.repetitions;
           const elapsedCandidate = Math.max(0, candidateFromTime - cycleOrigin);
           const candidateBeat = beatAtSeconds(cycle.curve, elapsedCandidate);
-          const firstStep = Math.max(0, Math.floor(candidateBeat * rhythm.subdivision));
+          const firstStep = Math.max(0, Math.floor(candidateBeat / beatsPerStep));
 
           for (let cycleStep = firstStep; cycleStep < totalSteps; cycleStep += 1) {
-            const musicalBeat = cycleStep / rhythm.subdivision;
+            const musicalBeat = cycleStep * beatsPerStep;
             const audioTime = cycleOrigin + secondsAtBeat(cycle.curve, musicalBeat);
             const nextAudioTime =
-              cycleOrigin + secondsAtBeat(cycle.curve, (cycleStep + 1) / rhythm.subdivision);
+              cycleOrigin + secondsAtBeat(cycle.curve, (cycleStep + 1) * beatsPerStep);
             if (audioTime >= horizon) break;
             const repetition = Math.floor(cycleStep / stepsPerSpan);
             const localStep = cycleStep % stepsPerSpan;
@@ -198,17 +208,17 @@ export class SharedTransport {
     const sequenceIndex = Math.floor((currentTime - this.#origin) / this.#timing.sequenceDuration);
     const cycleOrigin = this.#origin + sequenceIndex * this.#timing.sequenceDuration + cycle.offset;
     const cycleBeat = beatAtSeconds(cycle.curve, currentTime - cycleOrigin);
-    let absoluteStep = Math.floor(cycleBeat * rhythm.subdivision);
+    let absoluteStep = Math.floor(cycleBeat / rhythm.beatsPerStep);
 
     while (
-      cycleOrigin + secondsAtBeat(cycle.curve, (absoluteStep + 1) / rhythm.subdivision) <=
+      cycleOrigin + secondsAtBeat(cycle.curve, (absoluteStep + 1) * rhythm.beatsPerStep) <=
       currentTime
     ) {
       absoluteStep += 1;
     }
     while (
       absoluteStep > 0 &&
-      cycleOrigin + secondsAtBeat(cycle.curve, absoluteStep / rhythm.subdivision) > currentTime
+      cycleOrigin + secondsAtBeat(cycle.curve, absoluteStep * rhythm.beatsPerStep) > currentTime
     ) {
       absoluteStep -= 1;
     }

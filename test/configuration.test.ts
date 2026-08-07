@@ -137,6 +137,84 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
   );
 });
 
+test("Cycle Timing mode repairs to Polymeter and changes losslessly", () => {
+  const original = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "unknown",
+          rhythms: [
+            {
+              signature: { count: 3, unit: 8 },
+              subdivision: 2,
+              displayMode: "subdivision",
+              steps: ["primary", "off", "tertiary", "secondary", "off", "primary"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = original.sequence.cycles[0];
+  const before = structuredClone(cycle.rhythms);
+
+  assert.equal(cycle.timingMode, "polymeter");
+  const changed = changeConfiguration(original, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polyrhythm",
+  });
+
+  assert.equal(changed.consequence, "restart-transport-run");
+  assert.equal(changed.configuration.sequence.cycles[0].timingMode, "polyrhythm");
+  assert.deepEqual(changed.configuration.sequence.cycles[0].rhythms, before);
+  assert.equal(sameConfiguration(original, changed.configuration), false);
+
+  const unchanged = changeConfiguration(changed.configuration, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polyrhythm",
+  });
+  assert.equal(unchanged.consequence, "none");
+  assert.equal(unchanged.reason, null);
+
+  const restored = changeConfiguration(changed.configuration, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polymeter",
+  });
+  assert.deepEqual(restored.configuration.sequence.cycles[0].rhythms, before);
+});
+
+test("removing the first Polyrhythm layer promotes the next without changing it", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [
+            { signature: { count: 4, unit: 4 } },
+            { signature: { count: 3, unit: 8 }, subdivision: 2 },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const promoted = structuredClone(cycle.rhythms[1]);
+
+  const result = changeConfiguration(configuration, {
+    type: "remove-rhythm",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+  });
+
+  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.reason, null);
+  assert.equal(result.configuration.sequence.cycles[0].timingMode, "polyrhythm");
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms, [promoted]);
+});
+
 /**
  * An amount is rounded and then clamped into whichever range its own shape
  * offers, which is the only place Flat's reach below zero is decided. A ramp
@@ -1862,6 +1940,7 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
+    { type: "set-cycle-timing-mode", cycleId: cycle.id },
     { type: "set-cycle-envelope", cycleId: cycle.id },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "up" },
     { type: "set-cycle-envelope", cycleId: cycle.id, amount: 20 },
@@ -1895,6 +1974,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: "not-a-number" },
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
+    { type: "set-cycle-timing-mode", cycleId: cycle.id, timingMode: "swing" },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "curve", amount: 20 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "toString", amount: 20 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "constructor", amount: 20 },

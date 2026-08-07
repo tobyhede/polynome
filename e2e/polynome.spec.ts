@@ -482,6 +482,22 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
   await expect(drawer.locator("output")).toHaveText("120");
 });
 
+test("every Cycle can switch between Polymeter and Polyrhythm", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const poly = cycleDrawer(page).getByRole("group", { name: "Poly" });
+  const polymeter = poly.getByRole("button", { name: "Polymeter" });
+  const polyrhythm = poly.getByRole("button", { name: "Polyrhythm" });
+
+  await expect(polymeter).toHaveText("meter");
+  await expect(polymeter).toHaveAttribute("aria-pressed", "true");
+  await expect(polyrhythm).toHaveText("rhythm");
+  await polyrhythm.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(polyrhythm).toHaveAttribute("aria-pressed", "true");
+  await expect(polyrhythm).toBeFocused();
+});
+
 /**
  * With the drawer closed the controls that set the envelope are out of sight,
  * so the shape itself stands in for them at the end of the repetition row. It

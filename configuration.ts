@@ -13,6 +13,7 @@ import {
   STEP,
   SUBDIVISION_LIMIT,
   TEMPO_LIMIT,
+  TIMING_MODE,
 } from "./model.ts";
 
 /**
@@ -47,6 +48,7 @@ const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
+const TIMING_MODES = Object.freeze(Object.values(TIMING_MODE));
 const MAX_PRESET_NAME_LENGTH = 80;
 const MAX_RHYTHMS = 12;
 const GENERATED_IDENTIFIER = /^(cycle|layer|preset)-[0-9a-z]+-[0-9a-z]+$/;
@@ -139,6 +141,9 @@ function createCycle(overrides: Unvalidated = {}) {
   return {
     id: safeIdentifier(overrides.id, "cycle"),
     envelope: normaliseEnvelope(overrides.envelope),
+    timingMode: TIMING_MODES.includes(overrides.timingMode)
+      ? overrides.timingMode
+      : TIMING_MODE.POLYMETER,
     repetitions: Math.round(
       normaliseNumber(overrides.repetitions, 1, REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum),
     ),
@@ -297,6 +302,7 @@ function sameCycle(cycle, candidate) {
   return (
     sameFields(cycle, candidate) &&
     cycle.repetitions === candidate.repetitions &&
+    cycle.timingMode === candidate.timingMode &&
     sameEnvelope &&
     Array.isArray(candidate.rhythms) &&
     cycle.rhythms.length === candidate.rhythms.length &&
@@ -955,6 +961,26 @@ const COMMANDS = Object.freeze({
           sequence: {
             cycles: current.sequence.cycles.map((candidate) =>
               candidate.id === edit.cycleId ? { ...candidate, repetitions } : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
+    },
+  },
+  "set-cycle-timing-mode": {
+    validPayload: (edit) => targetsCycle(edit) && hasString(edit, "timingMode"),
+    validValue: (edit) => TIMING_MODES.includes(edit.timingMode),
+    leavesUnchanged: (current, edit) =>
+      findCycle(current, edit.cycleId)?.timingMode === edit.timingMode,
+    apply(current, edit) {
+      if (!findCycle(current, edit.cycleId)) return unchanged(current, "cycle-not-found");
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((cycle) =>
+              cycle.id === edit.cycleId ? { ...cycle, timingMode: edit.timingMode } : cycle,
             ),
           },
         },

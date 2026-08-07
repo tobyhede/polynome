@@ -345,6 +345,19 @@ test("a Cycle span completes every beat count regardless of Meter denominator", 
   closeTo(cycleSpanSeconds(120, cycle), 6);
 });
 
+test("a Polyrhythm Cycle spans one Meter of its first Rhythm layer", () => {
+  const cycle = {
+    timingMode: "polyrhythm",
+    rhythms: [
+      { signature: { count: 4, unit: 4 }, subdivision: 1 },
+      { signature: { count: 3, unit: 8 }, subdivision: 5 },
+    ],
+  };
+
+  assert.equal(cycleSpanBeats(cycle), 4);
+  assert.equal(cycleSpanSeconds(120, cycle), 2);
+});
+
 test("a lone Meter spans its numerator in primary beats", () => {
   const cycle = { rhythms: [{ signature: { count: 4, unit: 8 }, subdivision: 1 }] };
 
