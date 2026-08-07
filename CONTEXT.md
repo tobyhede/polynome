@@ -177,7 +177,8 @@ _Avoid_: Pattern, project, session
 
 **Share link**:
 A URL carrying an unnamed Configuration for another browser to open as its
-current workspace. It is not a Preset until the recipient saves and names it.
+current workspace. It is not a Preset until the recipient saves and names it;
+see [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
 _Avoid_: Shared Preset, export
 
 **Seeding**:

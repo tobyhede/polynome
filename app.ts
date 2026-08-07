@@ -333,6 +333,18 @@ async function openSharedConfiguration(fallbackConfiguration) {
   const generation = shareLoadGeneration;
   const isNewest = () => shareLoadGeneration === generation;
   const isCurrent = () => isNewest() && location.hash === fragment;
+  const focusedElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const restoreFocus = () => {
+    if (
+      focusedElement?.isConnected &&
+      focusedElement.tabIndex >= 0 &&
+      !focusedElement.matches(":disabled") &&
+      focusedElement.getClientRects().length > 0
+    ) {
+      focusedElement.focus();
+    }
+  };
   elements.appShell.inert = true;
   persistence.flush();
   const shared = await loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent);
@@ -347,8 +359,12 @@ async function openSharedConfiguration(fallbackConfiguration) {
   // on nobody's behalf, and a load already queued for a newer link closes it
   // again in the turn that follows.
   if (shared || isNewest()) elements.appShell.inert = false;
-  if (!shared) return;
+  if (!shared) {
+    if (isNewest()) restoreFocus();
+    return;
+  }
   adoptSharedConfiguration(shared);
+  restoreFocus();
 }
 
 /**

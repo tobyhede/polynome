@@ -154,11 +154,8 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
       sequence: { cycles: [{ rhythms: [{ signature: { count: 7, unit: 8 } }] }] },
     }),
   );
+  await seedStoredConfiguration(page, 90);
   await page.addInitScript(() => {
-    localStorage.setItem(
-      "polynome-configuration-v2",
-      JSON.stringify({ bpm: 90, sequence: { cycles: [{ rhythms: [{}] }] } }),
-    );
     localStorage.setItem("polynome-presets-v3", "[]");
   });
 
@@ -184,15 +181,8 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   await expect.poll(() => page.evaluate(() => location.search)).toBe("?display=compact");
-  expect(
-    await page.evaluate(() => {
-      const stored = JSON.parse(localStorage.getItem("polynome-configuration-v2") ?? "null");
-      return {
-        bpm: stored?.bpm,
-        presets: localStorage.getItem("polynome-presets-v3"),
-      };
-    }),
-  ).toEqual({ bpm: 175, presets: "[]" });
+  expect(await storedBpm(page)).toBe(175);
+  expect(await page.evaluate(() => localStorage.getItem("polynome-presets-v3"))).toBe("[]");
 
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(page.getByRole("textbox", { name: "Preset name" })).toHaveValue("");
@@ -382,6 +372,7 @@ test("a Share load abandoned for an ordinary hash gives the workspace back", asy
 
 test("a Share fragment received by an open page replaces the workspace", async ({ page }) => {
   const payload = await encodeShareConfiguration(createConfiguration({ bpm: 167 }));
+  await stallShareDecoding(page);
   await page.addInitScript(() => {
     localStorage.setItem(
       "polynome-configuration-v2",
@@ -397,12 +388,19 @@ test("a Share fragment received by an open page replaces the workspace", async (
     "aria-pressed",
     "true",
   );
+  const play = page.locator("#play-button");
+  await play.focus();
+  await expect(play).toBeFocused();
 
   await page.evaluate((sharePayload) => {
     location.hash = `share=${sharePayload}`;
   }, payload);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
+  await play.evaluate((element) => element.blur());
+  await releaseDecode(page, 0);
 
   await expect(bpm).toHaveValue("167");
+  await expect(play).toBeFocused();
   await expect(page.getByRole("button", { name: "Play metronome" })).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -460,11 +458,6 @@ test("Share sends the current Configuration URL to the native share sheet", asyn
   const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await bpm.fill("145");
   await bpm.blur();
-  await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(page.getByRole("button", { name: "Stop metronome" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
 
   await page.getByRole("button", { name: "Share current configuration" }).click();
 
@@ -480,11 +473,11 @@ test("Share sends the current Configuration URL to the native share sheet", asyn
   expect(sharedUrl.search).toBe("");
   expect(sharedUrl.hash).toMatch(/^#share=[A-Za-z0-9_-]+$/);
   expect((await decodeShareConfigurationFragment(sharedUrl.hash)).bpm).toBe(145);
-  await expect(page.getByRole("button", { name: "Stop metronome" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "Play metronome" })).toHaveAttribute(
     "aria-pressed",
-    "true",
+    "false",
   );
-  await expect(page.getByRole("status")).toHaveText("Playing");
+  await expect(page.getByRole("status")).toHaveText("Stopped");
 });
 
 test("a successful native share clears an earlier failure", async ({ page }) => {

@@ -39,18 +39,21 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
-   * The last raise was the Content-Security-Policy meta element, which is 317
-   * bytes of the 285,156 measured here — three SHA-256 digests and their
+   * The last raise combined focus restoration after an asynchronous Share load
+   * with the editing-state playback changes already on main, measuring 288,495
+   * bytes after rebase. The preceding raise was the Content-Security-Policy
+   * meta element, which is 317 bytes of
+   * the 285,156 measured there — three SHA-256 digests and their
    * directives, since this artifact admits its inline elements by hash and has
    * no origin to name. It is the one growth in this file that does not scale
    * with the source: a fourth inline element would add a digest, and nothing
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 286_000 },
+  "dist/polynome.html": { raw: 288_500 },
   /** The bundled script alone, which is the half that grows from source. */
-  "site/app-local.js": { raw: 167_000, gzip: 41_000 },
-  "site/styles-local.css": { raw: 30_800 },
+  "site/app-local.js": { raw: 168_500, gzip: 41_400 },
+  "site/styles-local.css": { raw: 30_900 },
 });
 
 /**

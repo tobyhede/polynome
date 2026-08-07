@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { createConfiguration } from "../configuration.ts";
 import {
@@ -9,6 +10,10 @@ import {
   encodeShareConfiguration,
   isShareConfigurationFragment,
 } from "../share.ts";
+
+function untrustedSharePayload(value) {
+  return gzipSync(JSON.stringify(value)).toString("base64url");
+}
 
 test("a Share link owns its URL fragment grammar", async () => {
   const url = await createShareConfigurationUrl(
@@ -51,8 +56,35 @@ test("a Share payload carries the Configuration without generated identifiers", 
   );
 });
 
+test("a Share payload excludes undeclared Configuration properties", async () => {
+  const configuration = createConfiguration({
+    bpm: 135,
+    sequence: { cycles: [{ rhythms: [{ subdivision: 3 }] }] },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const rhythm = cycle.rhythms[0];
+  const withExtras = {
+    ...configuration,
+    configurationExtra: "not shared",
+    sequence: {
+      cycles: [
+        {
+          ...cycle,
+          cycleExtra: "not shared",
+          rhythms: [{ ...rhythm, rhythmExtra: "not shared" }],
+        },
+      ],
+    },
+  };
+
+  assert.equal(
+    await encodeShareConfiguration(withExtras),
+    await encodeShareConfiguration(configuration),
+  );
+});
+
 test("a Share payload rejects JSON that is not recognizably a Configuration", async () => {
-  const payload = await encodeShareConfiguration({ sequence: { cycles: [] } });
+  const payload = untrustedSharePayload({ sequence: { cycles: [] } });
 
   await assert.rejects(decodeShareConfiguration(payload), /not a Configuration/);
 });
@@ -62,7 +94,7 @@ test("a Share payload rejects malformed gzip data", async () => {
 });
 
 test("a Share payload stops decompression beyond 64 KiB", async () => {
-  const payload = await encodeShareConfiguration({
+  const payload = untrustedSharePayload({
     ...createConfiguration(),
     padding: "x".repeat(70 * 1024),
   });

@@ -20,26 +20,38 @@ function base64UrlToBytes(payload: string) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function withoutIdentifiers(configuration) {
+function shareConfigurationShape(configuration) {
   // Cycle and Rhythm-layer identifiers coordinate interface edits; they carry
   // no musical identity across browsers. Omitting them shortens the link and
   // lets Configuration repair issue identifiers owned by the recipient rather
   // than presenting a sender's implementation detail as durable data; see
   // [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
+  // Every shared field is named below so an undeclared property cannot become
+  // part of the wire shape merely because a caller carries it.
+  const repaired = createConfiguration(configuration);
   return {
-    ...configuration,
+    bpm: repaired.bpm,
     sequence: {
-      ...configuration.sequence,
-      cycles: configuration.sequence.cycles.map(({ id: _cycleId, rhythms, ...cycle }) => ({
-        ...cycle,
-        rhythms: rhythms.map(({ id: _rhythmId, ...rhythm }) => rhythm),
+      cycles: repaired.sequence.cycles.map((cycle) => ({
+        envelope: { shape: cycle.envelope.shape, amount: cycle.envelope.amount },
+        repetitions: cycle.repetitions,
+        rhythms: cycle.rhythms.map((rhythm) => ({
+          signature: { count: rhythm.signature.count, unit: rhythm.signature.unit },
+          subdivision: rhythm.subdivision,
+          displayMode: rhythm.displayMode,
+          steps: rhythm.steps,
+          volume: rhythm.volume,
+          pan: rhythm.pan,
+          sound: rhythm.sound,
+          muted: rhythm.muted,
+        })),
       })),
     },
   };
 }
 
 export async function encodeShareConfiguration(configuration) {
-  const input = new Blob([JSON.stringify(withoutIdentifiers(configuration))]).stream();
+  const input = new Blob([JSON.stringify(shareConfigurationShape(configuration))]).stream();
   const compressed = input.pipeThrough(new CompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
   return bytesToBase64Url(bytes);
