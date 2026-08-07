@@ -482,9 +482,14 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
   await expect(drawer.locator("output")).toHaveText("120");
 });
 
+/**
+ * Timing is a property of each Cycle, not of the Configuration, so switching
+ * the second Cycle to Polyrhythm has to leave the first one in Polymeter.
+ */
 test("every Cycle can switch between Polymeter and Polyrhythm", async ({ page }) => {
-  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
-  const poly = cycleDrawer(page).getByRole("group", { name: "Poly" });
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+  await page.getByRole("button", { name: "Edit Cycle 2 envelope" }).click();
+  const poly = cycleDrawer(page, 1).getByRole("group", { name: "Poly" });
   const polymeter = poly.getByRole("button", { name: "Polymeter" });
   const polyrhythm = poly.getByRole("button", { name: "Polyrhythm" });
 
@@ -496,6 +501,17 @@ test("every Cycle can switch between Polymeter and Polyrhythm", async ({ page })
 
   await expect(polyrhythm).toHaveAttribute("aria-pressed", "true");
   await expect(polyrhythm).toBeFocused();
+
+  await page.getByRole("button", { name: "Edit Cycle 1 envelope" }).click();
+  const firstPoly = cycleDrawer(page, 0).getByRole("group", { name: "Poly" });
+  await expect(firstPoly.getByRole("button", { name: "Polymeter" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(firstPoly.getByRole("button", { name: "Polyrhythm" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 });
 
 test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ page }) => {
