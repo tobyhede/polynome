@@ -198,6 +198,48 @@ test("a Preset named outside the subset is seen to fall back", async ({ page, co
   expect(shaped[0].embedded, "a Cyrillic Preset name was reported as embedded").toBe(false);
 });
 
+/**
+ * The variable axis, read from the running browser off the shipped file with no
+ * font parser anywhere. `CSS.fontsUpdated` carries a `FontFace` for each web font
+ * as it loads, including the variation axes the file declares, which is what
+ * would catch a subset instanced to a single weight: it draws correctly at 400
+ * and asks the browser to synthesise every heavier weight the stylesheet uses.
+ *
+ * The listener is attached before navigation because the event fires when the
+ * face arrives, and a session opened afterwards has already missed it. The axis
+ * is 400–800 rather than upstream's 100–800 on purpose — widening it costs 6,956
+ * bytes for weights nothing asks for — so the `font-weight: 100 800` in
+ * `styles.css` overstates this file and always has.
+ */
+test("the body face keeps the weight axis the stylesheet varies", async ({ page, context }) => {
+  const session = await context.newCDPSession(page);
+  await session.send("DOM.enable");
+  await session.send("CSS.enable");
+  const loaded = [];
+  session.on("CSS.fontsUpdated", ({ font }) => {
+    // The parameter is optional, and the event fires without it for reasons that
+    // are not a font arriving.
+    if (font) loaded.push(font);
+  });
+
+  await page.goto("/");
+
+  // Polled rather than read once: the event travels the session independently of
+  // anything the page can be asked to wait for.
+  await expect
+    .poll(() =>
+      loaded
+        .find((font) => font.fontFamily === "JetBrains Mono")
+        ?.fontVariationAxes?.map(({ tag, minValue, maxValue, defaultValue }) => ({
+          tag,
+          minValue,
+          maxValue,
+          defaultValue,
+        })),
+    )
+    .toEqual([{ tag: "wght", minValue: 400, maxValue: 800, defaultValue: 400 }]);
+});
+
 type Probe = { index: number; label: string };
 
 /**
