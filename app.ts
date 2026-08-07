@@ -59,7 +59,9 @@ const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
  * `index.html`, so the tag each name is asserted against is checked too.
  */
 const elements = {
+  appShell: document.querySelector(".app-shell") as HTMLElement,
   heading: document.querySelector("#app-heading") as HTMLHeadingElement,
+  transport: document.querySelector(".transport") as HTMLElement,
   play: document.querySelector("#play-button") as HTMLButtonElement,
   playIcon: document.querySelector("#play-icon") as HTMLSpanElement,
   restartAudio: document.querySelector("#restart-audio") as HTMLButtonElement,
@@ -159,6 +161,7 @@ let pendingDeletePresetId = null;
 let openSubdivisionMenu = null;
 let animationFrame = null;
 let runBpm = null;
+let playMode = false;
 
 function loadState() {
   let raw = null;
@@ -740,7 +743,10 @@ function PresetNotation({ configuration }) {
 }
 
 function renderCycles() {
-  render(html`<${Cycles} cycles=${state.sequence.cycles} />`, elements.cycles);
+  render(
+    html`<${Cycles} cycles=${state.sequence.cycles} playing=${engine.playing} />`,
+    elements.cycles,
+  );
   // A redraw is what the record of the last draw stops describing. Reconciliation
   // rewrites the class of any control whose voice changed, which takes the
   // playhead's highlight off it, and a record kept across that would answer for a
@@ -891,10 +897,10 @@ function unavailableLabel(text, policy) {
   return `${text}, unavailable — ${reason}`;
 }
 
-function Cycles({ cycles }) {
+function Cycles({ cycles, playing }) {
   return html`${cycles.map(
     (cycle, index) => html`
-    <${CycleGroup} key=${cycle.id} cycle=${cycle} cycleIndex=${index} cycleCount=${cycles.length} />
+    <${CycleGroup} key=${cycle.id} cycle=${cycle} cycleIndex=${index} cycleCount=${cycles.length} playing=${playing} />
   `,
   )}`;
 }
@@ -917,7 +923,7 @@ function repetitionsForDot(cycle, value, cycleAvailability) {
   return switchesOff && cycleAvailability.repetitions[value - 1].available ? value - 1 : value;
 }
 
-function CycleGroup({ cycle, cycleIndex, cycleCount }) {
+function CycleGroup({ cycle, cycleIndex, cycleCount, playing }) {
   const cycleAvailability = description.availability.cycles[cycle.id];
   const cycleTitle = cycleCount > 1 ? `Cycle ${cycleIndex + 1}` : "Cycle";
   const addRhythmLabel = unavailableLabel("+ Rhythm", cycleAvailability.addRhythm);
@@ -1006,7 +1012,7 @@ function CycleGroup({ cycle, cycleIndex, cycleCount }) {
       <div class="rhythm-list">
         ${cycle.rhythms.map(
           (rhythm) => html`
-          <${RhythmCard} key=${rhythm.id} rhythm=${rhythm} cycle=${cycle} />
+          <${RhythmCard} key=${rhythm.id} rhythm=${rhythm} cycle=${cycle} playing=${playing} />
         `,
         )}
       </div>
@@ -1110,10 +1116,11 @@ function CycleSettings({ cycle, cycleTitle, tempo }) {
   `;
 }
 
-function RhythmCard({ rhythm, cycle }) {
+function RhythmCard({ rhythm, cycle, playing }) {
   const label = rhythmLabel(rhythm);
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
+  const effectivelyOpen = open && !playing;
   const counts = controlCounts(rhythm);
   const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
   return html`
@@ -1123,8 +1130,9 @@ function RhythmCard({ rhythm, cycle }) {
           type="button"
           class="rhythm-identity"
           data-action="toggle-settings"
-          aria-expanded=${String(open)}
+          aria-expanded=${String(effectivelyOpen)}
           aria-controls=${drawerId}
+          disabled=${playing}
         >
           <strong>${label}</strong><span aria-hidden="true">/</span><${NoteIcon} subdivision=${rhythm.subdivision} height=${21} />
           <span class="sr-only">${`Edit ${label} rhythm`}</span>
@@ -1139,9 +1147,9 @@ function RhythmCard({ rhythm, cycle }) {
           >M</button>
           <button
             type="button"
-            class="icon-button edit-button${open ? " is-active" : ""}"
+            class="icon-button edit-button${effectivelyOpen ? " is-active" : ""}"
             data-action="toggle-settings"
-            aria-expanded=${String(open)}
+            aria-expanded=${String(effectivelyOpen)}
             aria-controls=${drawerId}
             aria-label=${`Edit ${label}`}
           ><${PencilIcon} /></button>
@@ -1160,7 +1168,7 @@ function RhythmCard({ rhythm, cycle }) {
            control that was activated rather than below a step grid whose height
            varies with the Meter. The steps keep their place on screen relative
            to the card's own bottom edge. -->
-      <div id=${drawerId} class="rhythm-settings" hidden=${!open}>
+      <div id=${drawerId} class="rhythm-settings" hidden=${!effectivelyOpen}>
         <${RhythmSettings} rhythm=${rhythm} />
       </div>
 
@@ -1452,12 +1460,33 @@ function rhythmLabel(rhythm) {
 
 function updatePlayButton() {
   const playing = engine.playing;
+  const enteringPlayMode = playing && !playMode;
+  if (
+    enteringPlayMode &&
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement.closest(
+      ".page-header, .top-panel, .cycle-settings, .rhythm-settings, .edit-button, .remove-button, .envelope-mark, .add-rhythm, #add-cycle, .rhythm-identity",
+    )
+  ) {
+    elements.play.focus();
+  }
+  playMode = playing;
+  elements.appShell.classList.toggle("is-play-mode", playing);
   elements.play.classList.toggle("is-playing", playing);
   elements.play.setAttribute("aria-pressed", String(playing));
   elements.play.setAttribute("aria-label", playing ? "Stop metronome" : "Play metronome");
   elements.playIcon.textContent = playing ? "■" : "▶";
   elements.restartAudio.hidden = !playing;
   elements.status.textContent = playing ? "Playing" : "Stopped";
+  if (enteringPlayMode) {
+    // The active-step pass removes every inactive Cycle in the same turn. Let
+    // that focused layout settle before asking the window for its final scroll
+    // position, or scroll anchoring can restore the pre-filter position.
+    requestAnimationFrame(() => {
+      if (!engine.playing) return;
+      elements.transport.scrollIntoView({ block: "start" });
+    });
+  }
 }
 
 function updateActiveSteps() {
@@ -1480,13 +1509,23 @@ function updateActiveSteps() {
   }
 
   const position = engine.activePosition();
+  const activeCycleId =
+    position?.cycleId ?? state.sequence.cycles.find((cycle) => cycle.repetitions > 0)?.id;
+  const focusedCycle =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest(".cycle-group")
+      : null;
+  if (focusedCycle && focusedCycle.getAttribute("data-cycle-id") !== activeCycleId) {
+    elements.play.focus();
+  }
   for (const cycle of state.sequence.cycles) {
     const cycleElement = elements.cycles.querySelector(`[data-cycle-id="${CSS.escape(cycle.id)}"]`);
     if (!cycleElement) continue;
-    const active = cycle.id === position?.cycleId;
+    const active = cycle.id === activeCycleId;
+    cycleElement.classList.toggle("is-active-cycle", active);
     cycleElement.querySelector(".cycle-card")?.classList.toggle("is-current", active);
     cycleElement.querySelectorAll(".repeat-dot").forEach((element, index) => {
-      element.classList.toggle("is-current", active && index === position.repetitionIndex);
+      element.classList.toggle("is-current", active && index === position?.repetitionIndex);
     });
     for (const rhythm of cycle.rhythms) {
       const card = cycleElement.querySelector(`[data-layer-id="${CSS.escape(rhythm.id)}"]`);
@@ -1530,7 +1569,8 @@ function updateActiveSteps() {
 
 function startAnimation() {
   if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-  animationFrame = requestAnimationFrame(updateActiveSteps);
+  animationFrame = null;
+  updateActiveSteps();
 }
 
 function showError(error) {
@@ -2189,6 +2229,7 @@ elements.cycles.addEventListener("click", (event) => {
 });
 
 elements.cycles.addEventListener("dblclick", (event) => {
+  if (engine.playing) return;
   const target = event.target as HTMLElement;
   if (target.matches('[data-field="pan"]')) {
     event.preventDefault();
@@ -2250,7 +2291,7 @@ document.addEventListener("keydown", (event) => {
   dismissPendingDelete();
   // The dialog this panel replaced answered Escape natively, and a panel that
   // stopped doing so would be a regression a user notices before a test does.
-  if (savePanelOpen) closeSavePanel();
+  if (savePanelOpen && !engine.playing) closeSavePanel();
 });
 
 /**
@@ -2414,6 +2455,7 @@ engine.addEventListener("playstate", () => {
   // tempo the audible run is playing at.
   runBpm = engine.playing ? state.bpm : null;
   renderTransport();
+  renderCycles();
   if (engine.playing) startAnimation();
 });
 engine.addEventListener("audioerror", (event) => showError((event as CustomEvent).detail));
