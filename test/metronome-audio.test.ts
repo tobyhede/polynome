@@ -530,6 +530,13 @@ const pulsePerSecond = () =>
 const fiftyMillisecondGrid = () =>
   configurationOf(300, [{ signature: { count: 4, unit: 8 }, subdivision: 4 }]);
 
+const envelopedGrid = (bpm, envelope) => {
+  const configuration = configurationOf(60, [{ signature: { count: 4, unit: 4 }, subdivision: 5 }]);
+  configuration.bpm = bpm;
+  configuration.sequence.cycles[0].envelope = envelope;
+  return configuration;
+};
+
 /** Audio times are sums of binary fractions; a nanosecond is not a defect. */
 const roundSeconds = (value: number) => Math.round(value * 1e6) / 1e6;
 
@@ -1953,6 +1960,25 @@ test("a fast grid stops nudging a quarter of a step late", async () => {
   tick();
 
   assert.deepEqual(clickStarts(context), [0.06, 0.11, 0.21]);
+
+  engine.stop();
+});
+
+test("an accelerating grid abandons a click stale by its exact planned step", async () => {
+  const { context, engine } = harness({ state: "running", currentTime: 0 });
+
+  await engine.start(envelopedGrid(60, { shape: "up", amount: 60 }));
+  assert.deepEqual(clickStarts(context), [0.06]);
+
+  // The second event is planned for 0.2551606567 and its next grid step is
+  // 186.080 ms away. Advancing to 0.302 makes it 46.839 ms late: just beyond
+  // one quarter of that real gap, though still inside the instantaneous-BPM
+  // approximation the engine used to make for itself.
+  context.currentTime = 0.2;
+  context.advanceAfterSchedulingSnapshot(0.102);
+  tick();
+
+  assert.deepEqual(clickStarts(context), [0.06]);
 
   engine.stop();
 });

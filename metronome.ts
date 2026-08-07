@@ -1,4 +1,4 @@
-import { lookup, SOUND, STEP, stepDurationSeconds } from "./model.ts";
+import { lookup, SOUND, STEP } from "./model.ts";
 import { SharedTransport } from "./shared-transport.ts";
 
 const LOOK_AHEAD_SECONDS = 0.12;
@@ -830,12 +830,12 @@ export class MetronomeEngine extends EventTarget {
     for (const event of this.#transport.plan(now, horizon)) {
       const layer = layersById.get(event.layerId);
       if (layer) {
-        this.#scheduleClick(layer, event.voice, event.audioTime, event.musicalBeat, event.cycleId);
+        this.#scheduleClick(layer, event.voice, event.audioTime, event.stepDuration);
       }
     }
   }
 
-  #scheduleClick(layer, voice, when, musicalBeat, cycleId) {
+  #scheduleClick(layer, voice, when, stepDuration) {
     const output = this.#layers.get(layer.id)?.gain;
     if (!output || !this.#context) return;
 
@@ -849,10 +849,7 @@ export class MetronomeEngine extends EventTarget {
     const now = this.#context.currentTime;
     const maxLateness = Math.min(
       MAX_CLICK_LATENESS_SECONDS,
-      stepDurationSeconds(
-        this.#transport.currentBpm(when, musicalBeat, cycleId) ?? this.#state.bpm,
-        layer,
-      ) * MAX_CLICK_LATENESS_STEPS,
+      stepDuration * MAX_CLICK_LATENESS_STEPS,
     );
     if (when < now - maxLateness) return;
 

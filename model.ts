@@ -360,14 +360,6 @@ export function cycleSpanSeconds(bpm, cycle) {
   return cycleSpanBeats(cycle) * beatSeconds;
 }
 
-export function stepDurationSeconds(bpm, rhythm) {
-  const safeBpm = normaliseNumber(bpm, 120, 1, 1000);
-  const subdivision = Math.round(
-    normaliseNumber(rhythm?.subdivision, 1, SUBDIVISION_LIMIT.minimum, SUBDIVISION_LIMIT.maximum),
-  );
-  return 60 / safeBpm / subdivision;
-}
-
 const UNIT_NAMES = lookup({
   1: "whole",
   2: "half",
