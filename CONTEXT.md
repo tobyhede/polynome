@@ -32,6 +32,25 @@ _Avoid_: Enabled cycle, muted cycle
 The shortest duration after which every rhythm layer in a cycle returns to its downbeat together.
 _Avoid_: Bar, measure
 
+**Timing mode**:
+The relationship a Cycle uses to fit its Rhythm layers into its Cycle span,
+either Polymeter or Polyrhythm. It belongs to the Cycle, so one Sequence may
+use both relationships in different Cycles.
+_Avoid_: Timing type, rhythm mode
+
+**Polymeter**:
+The default Timing mode, in which every Rhythm layer's Signature unit is one
+Primary beat and the Cycle span is the least common multiple of the layers'
+Meter numerators.
+_Avoid_: Independent tempo, multiple clocks
+
+**Polyrhythm**:
+The Timing mode in which every Rhythm layer completes one Meter in the Cycle
+span set by the first layer. The first layer retains the Primary beat; each
+later layer divides the same span by its own numerator and is described as a
+ratio against the first layer, such as `3:4`.
+_Avoid_: Tuplet meter, independent tempo
+
 **Cycle repetition**:
 One traversal of a complete cycle span. A cycle may repeat its span before the sequence advances.
 _Avoid_: Count, loop
@@ -42,8 +61,9 @@ _Avoid_: Track, voice
 
 **Primary beat**:
 The shared pulse whose instantaneous rate is the Current BPM and whose initial
-rate is the Configuration's Starting BPM. Every Rhythm layer has one Signature
-unit per Primary beat before Subdivision adds pulses within it.
+rate is the Configuration's Starting BPM. Every Rhythm layer's Signature unit
+is one Primary beat in Polymeter. In Polyrhythm, the first Rhythm layer keeps
+that relationship and every later layer divides the first layer's Meter span.
 _Avoid_: Click, quarter-note clock
 
 **Starting BPM**:
@@ -71,15 +91,21 @@ The exact tempo sounding at a musical position in the current Transport run.
 _Avoid_: Stored BPM, live setting
 
 **Meter**:
-A repeating span written as a numerator and denominator. The numerator counts
-primary beats; the denominator names their written unit without changing their
-rate. Numerators range from 1–16 and denominators are 1, 2, 4, or 8.
+A repeating span stored as a numerator and denominator. The numerator counts
+Signature units; in Polymeter these are Primary beats, while in Polyrhythm a
+later layer fits them into the first layer's Meter span. The denominator names
+their written unit without changing their rate in Polymeter, and is hidden and
+has no timing effect for later Polyrhythm layers. Numerators range from 1–16 and
+stored denominators are 1, 2, 4, or 8.
 _Avoid_: Pattern length, subdivision
 
 **Signature unit**:
-One primary beat written as `1/denominator`; a meter contains `numerator`
-signature units. Its duration is `60 / BPM` regardless of denominator, and it
-is not always the perceived beat.
+One division counted by a Meter's numerator; a Meter contains `numerator`
+Signature units. In Polymeter, each is one Primary beat written as
+`1/denominator` and lasts `60 / BPM` regardless of denominator. In Polyrhythm,
+the first layer keeps that meaning while every later layer's unit is derived by
+dividing the shared Cycle span by its numerator, so it has no selectable written
+unit.
 _Avoid_: Beat, in this vocabulary. The interface says "Beat 1", and that is
 deliberate rather than a lapse: a listener counts a bar in beats and has no use
 for the written unit's name. They are the same thing under two audiences, and
@@ -88,7 +114,10 @@ where it would be left meaning either this or the Primary beat. See Beat
 control.
 
 **Subdivision**:
-The number of equal pulses within each signature unit of a rhythm layer's meter. A subdivision of one leaves the primary beat undivided.
+The number of equal pulses within each Signature unit of a Rhythm layer's
+Meter. A Subdivision of one leaves that unit undivided; the unit is a Primary
+beat in Polymeter and in a Polyrhythm Cycle's first layer, but not in its later
+layers.
 _Avoid_: Total steps, pulses per cycle
 
 **Meter-relative grid**:

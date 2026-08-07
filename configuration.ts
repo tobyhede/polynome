@@ -12,7 +12,10 @@ import {
   SOUND,
   STEP,
   SUBDIVISION_LIMIT,
+  subdivisionLabel,
+  subdivisionLabelWithoutUnit,
   TEMPO_LIMIT,
+  TIMING_MODE,
 } from "./model.ts";
 
 /**
@@ -47,6 +50,7 @@ const SUBDIVISIONS = choiceRange(SUBDIVISION_LIMIT);
 const METER_COUNTS = choiceRange(METER_COUNT_LIMIT);
 const REPETITION_LIMIT = Object.freeze({ minimum: 0, maximum: 8 });
 const REPETITIONS = choiceRange(REPETITION_LIMIT);
+const TIMING_MODES = Object.freeze(Object.values(TIMING_MODE));
 const MAX_PRESET_NAME_LENGTH = 80;
 const MAX_RHYTHMS = 12;
 const GENERATED_IDENTIFIER = /^(cycle|layer|preset)-[0-9a-z]+-[0-9a-z]+$/;
@@ -139,6 +143,9 @@ function createCycle(overrides: Unvalidated = {}) {
   return {
     id: safeIdentifier(overrides.id, "cycle"),
     envelope: normaliseEnvelope(overrides.envelope),
+    timingMode: TIMING_MODES.includes(overrides.timingMode)
+      ? overrides.timingMode
+      : TIMING_MODE.POLYMETER,
     repetitions: Math.round(
       normaliseNumber(overrides.repetitions, 1, REPETITION_LIMIT.minimum, REPETITION_LIMIT.maximum),
     ),
@@ -297,6 +304,7 @@ function sameCycle(cycle, candidate) {
   return (
     sameFields(cycle, candidate) &&
     cycle.repetitions === candidate.repetitions &&
+    cycle.timingMode === candidate.timingMode &&
     sameEnvelope &&
     Array.isArray(candidate.rhythms) &&
     cycle.rhythms.length === candidate.rhythms.length &&
@@ -581,12 +589,33 @@ export function describeConfiguration(configuration) {
       // The fold walks these same Cycles in this same order, so the position is
       // the Cycle — searching for the id it was just handed would be a second
       // answer to a question already settled.
-      const { envelope, repetitions } = valid.sequence.cycles[index];
+      const cycle = valid.sequence.cycles[index];
+      const { envelope, repetitions } = cycle;
       const { shape, amount } = envelope;
       const span = ` over ${repetitions} ${repetitions === 1 ? "repetition" : "repetitions"}`;
       return {
         id,
         active,
+        rhythms: cycle.rhythms.map((rhythm, rhythmIndex) => {
+          const ratio = cycle.timingMode === TIMING_MODE.POLYRHYTHM && rhythmIndex > 0;
+          const subdivisions = SUBDIVISIONS.map((value) => {
+            return {
+              value,
+              label: ratio
+                ? subdivisionLabelWithoutUnit(value)
+                : subdivisionLabel(value, rhythm.signature.unit),
+            };
+          });
+          return {
+            id: rhythm.id,
+            meter: ratio
+              ? `${rhythm.signature.count}:${cycle.rhythms[0].signature.count}`
+              : `${rhythm.signature.count}/${rhythm.signature.unit}`,
+            subdivision: subdivisions.find(({ value }) => value === rhythm.subdivision).label,
+            subdivisions,
+            denominatorAvailable: !ratio,
+          };
+        }),
         incomingBpm,
         // The tempo the Cycle opens on, which is its inherited one for a ramp and
         // its stepped one for a Flat — a Flat spends its whole change on the
@@ -955,6 +984,26 @@ const COMMANDS = Object.freeze({
           sequence: {
             cycles: current.sequence.cycles.map((candidate) =>
               candidate.id === edit.cycleId ? { ...candidate, repetitions } : candidate,
+            ),
+          },
+        },
+        "restart-transport-run",
+      );
+    },
+  },
+  "set-cycle-timing-mode": {
+    validPayload: (edit) => targetsCycle(edit) && hasString(edit, "timingMode"),
+    validValue: (edit) => TIMING_MODES.includes(edit.timingMode),
+    leavesUnchanged: (current, edit) =>
+      findCycle(current, edit.cycleId)?.timingMode === edit.timingMode,
+    apply(current, edit) {
+      if (!findCycle(current, edit.cycleId)) return unchanged(current, "cycle-not-found");
+      return changed(
+        {
+          ...current,
+          sequence: {
+            cycles: current.sequence.cycles.map((cycle) =>
+              cycle.id === edit.cycleId ? { ...cycle, timingMode: edit.timingMode } : cycle,
             ),
           },
         },

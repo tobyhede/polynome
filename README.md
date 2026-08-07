@@ -3,8 +3,10 @@
 A deliberately small browser metronome with:
 
 - ordered cycles of one or more simultaneous rhythm layers
+- per-cycle Polymeter or Polyrhythm timing
 - named presets holding a complete configuration, with two examples seeded on a first run
-- editable meter and subdivision per signature unit for every layer
+- editable numerator and subdivision for every layer, with a written-unit
+  denominator where it still describes the layer
 - a per-layer view of either one control per beat or one per pattern position
 - four Step voices: primary, secondary, tertiary, and off
 - independent volume and stereo pan for each rhythm
@@ -109,8 +111,21 @@ listening checks.
 
 A sequence contains one or more cycles that play in order and then loop. Each
 cycle repeats its complete shared span before the sequence advances. Rhythms
-inside a cycle begin together and continue until all their meter downbeats
-realign.
+inside a cycle begin together and share one of two timing relationships:
+
+- In Polymeter, every layer's signature unit lasts one primary beat. The Cycle
+  ends when all Meter downbeats realign, after the least common multiple of
+  their numerators: `4/4 + 3/4` therefore spans 12 primary beats.
+- In Polyrhythm, the first layer's Meter sets the Cycle span and keeps the
+  primary beat. Every later layer fits its own numerator of signature units
+  into that same span: `4/4 + 3:4` therefore sounds four against three in four
+  primary beats. Later layers are labelled by this relationship, such as
+  `3:4`, rather than by a denominator that does not determine their timing.
+
+Timing mode belongs to each Cycle, so a Sequence may move between Polymeter and
+Polyrhythm. Switching mode reinterprets the existing Meters without changing
+their patterns or stored denominators, and switching back restores the same
+Polymeter notation.
 
 Each Cycle may also carry a Flat, Up, Down, or Peak BPM envelope relative to
 the tempo it inherits from the preceding active Cycle. The Configuration BPM is
@@ -135,12 +150,18 @@ Each layer has:
 Examples:
 
 - `1(4/4)`: one cycle containing one 4/4 rhythm.
-- `1(4/4 + 3/4)`: one cycle containing simultaneous 4/4 and 3/4 rhythms; their downbeats realign after 12 primary beats.
+- `1(4/4 + 3/4)` in Polymeter: simultaneous rhythms whose downbeats realign
+  after 12 primary beats.
+- `1(4/4 + 3:4)` in Polyrhythm: four against three in one four-primary-beat span;
+  the second layer is labelled `3:4`.
 - `4(4/4), 3(3/4)`: four complete 4/4 cycles followed by three complete 3/4 cycles.
 
-Tempo is expressed as primary beats per minute. Every Rhythm layer shares that
-beat duration; its denominator names the written beat unit without rescaling
-the audible rate, and Subdivision adds equal pulses within each beat.
+Tempo is expressed as primary beats per minute. In Polymeter, every Rhythm
+layer shares that beat duration and its denominator names the written unit
+without rescaling the audible rate. In Polyrhythm, the first layer keeps that
+beat while each later layer divides the first layer's complete Meter span.
+Subdivision adds equal pulses within each layer's Signature unit in either
+mode.
 
 ## Timing design
 

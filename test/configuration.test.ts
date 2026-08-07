@@ -137,6 +137,84 @@ test("Cycle envelopes repair additively to canonical Flat zero", () => {
   );
 });
 
+test("Cycle Timing mode repairs to Polymeter and changes losslessly", () => {
+  const original = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "unknown",
+          rhythms: [
+            {
+              signature: { count: 3, unit: 8 },
+              subdivision: 2,
+              displayMode: "subdivision",
+              steps: ["primary", "off", "tertiary", "secondary", "off", "primary"],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = original.sequence.cycles[0];
+  const before = structuredClone(cycle.rhythms);
+
+  assert.equal(cycle.timingMode, "polymeter");
+  const changed = changeConfiguration(original, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polyrhythm",
+  });
+
+  assert.equal(changed.consequence, "restart-transport-run");
+  assert.equal(changed.configuration.sequence.cycles[0].timingMode, "polyrhythm");
+  assert.deepEqual(changed.configuration.sequence.cycles[0].rhythms, before);
+  assert.equal(sameConfiguration(original, changed.configuration), false);
+
+  const unchanged = changeConfiguration(changed.configuration, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polyrhythm",
+  });
+  assert.equal(unchanged.consequence, "none");
+  assert.equal(unchanged.reason, null);
+
+  const restored = changeConfiguration(changed.configuration, {
+    type: "set-cycle-timing-mode",
+    cycleId: cycle.id,
+    timingMode: "polymeter",
+  });
+  assert.deepEqual(restored.configuration.sequence.cycles[0].rhythms, before);
+});
+
+test("removing the first Polyrhythm layer promotes the next without changing it", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [
+            { signature: { count: 4, unit: 4 } },
+            { signature: { count: 3, unit: 8 }, subdivision: 2 },
+          ],
+        },
+      ],
+    },
+  });
+  const cycle = configuration.sequence.cycles[0];
+  const promoted = structuredClone(cycle.rhythms[1]);
+
+  const result = changeConfiguration(configuration, {
+    type: "remove-rhythm",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+  });
+
+  assert.equal(result.consequence, "restart-transport-run");
+  assert.equal(result.reason, null);
+  assert.equal(result.configuration.sequence.cycles[0].timingMode, "polyrhythm");
+  assert.deepEqual(result.configuration.sequence.cycles[0].rhythms, [promoted]);
+});
+
 /**
  * An amount is rounded and then clamped into whichever range its own shape
  * offers, which is the only place Flat's reach below zero is decided. A ramp
@@ -1304,6 +1382,59 @@ test("Configuration description exposes domain choices and unavailable final rem
   });
 });
 
+test("Configuration describes Polyrhythm Meter and Subdivision readings", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [
+            { signature: { count: 4, unit: 4 }, subdivision: 3 },
+            { signature: { count: 5, unit: 8 }, subdivision: 2 },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    describeConfiguration(configuration).cycles[0].rhythms.map(
+      ({ meter, subdivision, subdivisions, denominatorAvailable }) => ({
+        meter,
+        subdivision,
+        subdivisions,
+        denominatorAvailable,
+      }),
+    ),
+    [
+      {
+        meter: "4/4",
+        subdivision: "3 per quarter unit · triplet",
+        subdivisions: [
+          { value: 1, label: "1 per quarter unit · straight" },
+          { value: 2, label: "2 per quarter unit · duple" },
+          { value: 3, label: "3 per quarter unit · triplet" },
+          { value: 4, label: "4 per quarter unit · even four" },
+          { value: 5, label: "5 per quarter unit · quintuplet" },
+        ],
+        denominatorAvailable: true,
+      },
+      {
+        meter: "5:4",
+        subdivision: "2 subdivisions · duple",
+        subdivisions: [
+          { value: 1, label: "1 subdivision · straight" },
+          { value: 2, label: "2 subdivisions · duple" },
+          { value: 3, label: "3 subdivisions · triplet" },
+          { value: 4, label: "4 subdivisions · even four" },
+          { value: 5, label: "5 subdivisions · quintuplet" },
+        ],
+        denominatorAvailable: false,
+      },
+    ],
+  );
+});
+
 /**
  * The three readings a Cycle offers, and what separates them: the Tempo output
  * is the only one that names a tempo at all, and it is the calculated incoming
@@ -1862,6 +1993,7 @@ test("known edits with structurally malformed payloads expose programmer errors"
     { type: "apply-preset", configuration: null },
     { type: "set-tempo" },
     { type: "set-cycle-repetitions", cycleId: cycle.id },
+    { type: "set-cycle-timing-mode", cycleId: cycle.id },
     { type: "set-cycle-envelope", cycleId: cycle.id },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "up" },
     { type: "set-cycle-envelope", cycleId: cycle.id, amount: 20 },
@@ -1895,6 +2027,7 @@ test("well-formed edits with invalid domain values are unchanged no-ops", () => 
     { type: "set-tempo", bpm: "not-a-number" },
     { type: "set-tempo", bpm: 301 },
     { type: "set-cycle-repetitions", cycleId: cycle.id, repetitions: 1.5 },
+    { type: "set-cycle-timing-mode", cycleId: cycle.id, timingMode: "swing" },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "curve", amount: 20 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "toString", amount: 20 },
     { type: "set-cycle-envelope", cycleId: cycle.id, shape: "constructor", amount: 20 },

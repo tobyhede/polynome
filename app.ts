@@ -16,12 +16,12 @@ import {
   lookup,
   panLabel,
   snapBalance,
-  subdivisionLabel,
   convertedEnvelopeAmount,
   ENVELOPE,
   MIX_STEP,
   TEMPO_LIMIT,
   TEMPO_TICK_INTERVAL,
+  TIMING_MODE,
 } from "./model.ts";
 import { controlCounts, controlIndexAt, controls } from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
@@ -147,7 +147,6 @@ const {
   meterUnits: METER_UNITS,
   repetitions: REPETITIONS,
   sounds: SOUNDS,
-  subdivisions: SUBDIVISIONS,
 } = description.choices;
 let presetsOpen = false;
 let helpOpen = false;
@@ -882,16 +881,16 @@ function dismissPendingDelete() {
  * envelope as its own.
  */
 function PresetNotation({ configuration }) {
-  const tempoDescriptions = describeConfiguration(configuration).cycles;
+  const cycleDescriptions = describeConfiguration(configuration).cycles;
   const accessible = configuration.sequence.cycles
     .map((cycle, index) => {
       const rhythms = cycle.rhythms
-        .map(
-          (rhythm) =>
-            `${rhythmLabel(rhythm)}, ${subdivisionLabel(rhythm.subdivision, rhythm.signature.unit)}`,
-        )
+        .map((_, position) => {
+          const rhythmDescription = cycleDescriptions[index].rhythms[position];
+          return `${rhythmDescription.meter}, ${rhythmDescription.subdivision}`;
+        })
         .join(" plus ");
-      const envelope = tempoDescriptions[index].accessibleNotation;
+      const envelope = cycleDescriptions[index].accessibleNotation;
       return `${cycle.repetitions} ${cycle.repetitions === 1 ? "repetition" : "repetitions"} of ${rhythms}${envelope ? `, ${envelope}` : ""}`;
     })
     .join(", then ");
@@ -906,14 +905,14 @@ function PresetNotation({ configuration }) {
             (rhythm, position) => html`
             ${position === 0 ? null : html`<span aria-hidden="true"> + </span>`}
             <span class="preset-rhythm">
-              <span>${rhythmLabel(rhythm)}</span>
+              <span>${cycleDescriptions[index].rhythms[position].meter}</span>
               <${NoteIcon} subdivision=${rhythm.subdivision} height=${15} />
             </span>
           `,
           )}
           ${
-            tempoDescriptions[index].notation
-              ? html`<span class="preset-envelope"> ${tempoDescriptions[index].notation}</span>`
+            cycleDescriptions[index].notation
+              ? html`<span class="preset-envelope"> ${cycleDescriptions[index].notation}</span>`
               : null
           }
         </span>
@@ -1193,8 +1192,14 @@ function CycleGroup({ cycle, cycleIndex, cycleCount, playing }) {
 
       <div class="rhythm-list">
         ${cycle.rhythms.map(
-          (rhythm) => html`
-          <${RhythmCard} key=${rhythm.id} rhythm=${rhythm} cycle=${cycle} playing=${playing} />
+          (rhythm, position) => html`
+          <${RhythmCard}
+            key=${rhythm.id}
+            rhythm=${rhythm}
+            rhythmDescription=${tempoDescription.rhythms[position]}
+            cycle=${cycle}
+            playing=${playing}
+          />
         `,
         )}
       </div>
@@ -1253,16 +1258,33 @@ function envelopeAmountValue(text) {
 }
 
 /**
- * Three controls and nothing else. The unit is stated once, in the group label,
+ * Four controls and nothing else. The unit is stated once, in the group label,
  * which is why neither control after it repeats it — and why there is no range
  * hint, no badge and no prose: the shape, the number and the result are the
  * whole of what an envelope is.
  */
 function CycleSettings({ cycle, cycleTitle, tempo }) {
+  const timingLabelId = `cycle-${cycle.id}-timing-label`;
   const shapeLabelId = `cycle-${cycle.id}-envelope-label`;
   const { shape, amount } = cycle.envelope;
   return html`
     <div class="timing-settings">
+      <div class="segmented-control" role="group" aria-labelledby=${timingLabelId}>
+        <span id=${timingLabelId}>Poly</span>
+        <div>${Object.values(TIMING_MODE).map(
+          (candidate) => html`
+          <button
+            type="button"
+            class="segment-button${candidate === cycle.timingMode ? " is-selected" : ""}"
+            data-action="timing-mode"
+            data-timing-mode=${candidate}
+            aria-label=${candidate === TIMING_MODE.POLYMETER ? "Polymeter" : "Polyrhythm"}
+            aria-pressed=${String(candidate === cycle.timingMode)}
+          >${candidate === TIMING_MODE.POLYMETER ? "meter" : "rhythm"}</button>
+        `,
+        )}</div>
+      </div>
+
       <div class="segmented-control" role="group" aria-labelledby=${shapeLabelId}>
         <span id=${shapeLabelId}>BPM Envelope</span>
         <div>${Object.values(ENVELOPE).map(
@@ -1298,8 +1320,8 @@ function CycleSettings({ cycle, cycleTitle, tempo }) {
   `;
 }
 
-function RhythmCard({ rhythm, cycle, playing }) {
-  const label = rhythmLabel(rhythm);
+function RhythmCard({ rhythm, rhythmDescription, cycle, playing }) {
+  const label = rhythmDescription.meter;
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
   const effectivelyOpen = open && !playing;
@@ -1351,7 +1373,7 @@ function RhythmCard({ rhythm, cycle, playing }) {
            varies with the Meter. The steps keep their place on screen relative
            to the card's own bottom edge. -->
       <div id=${drawerId} class="rhythm-settings" hidden=${!effectivelyOpen}>
-        <${RhythmSettings} rhythm=${rhythm} />
+        <${RhythmSettings} rhythm=${rhythm} rhythmDescription=${rhythmDescription} />
       </div>
 
       <!-- The controls each signature unit holds are carried for layoutSteps(),
@@ -1386,8 +1408,8 @@ function MeterField({ field, value, name, choices }) {
   `;
 }
 
-function RhythmSettings({ rhythm }) {
-  const label = rhythmLabel(rhythm);
+function RhythmSettings({ rhythm, rhythmDescription }) {
+  const label = rhythmDescription.meter;
   const subdivisionMenuId = `rhythm-${rhythm.id}-subdivision-menu`;
   const subdivisionOpen = openSubdivisionMenu === rhythm.id;
   return html`
@@ -1401,13 +1423,17 @@ function RhythmSettings({ rhythm }) {
             name=${`${label} meter numerator`}
             choices=${METER_COUNTS}
           />
-          <span aria-hidden="true">/</span>
-          <${MeterField}
-            field="signature-unit"
-            value=${rhythm.signature.unit}
-            name=${`${label} meter denominator`}
-            choices=${METER_UNITS}
-          />
+          ${
+            rhythmDescription.denominatorAvailable
+              ? html`<span aria-hidden="true">/</span>
+                  <${MeterField}
+                    field="signature-unit"
+                    value=${rhythm.signature.unit}
+                    name=${`${label} meter denominator`}
+                    choices=${METER_UNITS}
+                  />`
+              : null
+          }
         </span>
       </label>
 
@@ -1433,8 +1459,8 @@ function RhythmSettings({ rhythm }) {
             aria-label=${`${label} subdivision`}
             hidden=${!subdivisionOpen}
           >
-            ${SUBDIVISIONS.map(
-              (subdivision) => html`
+            ${rhythmDescription.subdivisions.map(
+              ({ value: subdivision, label: subdivisionDescription }) => html`
               <button
                 type="button"
                 role="option"
@@ -1442,8 +1468,8 @@ function RhythmSettings({ rhythm }) {
                 data-action="set-subdivision"
                 data-subdivision=${subdivision}
                 aria-selected=${String(subdivision === rhythm.subdivision)}
-                aria-label=${subdivisionLabel(subdivision, rhythm.signature.unit)}
-                title=${subdivisionLabel(subdivision, rhythm.signature.unit)}
+                aria-label=${subdivisionDescription}
+                title=${subdivisionDescription}
               ><${NoteIcon} subdivision=${subdivision} height=${26} /></button>
             `,
             )}
@@ -1634,10 +1660,6 @@ function NoteIcon({ subdivision, height }) {
 
 function PencilIcon() {
   return html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
-}
-
-function rhythmLabel(rhythm) {
-  return `${rhythm.signature.count}/${rhythm.signature.unit}`;
 }
 
 function updatePlayButton() {
@@ -2312,6 +2334,13 @@ elements.cycles.addEventListener("click", (event) => {
       });
       break;
     }
+    case "timing-mode":
+      applyEdit({
+        type: "set-cycle-timing-mode",
+        cycleId: cycle.id,
+        timingMode: actionElement.dataset.timingMode,
+      });
+      break;
     case "remove-cycle": {
       const result = applyEdit({ type: "remove-cycle", cycleId: cycle.id });
       if (result.reason !== null) return;
@@ -2366,6 +2395,12 @@ elements.cycles.addEventListener("click", (event) => {
         rhythmId: rhythm.id,
         subdivision: Number(actionElement.dataset.subdivision),
       });
+      {
+        const committed = description.cycles
+          .find(({ id }) => id === cycle.id)
+          ?.rhythms.find(({ id }) => id === rhythm.id);
+        if (committed) elements.status.textContent = `Subdivision ${committed.subdivision}`;
+      }
       focusWithin(elements.cycles, `[data-layer-id="${CSS.escape(rhythm.id)}"] .notation-select`);
       break;
     case "mute":
@@ -2626,10 +2661,10 @@ elements.cycles.addEventListener("change", (event) => {
   }
   if (!result) return;
   if (result.consequence === "none") return;
-  const committed = result.configuration.sequence.cycles
+  const committed = description.cycles
     .find(({ id }) => id === cycle.id)
     ?.rhythms.find(({ id }) => id === rhythm.id);
-  if (committed) elements.status.textContent = `Meter ${rhythmLabel(committed)}`;
+  if (committed) elements.status.textContent = `Meter ${committed.meter}`;
 });
 
 engine.addEventListener("playstate", () => {

@@ -94,6 +94,11 @@ export const ENVELOPE = Object.freeze({
   PEAK: "peak",
 });
 
+export const TIMING_MODE = Object.freeze({
+  POLYMETER: "polymeter",
+  POLYRHYTHM: "polyrhythm",
+});
+
 /**
  * Reached with a shape a stored Configuration supplies, so it is a `lookup` for
  * the reason that helper exists: `ENVELOPE_LIMIT.toString` on a plain object
@@ -341,18 +346,19 @@ export function cycleSpanBeats(cycle) {
     Array.isArray(cycle?.rhythms) && cycle.rhythms.length
       ? cycle.rhythms
       : [{ signature: { count: 4, unit: 4 } }];
-  return rhythms
-    .map((rhythm) =>
-      Math.round(
-        normaliseNumber(
-          rhythm.signature?.count,
-          4,
-          METER_COUNT_LIMIT.minimum,
-          METER_COUNT_LIMIT.maximum,
-        ),
+  const counts = rhythms.map((rhythm) =>
+    Math.round(
+      normaliseNumber(
+        rhythm.signature?.count,
+        4,
+        METER_COUNT_LIMIT.minimum,
+        METER_COUNT_LIMIT.maximum,
       ),
-    )
-    .reduce(leastCommonMultiple);
+    ),
+  );
+  return cycle?.timingMode === TIMING_MODE.POLYRHYTHM
+    ? counts[0]
+    : counts.reduce(leastCommonMultiple);
 }
 
 export function cycleSpanSeconds(bpm, cycle) {
@@ -386,10 +392,26 @@ const SUBDIVISION_HINTS = lookup({
  * the fallback is a guard against a caller's mistake rather than a Meter a
  * musician can reach.
  */
-export function subdivisionLabel(subdivision, unit) {
+function describeSubdivision(subdivision, unit) {
   const unitName = UNIT_NAMES[unit] || "signature";
   const hint = SUBDIVISION_HINTS[subdivision] || `${subdivision}-tuplet`;
-  return `${subdivision} per ${unitName} unit · ${hint}`;
+  return { subdivision, unitName, hint };
+}
+
+export function subdivisionLabel(subdivision, unit) {
+  const description = describeSubdivision(subdivision, unit);
+  return `${description.subdivision} per ${description.unitName} unit · ${description.hint}`;
+}
+
+/**
+ * Names a Subdivision whose written Signature unit is derived rather than
+ * chosen. A later Polyrhythm layer has no denominator to name, but the grouping
+ * remains useful in the same accessible names and tooltips.
+ */
+export function subdivisionLabelWithoutUnit(subdivision) {
+  const description = describeSubdivision(subdivision, undefined);
+  const noun = description.subdivision === 1 ? "subdivision" : "subdivisions";
+  return `${description.subdivision} ${noun} · ${description.hint}`;
 }
 
 /**

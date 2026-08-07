@@ -378,6 +378,157 @@ test("a polymeter cycle does not advance until every rhythm returns to downbeat"
   );
 });
 
+test("a Polyrhythm Cycle fits every Rhythm layer into its first Meter", () => {
+  const four = createLayer({ id: "polyrhythm-four", signature: { count: 4, unit: 4 } });
+  const three = createLayer({ id: "polyrhythm-three", signature: { count: 3, unit: 4 } });
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "four-over-three",
+            timingMode: "polyrhythm",
+            repetitions: 1,
+            rhythms: [four, three],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  const events = transport.plan(0, 4.01);
+  const times = (layerId) =>
+    events.filter((event) => event.layerId === layerId).map((event) => event.audioTime);
+  assert.deepEqual(times("polyrhythm-four"), [0, 1, 2, 3, 4]);
+  assert.deepEqual(times("polyrhythm-three"), [0, 4 / 3, 8 / 3, 4]);
+  for (const duration of events
+    .filter((event) => event.layerId === "polyrhythm-three")
+    .map((event) => event.stepDuration)) {
+    assert.ok(Math.abs(duration - 4 / 3) < Number.EPSILON * 2);
+  }
+});
+
+test("the first Rhythm layer has the same event times in both Timing modes", () => {
+  const first = createLayer({ id: "reference-four", signature: { count: 4, unit: 4 } });
+  const second = createLayer({ id: "other-three", signature: { count: 3, unit: 4 } });
+  const eventTimes = (timingMode) => {
+    const transport = new SharedTransport();
+    transport.start(
+      {
+        bpm: 60,
+        sequence: {
+          cycles: [
+            {
+              id: timingMode,
+              timingMode,
+              repetitions: 1,
+              rhythms: [first, second],
+            },
+          ],
+        },
+      },
+      0,
+    );
+    return transport
+      .plan(0, 4)
+      .filter((event) => event.layerId === first.id)
+      .map((event) => event.audioTime);
+  };
+
+  assert.deepEqual(eventTimes("polymeter"), [0, 1, 2, 3]);
+  assert.deepEqual(eventTimes("polyrhythm"), [0, 1, 2, 3]);
+});
+
+test("a dense Polyrhythm starts its second repetition on pattern position zero", () => {
+  const reference = createLayer({
+    id: "sixteen",
+    signature: { count: 16, unit: 4 },
+  });
+  const seven = createLayer({
+    id: "seven-by-seven",
+    signature: { count: 7, unit: 4 },
+    subdivision: 7,
+  });
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "dense-polyrhythm",
+            timingMode: "polyrhythm",
+            repetitions: 2,
+            rhythms: [reference, seven],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  assert.deepEqual(
+    transport
+      .plan(0, 16.5)
+      .filter((event) => event.layerId === seven.id && event.absoluteStep >= 49)
+      .map(({ absoluteStep, patternPosition, voice }) => ({
+        absoluteStep,
+        patternPosition,
+        voice,
+      })),
+    [
+      { absoluteStep: 49, patternPosition: 0, voice: STEP.PRIMARY },
+      { absoluteStep: 50, patternPosition: 1, voice: STEP.SECONDARY },
+    ],
+  );
+});
+
+test("a Polyrhythm stays phase-locked through an envelope and into the next Cycle", () => {
+  const four = createLayer({ id: "ramped-four", signature: { count: 4, unit: 4 } });
+  const three = createLayer({ id: "ramped-three", signature: { count: 3, unit: 4 } });
+  const next = createLayer({ id: "next-polymeter", signature: { count: 1, unit: 4 } });
+  const transport = new SharedTransport();
+  transport.start(
+    {
+      bpm: 60,
+      sequence: {
+        cycles: [
+          {
+            id: "ramped-polyrhythm",
+            timingMode: "polyrhythm",
+            envelope: { shape: "up", amount: 60 },
+            repetitions: 1,
+            rhythms: [four, three],
+          },
+          {
+            id: "following-polymeter",
+            timingMode: "polymeter",
+            repetitions: 1,
+            rhythms: [next],
+          },
+        ],
+      },
+    },
+    0,
+  );
+
+  const events = transport.plan(0, 3);
+  const firstNext = events.find((event) => event.layerId === next.id);
+  assert.equal(firstNext.audioTime, 4 * Math.LN2);
+  assert.deepEqual(transport.position(firstNext.audioTime), {
+    cycleId: "following-polymeter",
+    cycleIndex: 1,
+    repetitionIndex: 0,
+  });
+
+  for (const event of events.filter((candidate) => candidate.layerId === three.id)) {
+    assert.equal(transport.patternPosition(three.id, event.audioTime), event.patternPosition);
+  }
+});
+
 test("polymeter Rhythm layers stay phase-locked throughout a continuous envelope", () => {
   const four = createLayer({ id: "ramped-four", signature: { count: 4, unit: 4 } });
   const three = createLayer({ id: "ramped-three", signature: { count: 3, unit: 4 } });

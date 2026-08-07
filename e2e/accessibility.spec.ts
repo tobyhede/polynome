@@ -164,6 +164,9 @@ test("active and inactive Cycle envelope drawers have no accessibility violation
   await expect(page.locator(".cycle-settings").first()).toBeVisible();
   await expectNoViolations(page);
 
+  await page.getByRole("button", { name: "Polyrhythm" }).click();
+  await expectNoViolations(page);
+
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
   await page.getByRole("button", { name: "Edit Cycle 2 envelope" }).click();
   await page
