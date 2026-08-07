@@ -27,6 +27,9 @@ remains available to recover it on refresh. Broken compression, unparseable
 JSON and values without the Configuration's core structure leave the local
 workspace untouched and report a visible failure. Decompression stops and
 rejects beyond 64 KiB so an untrusted fragment cannot expand without bound.
+The encoded payload is rejected beyond 128 KiB before Base64 decoding, which
+also bounds work on an untrusted fragment while accommodating the gzip and
+Base64 overhead of the decompressed limit.
 
 Nothing holds concurrent loads in order, and the newest link wins. A load still
 decoding when another arrives — a startup load overtaken by a fragment set on

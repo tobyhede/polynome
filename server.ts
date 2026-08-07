@@ -103,8 +103,9 @@ export function boundHost(argv) {
  */
 export function startupLines(host, port, root) {
   if (LOOPBACK_HOSTS.has(host)) return [`Polynome running at http://localhost:${port}`];
+  const urlHost = host.includes(":") ? `[${host}]` : host;
   return [
-    `Polynome running at http://${host}:${port}`,
+    `Polynome running at http://${urlHost}:${port}`,
     `Serving ${root} to anything that can reach this machine, unauthenticated — .git and all.`,
   ];
 }

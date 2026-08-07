@@ -6,6 +6,7 @@ const SHARE_FRAGMENT_PREFIX = "#share=";
 // and memory spent before JSON parsing while leaving ample room for the largest
 // Configuration the interface can create; see
 // [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
+const MAX_ENCODED_CHARACTERS = 128 * 1024;
 const MAX_DECOMPRESSED_BYTES = 64 * 1024;
 
 function bytesToBase64Url(bytes: Uint8Array) {
@@ -58,6 +59,9 @@ export async function encodeShareConfiguration(configuration) {
 }
 
 export async function decodeShareConfiguration(payload: string) {
+  if (payload.length > MAX_ENCODED_CHARACTERS) {
+    throw new RangeError("Share payload exceeds 128 KiB encoded limit");
+  }
   const compressed = new Blob([base64UrlToBytes(payload)]).stream();
   const decompressed = compressed.pipeThrough(new DecompressionStream("gzip"));
   const reader = decompressed.getReader();

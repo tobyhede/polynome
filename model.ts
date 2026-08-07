@@ -319,11 +319,11 @@ export function normaliseMeterUnit(value, fallback = 4) {
 }
 
 /**
- * A Cycle span is the least common multiple of its Meter counts. Those counts
- * are whole numbers the count range clamps, so every value and intermediate
- * product here is an exact integer and only the conversion to seconds is a
- * floating-point division. `test/model.test.ts` holds the widest span the range
- * permits and the margin it leaves.
+ * A Cycle span is the least common multiple of its Meter counts. The counts
+ * used here are whole numbers the count range clamps, so every value and
+ * intermediate product is an exact integer and only the conversion to seconds
+ * is a floating-point division. `test/model.test.ts` holds the widest span the
+ * range permits and the margin it leaves.
  */
 function greatestCommonDivisor(left, right) {
   let a = Math.abs(left);

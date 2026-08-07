@@ -93,6 +93,10 @@ test("a Share payload rejects malformed gzip data", async () => {
   await assert.rejects(decodeShareConfiguration("bm90LWd6aXA"));
 });
 
+test("a Share payload rejects more than 128 KiB before Base64 decoding", async () => {
+  await assert.rejects(decodeShareConfiguration("!".repeat(128 * 1024 + 1)), /128 KiB/);
+});
+
 test("a Share payload stops decompression beyond 64 KiB", async () => {
   const payload = untrustedSharePayload({
     ...createConfiguration(),
