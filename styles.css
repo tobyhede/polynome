@@ -328,18 +328,13 @@ h1 {
   background: var(--accent);
 }
 
-/* The one header button the Accent colours, which is what makes it read as the
-   colour control rather than a fourth glyph. The open state is named a second
-   time because `.header-actions .icon-button.is-active` hands the border back
-   to `--line-strong`, and a control that stops being the Accent's the moment
-   it is opened is saying the wrong thing at the one moment anybody is looking
-   at it. The filled surface is kept from that rule rather than dropped: the
-   dot needs a ground that is not the page. */
+/* The glyph identifies this as the Colour control. Its border stays neutral so
+   the Accent border remains the header's call-to-action treatment for Save.
+   The filled surface gives the dot a ground that is not the page without
+   making the whole control look live. */
 .accent-toggle,
 .header-actions .accent-toggle.is-active {
-  border-color: var(--accent);
   background: var(--soft);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) calc(var(--accent-glow) * 45%), transparent);
 }
 
 /* A fieldset draws a border and reserves room for its legend by default, and
