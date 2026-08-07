@@ -199,6 +199,26 @@ test("playback focuses the interface on the tempo and active Cycle", async ({ pa
   await expect(openRhythmDrawer).toBeVisible();
 });
 
+test("playback leaves no inter-Cycle separator beneath the active Cycle", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+  const cycles = page.locator(".cycle-group");
+  const visibleSeparators = () =>
+    cycles.evaluateAll(
+      (groups) =>
+        groups.filter((group) => {
+          const style = getComputedStyle(group, "::after");
+          return style.display !== "none" && style.content !== "none";
+        }).length,
+    );
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(cycles.filter({ visible: true })).toHaveCount(1);
+  expect(await visibleSeparators()).toBe(0);
+
+  await expect(cycles.nth(1)).toBeVisible({ timeout: 5_000 });
+  expect(await visibleSeparators()).toBe(0);
+});
+
 for (const panel of [
   { name: "Help", selector: "#help-panel", focus: "#help-toggle" },
   { name: "Colour", selector: "#accent-panel", focus: ".accent-swatch" },
