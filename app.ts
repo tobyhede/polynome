@@ -248,6 +248,18 @@ async function shareCurrentConfiguration() {
  * asked for them in. Each load claims the next number here and does nothing at
  * all once a later one exists, so the link opened first cannot land last and
  * write itself over the newer one — in storage, in the URL, or in the interface.
+ *
+ * The number alone leaves that window open, because the two halves of a newer
+ * link arriving do not happen together: assigning `location.hash` moves the URL
+ * synchronously, and the `hashchange` that claims the next number is a task
+ * queued behind every microtask a resolving decode runs through. A load
+ * finishing in between still reads as the newest there is, and would consume a
+ * fragment it never decoded. Being current is therefore two claims rather than
+ * one — no later load has begun, and the URL still holds the link this one
+ * decoded — and a load that fails either does the same nothing. The second also
+ * covers the hash leaving Share behind altogether, `#help` or a step back in
+ * history: no load begins there, so no number is ever claimed, and the fragment
+ * is the only thing that says the link being opened is not the one in the URL.
  */
 let shareLoadGeneration = 0;
 
@@ -319,15 +331,23 @@ async function openSharedConfiguration(fallbackConfiguration) {
   const fragment = location.hash;
   shareLoadGeneration += 1;
   const generation = shareLoadGeneration;
-  const isCurrent = () => shareLoadGeneration === generation;
+  const isNewest = () => shareLoadGeneration === generation;
+  const isCurrent = () => isNewest() && location.hash === fragment;
   elements.appShell.inert = true;
   persistence.flush();
   const shared = await loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent);
-  // Nothing comes back from a load a newer one has superseded, and that is the
-  // only way nothing comes back: the newer load owns the workspace from that
-  // moment, so this one neither hands it back nor says anything about it.
+  // Nothing comes back from a load that is no longer current, and that is the
+  // only way nothing comes back: it adopts no outcome and says nothing about a
+  // workspace it no longer speaks for. Whether it hands that workspace back is
+  // the separate question, and the answer is whether anything else holds it. A
+  // newer load owns the workspace from the moment it begins, so a load numbered
+  // past leaves it closed for that one to finish. A load left behind by the URL
+  // alone has no such successor — the hash may have gone somewhere no Share load
+  // reaches — so it lifts the inertness itself rather than close the application
+  // on nobody's behalf, and a load already queued for a newer link closes it
+  // again in the turn that follows.
+  if (shared || isNewest()) elements.appShell.inert = false;
   if (!shared) return;
-  elements.appShell.inert = false;
   adoptSharedConfiguration(shared);
 }
 

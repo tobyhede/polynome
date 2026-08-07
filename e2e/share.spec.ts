@@ -299,6 +299,87 @@ test("a superseded Share load does not hand back a workspace still loading", asy
   await expect.poll(() => storedBpm(page)).toBe(143);
 });
 
+/**
+ * The window the numbering alone cannot close, and the reason the two loads
+ * below release their decode from inside the block that moves the hash rather
+ * than after it. Assigning `location.hash` moves the URL synchronously and
+ * queues the `hashchange` as a task; everything from a released decode to the
+ * write it lands is microtasks, and microtasks drain before the next task runs.
+ * So the load in flight resolves while it is still the newest number anyone has
+ * claimed, which is exactly the moment it must be made to notice that the link
+ * it decoded is no longer the link in the URL. Awaiting anything between the two
+ * statements hands the queued `hashchange` its turn and tests the numbering
+ * again instead.
+ */
+test("a Share load replaced before its hashchange runs takes neither the URL nor the workspace", async ({
+  page,
+}) => {
+  const supersededPayload = await encodeShareConfiguration(createConfiguration({ bpm: 175 }));
+  const newerPayload = await encodeShareConfiguration(createConfiguration({ bpm: 143 }));
+  await seedStoredConfiguration(page, 90);
+  await stallShareDecoding(page);
+
+  await page.goto(`/#share=${supersededPayload}`);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
+
+  await page.evaluate((payload) => {
+    location.hash = `share=${payload}`;
+    (window as ShareScratchWindow).releaseShareDecode?.(0);
+  }, newerPayload);
+  // Nothing is what the replaced load has to do, so this is the settle a
+  // negative needs: long enough for it to have finished, and for the
+  // `hashchange` queued behind it to have begun the newer link's own decode.
+  await page.waitForTimeout(500);
+
+  const workspace = page.locator("main");
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
+  await expect(bpm).toHaveValue("90");
+  expect(await storedBpm(page)).toBe(90);
+  // The newer link is still in the URL to be loaded from, which is what a load
+  // that consumed the fragment with `history.replaceState` would have taken with
+  // it — leaving a page whose hash a refresh could not recover the link from.
+  expect(await page.evaluate(() => location.hash)).toBe(`#share=${newerPayload}`);
+  await expect(workspace).toHaveAttribute("inert", "");
+  expect(await decodeBegun(page, 1)).toBe(true);
+
+  await releaseDecode(page, 1);
+
+  await expect(workspace).not.toHaveAttribute("inert", "");
+  await expect(bpm).toHaveValue("143");
+  await expect(page.locator("#feedback")).toBeHidden();
+  await expect.poll(() => storedBpm(page)).toBe(143);
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
+});
+
+/**
+ * The same window entered from the side no number is ever claimed on: a hash
+ * that is not a Share link starts no load, so nothing exists to supersede the
+ * one in flight, and it must still leave the hash the reader navigated to alone.
+ * The workspace is the other half, and it is the half that has no successor — no
+ * later load is coming to hand it back, so the abandoned load has to.
+ */
+test("a Share load abandoned for an ordinary hash gives the workspace back", async ({ page }) => {
+  const payload = await encodeShareConfiguration(createConfiguration({ bpm: 175 }));
+  await seedStoredConfiguration(page, 90);
+  await stallShareDecoding(page);
+
+  await page.goto(`/#share=${payload}`);
+  await expect.poll(() => decodeBegun(page, 0)).toBe(true);
+
+  await page.evaluate(() => {
+    location.hash = "help";
+    (window as ShareScratchWindow).releaseShareDecode?.(0);
+  });
+  await page.waitForTimeout(500);
+
+  const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
+  await expect(page.locator("main")).not.toHaveAttribute("inert", "");
+  await expect(bpm).toHaveValue("90");
+  await expect(page.locator("#feedback")).toBeHidden();
+  expect(await storedBpm(page)).toBe(90);
+  expect(await page.evaluate(() => location.hash)).toBe("#help");
+});
+
 test("a Share fragment received by an open page replaces the workspace", async ({ page }) => {
   const payload = await encodeShareConfiguration(createConfiguration({ bpm: 167 }));
   await page.addInitScript(() => {

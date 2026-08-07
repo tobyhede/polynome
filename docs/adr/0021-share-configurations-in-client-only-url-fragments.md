@@ -34,10 +34,22 @@ the open page, or two fragments in quick succession — finishes whenever its ow
 decoding does rather than in the order the links were opened. Each load is
 numbered as it begins and does nothing at all once a later one exists, touching
 neither storage, nor the URL, nor the interface, and its failure message is
-discarded with it. The fallback a superseded load carries was captured before
-the newer link existed, so reporting it would replace a Configuration that
-loaded correctly with an older one and announce a link nobody is waiting on any
-more.
+discarded with it. The number alone does not close that window, because the two
+halves of a newer link arriving are not simultaneous: the URL changes at once
+and the event that numbers the load it starts is queued behind it, so a load
+counts as current only while it is both the newest one begun and the one whose
+fragment the URL still holds. The second claim is also the only one that catches
+a hash leaving Share behind altogether — an ordinary fragment, or a step back in
+history — because such a hash begins no load and so claims no number, and
+without it the load in flight would consume the URL the reader had just moved
+to. The fallback a superseded load carries was captured before the newer link
+existed, so reporting it would replace a Configuration that loaded correctly
+with an older one and announce a link nobody is waiting on any more. A load that
+is no longer current stops speaking for the workspace as well, and hands it back
+only when nothing else holds it: a newer numbered load owns the workspace until
+that load finishes, while a load left behind by the URL alone has no successor
+coming and lifts the inertness itself rather than leave the application closed
+on nobody's behalf.
 
 The workspace is inert for the duration of a load, so a link cannot be edited
 over while it lands, and it is handed back before the outcome is announced.
