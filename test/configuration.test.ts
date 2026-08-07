@@ -1486,6 +1486,59 @@ test("Configuration describes Polyrhythm Meter and Subdivision readings", () => 
 });
 
 /**
+ * The reading above withholds the denominator control from a later Polyrhythm
+ * layer, and the edit layer withholds the edit, so there is no way to store a
+ * denominator against a layer whose notation never shows one. What decides it
+ * is the Timing mode rather than the position: the same layer takes the same
+ * edit in Polymeter, where its denominator is on screen and describes it.
+ */
+test("a denominator edit is refused where the layer is read as a ratio", () => {
+  const polyrhythm = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+        },
+      ],
+    },
+  });
+  const cycle = polyrhythm.sequence.cycles[0];
+
+  const refused = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 8,
+  });
+  assert.equal(refused.consequence, "none");
+  assert.equal(refused.reason, "denominator-unavailable");
+  assert.deepEqual(refused.configuration, polyrhythm);
+
+  const first = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+    unit: 8,
+  });
+  assert.equal(first.consequence, "update-configuration");
+  assert.equal(first.configuration.sequence.cycles[0].rhythms[0].signature.unit, 8);
+
+  const polymeter = createConfiguration({
+    ...polyrhythm,
+    sequence: { cycles: [{ ...cycle, timingMode: "polymeter" }] },
+  });
+  const accepted = changeConfiguration(polymeter, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 8,
+  });
+  assert.equal(accepted.consequence, "update-configuration");
+  assert.equal(accepted.configuration.sequence.cycles[0].rhythms[1].signature.unit, 8);
+});
+
+/**
  * The three readings a Cycle offers, and what separates them: the Tempo output
  * is the only one that names a tempo at all, and it is the calculated incoming
  * one folded through every active Cycle before it. Both notations are relative,

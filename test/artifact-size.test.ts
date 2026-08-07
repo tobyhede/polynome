@@ -39,7 +39,9 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
-   * The last raise added the matched Polymeter and Polyrhythm Presets,
+   * The last raise refused a denominator edit against a layer whose notation
+   * carries no denominator, measuring 293,965 bytes after rebase. The raise
+   * before it added the matched Polymeter and Polyrhythm Presets,
    * measuring 293,415 bytes after rebase. The preceding raise added per-Cycle
    * Polyrhythm timing and its truthful visible and accessible descriptions,
    * measuring 292,707 bytes after rebase. Before that, focus restoration after
@@ -53,9 +55,9 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 293_500 },
+  "dist/polynome.html": { raw: 294_000 },
   /** The bundled script alone, which is the half that grows from source. */
-  "site/app-local.js": { raw: 173_250, gzip: 42_200 },
+  "site/app-local.js": { raw: 173_750, gzip: 42_300 },
   "site/styles-local.css": { raw: 30_900 },
 });
 
