@@ -1581,6 +1581,43 @@ test("a denominator edit is refused as unavailable even where it names the store
 });
 
 /**
+ * A rhythmId the Cycle does not hold is a stale target and not an unavailable
+ * control, and nothing about the notation may answer first. Availability is
+ * read off a position, which a rhythm that is not there does not have: the
+ * lookup answers -1, and -1 has to fall through as absent rather than count as
+ * one of the later positions a Polyrhythm reads as a ratio. That is why the
+ * Polyrhythm Cycle is asserted here at all — it is where the two answers would
+ * be confused first, and where confusing them would report a denominator the
+ * caller never named against a layer the Cycle does not have.
+ */
+test("a denominator edit naming a rhythm the Cycle does not hold reports the stale target", () => {
+  for (const timingMode of ["polymeter", "polyrhythm"]) {
+    const configuration = createConfiguration({
+      sequence: {
+        cycles: [
+          {
+            timingMode,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    });
+    const cycle = configuration.sequence.cycles[0];
+
+    const result = changeConfiguration(configuration, {
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: "layer-absent-1",
+      unit: 8,
+    });
+
+    assert.equal(result.consequence, "none", timingMode);
+    assert.equal(result.reason, "rhythm-not-found", timingMode);
+    assert.deepEqual(result.configuration, configuration, timingMode);
+  }
+});
+
+/**
  * The three readings a Cycle offers, and what separates them: the Tempo output
  * is the only one that names a tempo at all, and it is the calculated incoming
  * one folded through every active Cycle before it. Both notations are relative,
