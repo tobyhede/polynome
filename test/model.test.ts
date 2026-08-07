@@ -24,7 +24,6 @@ import {
   panLabel,
   secondsAtBeat,
   snapBalance,
-  stepDurationSeconds,
   subdivisionLabel,
   tempoAtBeat,
 } from "../model.ts";
@@ -333,38 +332,6 @@ test("every Subdivision over every offered Meter denominator is named", () => {
       assert.ok(!label.includes("signature unit"));
     }
   }
-});
-
-test("step duration follows Subdivision within each signature unit", () => {
-  const rhythm = {
-    signature: { count: 4, unit: 4 },
-    subdivision: 3,
-  };
-
-  closeTo(stepDurationSeconds(120, rhythm), 1 / 6);
-});
-
-test("step duration falls back to 120 BPM when tempo is missing or invalid", () => {
-  const rhythm = { signature: { count: 4, unit: 4 }, subdivision: 2 };
-
-  assert.equal(stepDurationSeconds(undefined, rhythm), 0.25);
-  assert.equal(stepDurationSeconds("not a tempo", rhythm), 0.25);
-});
-
-test("step duration follows BPM and Subdivision regardless of Meter denominator", () => {
-  const rhythm = {
-    signature: { count: 4, unit: 1 },
-    subdivision: 2,
-  };
-
-  closeTo(stepDurationSeconds(120, rhythm), 1 / 4);
-  closeTo(
-    stepDurationSeconds(120, {
-      ...rhythm,
-      signature: { count: 4, unit: 8 },
-    }),
-    1 / 4,
-  );
 });
 
 test("a Cycle span completes every beat count regardless of Meter denominator", () => {

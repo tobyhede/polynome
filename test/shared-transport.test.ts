@@ -135,6 +135,66 @@ test("an Up envelope schedules Rhythm events from exact musical positions", () =
   );
 });
 
+test("every envelope shape gives Rhythm events their exact next-step durations", () => {
+  const cases = [
+    {
+      bpm: 60,
+      envelope: { shape: "flat", amount: 60 },
+      horizon: 2,
+      durations: [0.5, 0.5, 0.5, 0.5],
+    },
+    {
+      bpm: 60,
+      envelope: { shape: "up", amount: 60 },
+      horizon: 2.772588722239781,
+      durations: [0.8925742052568391, 0.7292862271758185, 0.6166027193090331, 0.5341255704980905],
+    },
+    {
+      bpm: 120,
+      envelope: { shape: "down", amount: 60 },
+      horizon: 2.772588722239781,
+      durations: [0.5341255704980905, 0.6166027193090331, 0.7292862271758187, 0.8925742052568388],
+    },
+    {
+      bpm: 60,
+      envelope: { shape: "peak", amount: 60 },
+      horizon: 2.772588722239781,
+      durations: [0.8109302162163288, 0.5753641449035618, 0.5753641449035618, 0.8109302162163288],
+    },
+  ];
+
+  for (const { bpm, envelope, horizon, durations } of cases) {
+    const transport = new SharedTransport();
+    transport.start(
+      {
+        bpm,
+        sequence: {
+          cycles: [
+            {
+              id: `${envelope.shape}-cycle`,
+              envelope,
+              repetitions: 1,
+              rhythms: [
+                createLayer({
+                  id: `${envelope.shape}-rhythm`,
+                  signature: { count: 4, unit: 4 },
+                }),
+              ],
+            },
+          ],
+        },
+      },
+      0,
+    );
+
+    assert.deepEqual(
+      transport.plan(0, horizon).map(({ stepDuration }) => stepDuration),
+      durations,
+      envelope.shape,
+    );
+  }
+});
+
 test("a following Cycle inherits the audible endpoint and a Sequence loop resets it", () => {
   const transport = new SharedTransport();
   transport.start(
@@ -368,6 +428,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
       musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 10,
+      stepDuration: 1,
     },
     {
       cycleId: "cycle",
@@ -377,6 +438,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
       musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 11,
+      stepDuration: 1,
     },
     {
       cycleId: "cycle",
@@ -386,6 +448,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
       musicalBeat: 2,
       voice: STEP.SECONDARY,
       audioTime: 12,
+      stepDuration: 1,
     },
     {
       cycleId: "cycle",
@@ -395,6 +458,7 @@ test("4/4 with one pulse per quarter plans four quarter-note events", () => {
       musicalBeat: 3,
       voice: STEP.SECONDARY,
       audioTime: 13,
+      stepDuration: 1,
     },
   ]);
 });
@@ -542,6 +606,7 @@ test("rhythm events expose every audible Step voice by name", () => {
       musicalBeat: 0,
       voice: STEP.TERTIARY,
       audioTime: 0,
+      stepDuration: 1,
     },
     {
       cycleId: "cycle",
@@ -551,6 +616,7 @@ test("rhythm events expose every audible Step voice by name", () => {
       musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 1,
+      stepDuration: 1,
     },
     {
       cycleId: "cycle",
@@ -560,6 +626,7 @@ test("rhythm events expose every audible Step voice by name", () => {
       musicalBeat: 2,
       voice: STEP.PRIMARY,
       audioTime: 2,
+      stepDuration: 1,
     },
   ]);
 });
@@ -612,6 +679,7 @@ test("Step-voice edits preserve transport position and affect future events", ()
       musicalBeat: 1,
       voice: STEP.TERTIARY,
       audioTime: 11,
+      stepDuration: 1,
     },
   ]);
 });
@@ -648,6 +716,7 @@ test("overlapping polls plan each absolute step only once", () => {
       musicalBeat: 3,
       voice: STEP.SECONDARY,
       audioTime: 6.5,
+      stepDuration: 0.5,
     },
   ]);
 });
@@ -671,6 +740,7 @@ test("a late poll discards missed events without restarting transport phase", ()
       musicalBeat: 1,
       voice: STEP.SECONDARY,
       audioTime: 12.5,
+      stepDuration: 0.5,
     },
     {
       cycleId: "cycle",
@@ -680,6 +750,7 @@ test("a late poll discards missed events without restarting transport phase", ()
       musicalBeat: 2,
       voice: STEP.SECONDARY,
       audioTime: 13,
+      stepDuration: 0.5,
     },
   ]);
 });
@@ -707,6 +778,7 @@ test("a transport run retains its starting timing snapshot", () => {
       musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 20,
+      stepDuration: 1,
     },
   ]);
 });
@@ -780,6 +852,7 @@ test("mute does not change a rhythm layer event timeline", () => {
       musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 50,
+      stepDuration: 1,
     },
   ]);
 });
@@ -883,6 +956,7 @@ test("starting a new transport run resets origin and scheduling position togethe
       musicalBeat: 0,
       voice: STEP.PRIMARY,
       audioTime: 70,
+      stepDuration: 1,
     },
   ]);
 });

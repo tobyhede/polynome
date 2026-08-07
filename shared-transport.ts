@@ -124,6 +124,8 @@ export class SharedTransport {
           for (let cycleStep = firstStep; cycleStep < totalSteps; cycleStep += 1) {
             const musicalBeat = cycleStep / rhythm.subdivision;
             const audioTime = cycleOrigin + secondsAtBeat(cycle.curve, musicalBeat);
+            const nextAudioTime =
+              cycleOrigin + secondsAtBeat(cycle.curve, (cycleStep + 1) / rhythm.subdivision);
             if (audioTime >= horizon) break;
             const repetition = Math.floor(cycleStep / stepsPerSpan);
             const localStep = cycleStep % stepsPerSpan;
@@ -146,6 +148,7 @@ export class SharedTransport {
               musicalBeat,
               voice,
               audioTime,
+              stepDuration: nextAudioTime - audioTime,
             });
           }
         }
