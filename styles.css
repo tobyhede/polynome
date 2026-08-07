@@ -1,3 +1,57 @@
+/* Both faces are cut from upstream rather than from a Google Fonts slice, so the
+   glyph set is a decision this repository took and can restate. Each was
+   produced once, by hand, with fontTools 4.63.0 through
+   `uvx --from "fonttools[woff]"`: nothing in this tree subsets fonts and nothing
+   should start to, because the smaller `.woff2` is the deliverable rather than a
+   build step.
+
+   JetBrains Mono 2.304, `fonts/variable/JetBrainsMono[wght].ttf` from
+   https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304 —
+
+     fonttools varLib.instancer 'JetBrainsMono[wght].ttf' wght=400:800 -o wght-400-800.ttf
+     pyftsubset wght-400-800.ttf --flavor=woff2 --output-file=jetbrains-mono-latin.woff2 \
+       --unicodes="U+0020-007E,U+00B7,U+00D7,U+2013,U+2191,U+2192,U+2193,U+2212,U+25A0,U+25B6,U+25BC"
+
+   Major Mono Display 2.000, `ofl/majormonodisplay/MajorMonoDisplay-Regular.ttf`
+   from https://github.com/google/fonts —
+
+     pyftsubset MajorMonoDisplay-Regular.ttf --unicodes="U+0020-007E,U+2192" \
+       --no-hinting --flavor=woff2 --output-file=major-mono-display-latin.woff2
+
+   Printable ASCII is the floor in both, because the body face renders Preset
+   names, which the listener types: a glyph set derived from this interface's own
+   strings would show tofu the moment somebody named a Preset in their own
+   language. Above the floor sit the characters the interface draws that ASCII
+   has no room for, each one named by where it is drawn —
+
+     U+00B7 ·  the accent caption, the balance axis, a Subdivision description
+     U+00D7 ×  every close and delete button, and a Preset's repetition count
+     U+2013 –  the range in the Repetitions help
+     U+2191 ↑  a rising Cycle's notation on a Preset card
+     U+2192 →  the help text, `.preset-sequence-arrow`, `.envelope-tempo output`
+     U+2193 ↓  a falling Cycle's notation on a Preset card
+     U+2212 −  the tempo decrement, and a negative envelope amount
+     U+25A0 ■  the stop mark
+     U+25B6 ▶  the play mark
+     U+25BC ▼  the Subdivision picker's disclosure mark
+
+   Only the arrow reaches the display stack, at `.envelope-tempo output`, and it
+   is the one of these Major Mono Display carries upstream. Four of them — the
+   arrow, the two marks on the play button and the disclosure mark — are outside
+   any Latin slice, which is why the cut is from upstream: subsetting only ever
+   removes, so a slice that never carried them could not be made to.
+
+   The `wght` axis is held at 400–800 rather than restored to upstream's
+   100–800: widening it costs 6,956 bytes and this stylesheet asks for 400, 600,
+   620, 640, 700, 760 and 800. So the `font-weight: 100 800` below overstates the
+   file — a request under the axis minimum clamps, and that 100 has never done
+   anything. `--no-hinting` is on the display face alone, where `fpgm`, `prep`
+   and `cvt ` were about 7 KB before a single glyph was removed; the body face
+   carries no hinting program to drop.
+
+   `e2e/fonts.spec.ts` holds the glyph set to what the interface actually draws,
+   and `docs/research/detecting-font-fallback-in-browser-tests.md` carries the
+   measurements every figure above came from. */
 @font-face {
   font-family: "JetBrains Mono";
   font-style: normal;
