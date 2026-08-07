@@ -229,9 +229,9 @@ test("the current beat keeps the current step's glow when motion is reduced", as
   // one at all.
   expect(beatGlow).not.toBe("none");
 
-  await page
-    .locator('[data-display-mode="subdivision"]')
-    .evaluate((button: HTMLButtonElement) => button.click());
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await page.getByRole("button", { name: "Subdivision", exact: true }).click();
+  await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(
     page.locator('.steps[data-display-mode="subdivision"] .step.is-current'),
   ).toHaveCount(1);

@@ -178,8 +178,12 @@ test("playback focuses the interface on the tempo and active Cycle", async ({ pa
     .evaluate((element) => element.getBoundingClientRect().top);
   expect(Math.abs(transportTop)).toBeLessThanOrEqual(1);
 
+  const outgoingMute = cycles.first().getByRole("button", { name: "Mute 4/4" }).first();
+  await outgoingMute.focus();
+  await expect(outgoingMute).toBeFocused();
   await expect(cycles.nth(1)).toBeVisible({ timeout: 5_000 });
   await expect(cycles.first()).toBeHidden();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeFocused();
   const secondRestartPosition = await restart.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return { bottom: window.innerHeight - rect.bottom, left: rect.left };
@@ -193,6 +197,128 @@ test("playback focuses the interface on the tempo and active Cycle", async ({ pa
   await expect(cycles.first().locator(".edit-button").first()).toBeVisible();
   await expect(firstCycleDrawer).toBeVisible();
   await expect(openRhythmDrawer).toBeVisible();
+});
+
+for (const panel of [
+  { name: "Help", selector: "#help-panel", focus: "#help-toggle" },
+  { name: "Colour", selector: "#accent-panel", focus: ".accent-swatch" },
+  { name: "Presets", selector: "#preset-panel", focus: "#presets-close" },
+]) {
+  test(`an open ${panel.name} panel is concealed during playback and restored afterwards`, async ({
+    page,
+  }) => {
+    await page.getByRole("button", { name: panel.name, exact: true }).click();
+    const openPanel = page.locator(panel.selector);
+    await expect(openPanel).toBeVisible();
+    await page.locator(panel.focus).first().focus();
+
+    // Clicking without pointer focus preserves the user's context inside the
+    // panel, so entering Play has to move it before concealing that subtree.
+    await page.locator("#play-button").evaluate((button: HTMLButtonElement) => button.click());
+
+    await expect(openPanel).toBeHidden();
+    await expect(page.getByRole("button", { name: "Stop metronome" })).toBeFocused();
+    await page.getByRole("button", { name: "Stop metronome" }).click();
+    await expect(openPanel).toBeVisible();
+  });
+}
+
+test("an open Save panel is concealed during playback and restored with its draft", async ({
+  page,
+}) => {
+  await typeTempo(page, 125);
+  await page.getByRole("button", { name: "+ Save" }).click();
+  const savePanel = page.locator("#save-panel");
+  const name = page.getByRole("textbox", { name: "Preset name" });
+  await name.fill("Listening draft");
+  await expect(savePanel).toBeVisible();
+  await expect(name).toBeFocused();
+
+  await page.locator("#play-button").evaluate((button: HTMLButtonElement) => button.click());
+
+  await expect(savePanel).toBeHidden();
+  await expect(page.getByRole("button", { name: "Stop metronome" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(savePanel).toBeHidden();
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(savePanel).toBeVisible();
+  await expect(name).toHaveValue("Listening draft");
+});
+
+test("a rhythm identity is display-only during playback and restores its drawer afterwards", async ({
+  page,
+}) => {
+  const identity = page.locator(".rhythm-identity").first();
+  const edit = page.locator('.edit-button[aria-label="Edit 4/4"]');
+  const drawer = page.locator(".rhythm-settings").first();
+  await identity.click();
+  await expect(drawer).toBeVisible();
+  await expect(identity).toHaveAttribute("aria-expanded", "true");
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+
+  await expect(identity).toBeVisible();
+  await expect(identity).toBeDisabled();
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+  await expect(edit).toHaveAttribute("aria-expanded", "false");
+  await expect(edit).not.toHaveClass(/\bis-active\b/);
+  await expect(drawer).toBeHidden();
+  await expect(drawer).toHaveAttribute("hidden", "");
+  await identity.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+  await page
+    .locator(".rhythm-card")
+    .first()
+    .dblclick({ position: { x: 5, y: 5 } });
+
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(identity).toBeEnabled();
+  await expect(edit).toHaveAttribute("aria-expanded", "true");
+  await expect(edit).toHaveClass(/\bis-active\b/);
+  await expect(drawer).toBeVisible();
+  await expect(drawer).not.toHaveAttribute("hidden", "");
+  await identity.click();
+  await expect(drawer).toBeHidden();
+  await expect(identity).toHaveAttribute("aria-expanded", "false");
+});
+
+test("stopping before the Play layout frame cancels its deferred scroll", async ({ page }) => {
+  const scrollsAfterStop = await page.evaluate(async () => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    const nativeRequestAnimationFrame = window.requestAnimationFrame;
+    const nativeCancelAnimationFrame = window.cancelAnimationFrame;
+    let nextFrameId = 0;
+    window.requestAnimationFrame = (callback) => {
+      const frameId = ++nextFrameId;
+      callbacks.set(frameId, callback);
+      return frameId;
+    };
+    window.cancelAnimationFrame = (frameId) => callbacks.delete(frameId);
+    const transport = document.querySelector<HTMLElement>(".transport");
+    const play = document.querySelector<HTMLButtonElement>("#play-button");
+    const status = document.querySelector<HTMLElement>("#status");
+    let scrolls = 0;
+    transport.scrollIntoView = () => {
+      scrolls += 1;
+    };
+
+    play.click();
+    while (status.textContent !== "Playing") {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    play.click();
+    const stopped = () => status.textContent === "Stopped";
+    while (!stopped()) {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    window.requestAnimationFrame = nativeRequestAnimationFrame;
+    window.cancelAnimationFrame = nativeCancelAnimationFrame;
+    for (const callback of callbacks.values()) callback(performance.now());
+    return scrolls;
+  });
+
+  expect(scrollsAfterStop).toBe(0);
 });
 
 test("healthy foreground lifecycle signals preserve the Transport run", async ({ page }) => {
@@ -426,6 +552,7 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   );
   expect(new Set(playingDots.map(({ top }) => top)).size).toBe(1);
   expect(playingDots).toHaveLength(8);
+  expect(playingDots.every(({ width }) => width >= 24)).toBe(true);
   expect(playingDots.every(({ width }) => width < 29)).toBe(true);
 });
 
@@ -957,22 +1084,19 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
   );
   await expect(label).toHaveText("BPM");
 
-  // Given an envelope mid-run the slot changes hands, and giving it back
-  // returns the word — the reading follows the Sequence, not the transport.
-  await cycleDrawer(page)
-    .locator('[data-action="envelope-shape"]', { hasText: "Up" })
-    .evaluate((button: HTMLButtonElement) => button.click());
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+
+  // Across runs the slot follows the Sequence selected while editing: a moving
+  // envelope carries the Starting BPM, and Flat zero gives the word back.
+  await cycleDrawer(page).getByRole("button", { name: "Up" }).click();
+  await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(label).toHaveText("120");
 
-  await cycleDrawer(page)
-    .locator('[data-action="envelope-shape"]', { hasText: "Flat" })
-    .evaluate((button: HTMLButtonElement) => button.click());
-  await cycleDrawer(page)
-    .locator('[data-field="envelope-amount"]')
-    .evaluate((input: HTMLInputElement) => {
-      input.value = "0";
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Flat" }).click();
+  await envelopeAmount(page).fill("0");
+  await envelopeAmount(page).blur();
+  await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(label).toHaveText("BPM");
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
@@ -1506,28 +1630,19 @@ test("Meter selects expose the complete constrained signature vocabulary", async
   await expect(page.locator("#status")).toHaveText("Meter 7/8");
 });
 
-/**
- * A numerator committed during playback restarts the Transport, and the restart
- * reports "Playing" through the same live region the Meter announcement uses.
- * The committed Meter has to be the message left standing, which holds only
- * because the restart reaches its event synchronously; a restart that ever
- * began awaiting first would overwrite the announcement without failing
- * anything else.
- */
-test("a Meter committed during playback announces the Meter, not the restart", async ({ page }) => {
-  // Not `getByRole("status")`: an open rhythm's level and balance outputs carry
-  // that role too, so only the transport's own region is addressed by id.
+test("Meter editing resumes when playback restores its drawer", async ({ page }) => {
   const status = page.locator("#status");
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const numerator = page.getByRole("combobox", { name: "4/4 meter numerator" });
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(status).toHaveText("Playing");
+  await expect(numerator).toBeHidden();
 
-  await page.locator('[data-field="signature-count"]').evaluate((select: HTMLSelectElement) => {
-    select.value = "5";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await expect(numerator).toBeVisible();
+  await numerator.selectOption("5");
 
-  await expect(page.locator('[data-field="signature-count"]')).toHaveValue("5");
+  await expect(page.getByRole("combobox", { name: "5/4 meter numerator" })).toHaveValue("5");
   await expect(status).toHaveText("Meter 5/4");
 });
 
@@ -1851,73 +1966,20 @@ test("a Beat control visibly pulses at every Subdivision onset", async ({ page }
     .toBeGreaterThanOrEqual(3);
 });
 
-/**
- * Display Mode changes only which controls represent the running Rhythm layer;
- * they do not restart its transport run. The newly visible controls therefore
- * have to pick up the playhead even when the same absolute step is still active.
- */
-test("the current control follows a display mode change during playback", async ({ page }) => {
-  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("60");
-  await setSubdivision(page, 3);
-  const card = page.locator(".rhythm-card").first();
-  const secondBeat = card.getByRole("button", { name: /^Beat 2:/ });
-  await secondBeat.evaluate((element) => {
-    element.dataset.pulseCount = "0";
-    element.addEventListener("animationstart", () => {
-      const count = Number(element.dataset.pulseCount) + 1;
-      element.dataset.pulseCount = String(count);
-      if (count !== 2) return;
-      document.querySelector<HTMLElement>('[data-display-mode="subdivision"]').click();
-      requestAnimationFrame(() => {
-        document.body.dataset.currentAfterDisplayMode =
-          document.querySelector(".step.is-current")?.getAttribute("aria-label") ?? "absent";
-      });
-    });
-  });
-
-  await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect
-    .poll(() => page.locator("body").getAttribute("data-current-after-display-mode"))
-    .toMatch(/^Step 5:/);
-});
-
-/**
- * The playhead redraws only at an onset, and what it last drew is what tells it
- * an onset has arrived. The display mode decides both how many controls there
- * are and which one an absolute step falls on, so a record of the last draw that
- * does not carry the mode answers for the grid the other mode had: the highlight
- * stays where the replaced controls left it, or goes missing with them, until
- * the next onset repairs it — which at a slow tempo is a long time watching a
- * metronome that has stopped following itself.
- */
-test("the playhead redraws where a display mode change moved it", async ({ page }) => {
-  const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
-  await readout.fill("30");
-  await readout.blur();
+test("each run follows the display mode chosen while editing", async ({ page }) => {
   await setSubdivision(page, 2);
   await showSubdivisionMode(page);
-
   const card = page.locator(".rhythm-card").first();
-  const controls = card.locator(".step");
+
   await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(
+    card.locator('.steps[data-display-mode="subdivision"] .step.is-current'),
+  ).toHaveCount(1);
 
-  // A subdivision pulse lasts a second at this tempo, and the beat this one
-  // belongs to does not come round again for another seven. Catching the onset
-  // rather than sampling for it leaves the whole of that second to change the
-  // mode and assert in, and makes a highlight that only arrives at the following
-  // onset a failure rather than a slow pass.
-  await page.waitForFunction(
-    () => document.querySelectorAll(".rhythm-card .step")[3]?.classList.contains("is-current"),
-    null,
-    { polling: "raf" },
-  );
-
-  await card
-    .locator('[data-display-mode="beat"]')
-    .evaluate((button: HTMLButtonElement) => button.click());
-
-  await expect(controls).toHaveCount(4);
-  await expect(controls.nth(1)).toHaveClass(/\bis-current\b/);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+  await card.getByRole("button", { name: "Beat", exact: true }).click();
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(card.locator('.steps[data-display-mode="beat"] .step.is-current')).toHaveCount(1);
 });
 
 /**

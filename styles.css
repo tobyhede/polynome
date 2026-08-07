@@ -1899,6 +1899,7 @@ h1.is-glitching {
    out of the listening view. An already-open drawer retains its open state;
    stopping restores it without discarding interface state. */
 .app-shell.is-play-mode .page-header,
+.app-shell.is-play-mode .top-panel,
 .app-shell.is-play-mode .edit-button,
 .app-shell.is-play-mode .remove-button,
 .app-shell.is-play-mode .envelope-mark,
@@ -1917,6 +1918,11 @@ h1.is-glitching {
   padding-inline: clamp(12px, 4vw, 20px);
 }
 
+.app-shell.is-play-mode .rhythm-identity:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .app-shell.is-play-mode .repeat-dots {
   display: grid;
   grid-template-columns: repeat(8, max-content);
@@ -1926,8 +1932,8 @@ h1.is-glitching {
 }
 
 .app-shell.is-play-mode .repeat-dot {
-  width: clamp(20px, 5vw, 24px);
-  height: clamp(20px, 5vw, 24px);
+  width: clamp(24px, 5vw, 29px);
+  height: clamp(24px, 5vw, 29px);
 }
 
 /* Manual recovery must stay reachable while the physical output may be silent,
