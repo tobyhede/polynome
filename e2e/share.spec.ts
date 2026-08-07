@@ -213,7 +213,6 @@ test("the workspace stays unavailable until a Share link finishes loading", asyn
     page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" }),
   ).toHaveValue("175");
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
-  await page.waitForTimeout(500);
   await expect.poll(() => storedBpm(page)).toBe(175);
 });
 
@@ -373,12 +372,7 @@ test("a Share load abandoned for an ordinary hash gives the workspace back", asy
 test("a Share fragment received by an open page replaces the workspace", async ({ page }) => {
   const payload = await encodeShareConfiguration(createConfiguration({ bpm: 167 }));
   await stallShareDecoding(page);
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      "polynome-configuration-v2",
-      JSON.stringify({ bpm: 90, sequence: { cycles: [{ rhythms: [{}] }] } }),
-    );
-  });
+  await seedStoredConfiguration(page, 90);
   await page.goto("/?display=compact");
   const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   await bpm.fill("111");
@@ -408,14 +402,7 @@ test("a Share fragment received by an open page replaces the workspace", async (
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   await expect.poll(() => page.evaluate(() => location.search)).toBe("?display=compact");
-  await page.waitForTimeout(500);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => JSON.parse(localStorage.getItem("polynome-configuration-v2") ?? "null")?.bpm,
-      ),
-    )
-    .toBe(167);
+  await expect.poll(() => storedBpm(page)).toBe(167);
 });
 
 test("Share is available between Save and Colour when gzip streams are supported", async ({
@@ -435,9 +422,18 @@ test("Share is available between Save and Colour when gzip streams are supported
   ).toEqual(["Presets", "+ Save", "Share current configuration", "Colour", "Help"]);
 });
 
-test("Share stays hidden without both gzip stream APIs", async ({ page }) => {
+test("Share stays hidden without CompressionStream", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "CompressionStream", { value: undefined });
+  });
+  await page.goto("/");
+
+  await expect(page.locator("#share-configuration")).toBeHidden();
+});
+
+test("Share stays hidden without DecompressionStream", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "DecompressionStream", { value: undefined });
   });
   await page.goto("/");
 
@@ -597,12 +593,7 @@ test("an invalid Share link preserves the stored workspace and reports the failu
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      "polynome-configuration-v2",
-      JSON.stringify({ bpm: 91, sequence: { cycles: [{ rhythms: [{}] }] } }),
-    );
-  });
+  await seedStoredConfiguration(page, 91);
 
   await page.goto("/#share=not-a-gzip-payload");
 

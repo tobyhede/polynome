@@ -78,12 +78,12 @@ still print what they have exposed.
   naming, because the next variable will be judged against it: what can widen who
   reaches this process is an argument, and what merely rearranges it locally is
   free to be ambient.
-- `--host=` with nothing after it reads as no host, which is the one piece of the
-  old behaviour that is carried over unchanged rather than reconsidered. An empty
-  string is how `listen` is asked for every interface, so taking it literally
-  would turn the form that looks most like a retraction into the widest bind
-  available. The reasoning that applied to an exported-but-empty `HOST` applies
-  identically to a flag someone typed and then deleted the value from.
+- `--host=` with nothing after it resolves to `127.0.0.1`, which is the one piece
+  of the old behaviour that is carried over unchanged rather than reconsidered.
+  An empty string is how `listen` is asked for every interface, so taking it
+  literally would turn the form that looks most like a retraction into the widest
+  bind available. The reasoning that applied to an exported-but-empty `HOST`
+  applies identically to a flag someone typed and then deleted the value from.
 - Only the `--host=addr` form is read. `--host 0.0.0.0`, separated by a space, is
   not the grammar `--root=` established and is not parsed, so it falls through to
   loopback and the server the developer wanted to reach from their phone is one

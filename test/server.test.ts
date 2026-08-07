@@ -461,6 +461,10 @@ test("the server binds loopback unless a --host flag asks for more", async () =>
   }
 });
 
+test("the first repeated --host flag wins", () => {
+  assert.equal(boundHost(["--host=192.0.2.1", "--host=127.0.0.1"]), "192.0.2.1");
+});
+
 /**
  * The vulnerability this server used to carry, written down as a test. `HOST` is
  * a name other tooling exports, and `0.0.0.0` is the ordinary value for it, so
@@ -517,6 +521,14 @@ test("the startup line names loopback as localhost and reports a wider bind", ()
   assert.match(wide[0], /^Polynome running at http:\/\/0\.0\.0\.0:3210$/);
   assert.match(wide.join("\n"), /\/srv\/polynome/);
   assert.match(wide.join("\n"), /\.git/);
+
+  // An IPv6 literal needs brackets in a URL so that its colons cannot be read
+  // as the separator before the port. This is presentation only: `boundHost`
+  // still returns the bare address that Node's `listen` expects.
+  assert.equal(
+    startupLines("2001:db8::1", 3210, "/srv/polynome")[0],
+    "Polynome running at http://[2001:db8::1]:3210",
+  );
 });
 
 /**

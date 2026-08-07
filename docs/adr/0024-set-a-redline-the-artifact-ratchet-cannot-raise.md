@@ -1,12 +1,12 @@
 # Set a redline the artifact ratchet cannot raise
 
-Polynome adds a second, fixed number beside the artifact budgets: a **redline** of 60 KB gzipped on `site/app-local.js`, which is not raised by the change that breaches it. A change that crosses it finds bytes or does not land. The budgets in `test/artifact-size.test.ts` stay exactly what [ADR-0019](0019-assert-performance-as-counted-work.md) made them — a drift record, raised deliberately, re-taken on `main` — because the two numbers do different jobs and only one of them has ever said no.
+Polynome adds a second, fixed number beside the artifact budgets: a **redline** of 60 KB gzipped on `site/app-local.js`, which is not raised by the change that breaches it. A change that crosses it finds bytes or does not land. The budget mechanism in `test/artifact-size.test.ts` stays exactly what [ADR-0019](0019-assert-performance-as-counted-work.md) made it — a drift record whose thresholds may be raised deliberately and re-taken on `main` — because the budget and redline do different jobs and only one of them has ever said no.
 
 ## Why the ratchet is not a limit
 
-The budget has never denied a change, and was not built to. Its record: 194,762 bytes before Preact, 211,773 after, which [ADR-0009](0009-adopt-preact-as-the-renderer.md) measured and named as a cost worth weighing; then 274,000, 282,000, 285,000, 286,000. Each step was approved by the act of typing a larger number, and every one of them was legitimate.
+The budget has never denied a change, and was not built to. Its record: 194,762 bytes before Preact, 211,773 after, which [ADR-0009](0009-adopt-preact-as-the-renderer.md) measured and named as a cost worth weighing; then 274,000, 282,000, 285,000, 286,000, and 288,500 after a 288,495-byte build. Each step was approved by the act of typing a larger number, and every one of them was legitimate.
 
-That is the ratchet working. It makes growth deliberate and it produces the accounting — the current budget carries a comment explaining that 317 of its bytes are three SHA-256 digests and their directives, which is precisely the sentence that would not exist without it. What it cannot do is refuse. A number that yields whenever it is tested records history; it does not constrain the future, and the 47% climb above is what that distinction looks like over a year.
+That is the ratchet working. It makes growth deliberate and it produces the accounting — the current budget carries a comment explaining that 317 of its bytes are three SHA-256 digests and their directives, which is precisely the sentence that would not exist without it. What it cannot do is refuse. A number that yields whenever it is tested records history; it does not constrain the future, and the 48% climb above is what that distinction looks like over a year.
 
 A redline is the other half: a number whose breach is answered by finding bytes rather than by moving the number. It is only worth having if there is somewhere to find them, which is why the reserve below is named as part of the decision rather than left to whoever hits the wall first.
 
