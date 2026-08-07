@@ -392,10 +392,26 @@ const SUBDIVISION_HINTS = lookup({
  * the fallback is a guard against a caller's mistake rather than a Meter a
  * musician can reach.
  */
-export function subdivisionLabel(subdivision, unit) {
+function describeSubdivision(subdivision, unit) {
   const unitName = UNIT_NAMES[unit] || "signature";
   const hint = SUBDIVISION_HINTS[subdivision] || `${subdivision}-tuplet`;
-  return `${subdivision} per ${unitName} unit · ${hint}`;
+  return { subdivision, unitName, hint };
+}
+
+export function subdivisionLabel(subdivision, unit) {
+  const description = describeSubdivision(subdivision, unit);
+  return `${description.subdivision} per ${description.unitName} unit · ${description.hint}`;
+}
+
+/**
+ * Names a Subdivision whose written Signature unit is derived rather than
+ * chosen. A later Polyrhythm layer has no denominator to name, but the grouping
+ * remains useful in the same accessible names and tooltips.
+ */
+export function subdivisionLabelWithoutUnit(subdivision) {
+  const description = describeSubdivision(subdivision, undefined);
+  const noun = description.subdivision === 1 ? "subdivision" : "subdivisions";
+  return `${description.subdivision} ${noun} · ${description.hint}`;
 }
 
 /**

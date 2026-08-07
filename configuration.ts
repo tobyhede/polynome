@@ -13,6 +13,7 @@ import {
   STEP,
   SUBDIVISION_LIMIT,
   subdivisionLabel,
+  subdivisionLabelWithoutUnit,
   TEMPO_LIMIT,
   TIMING_MODE,
 } from "./model.ts";
@@ -598,12 +599,11 @@ export function describeConfiguration(configuration) {
         rhythms: cycle.rhythms.map((rhythm, rhythmIndex) => {
           const ratio = cycle.timingMode === TIMING_MODE.POLYRHYTHM && rhythmIndex > 0;
           const subdivisions = SUBDIVISIONS.map((value) => {
-            const ordinary = subdivisionLabel(value, rhythm.signature.unit);
             return {
               value,
               label: ratio
-                ? `${value} ${value === 1 ? "subdivision" : "subdivisions"}${ordinary.slice(ordinary.indexOf(" ·"))}`
-                : ordinary,
+                ? subdivisionLabelWithoutUnit(value)
+                : subdivisionLabel(value, rhythm.signature.unit),
             };
           });
           return {
