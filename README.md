@@ -65,12 +65,16 @@ The server binds `127.0.0.1`, so only this machine can reach it. To open it from
 another device on the same network:
 
 ```bash
-HOST=0.0.0.0 npm start
+npm start -- --host=0.0.0.0
 ```
 
 That serves the repository directory to anything that can reach this machine —
 including `.git` and any uncommitted work — so use it on a network you trust and
 stop it when you are done.
+
+The address is a flag and not an environment variable, so a `HOST` exported for
+some other tool cannot move this bind. `PORT` is still read from the environment,
+because a different port is still only this machine.
 
 ## Test it
 

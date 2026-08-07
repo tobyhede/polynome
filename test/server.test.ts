@@ -14,9 +14,9 @@ import { fileURLToPath } from "node:url";
 // running, and would do it before the first test had said what it wanted.
 import {
   announceChange,
+  boundHost,
   createDevServer,
   reloadRequested,
-  resolveHost,
   servedRoot,
   startupLines,
 } from "../server.ts";
@@ -108,15 +108,18 @@ function boundTo(listener: { address(): string | AddressInfo | null }): AddressI
  * free and then binding it a moment later, and under a loaded machine that gap
  * is long enough for something else to take it.
  */
-async function startServer({ root, reload }) {
+async function startServer({ root, reload = false, env = {} }) {
   const child = spawn("node", [server, `--root=${root}`, ...(reload ? ["--reload"] : [])], {
-    // Emptied rather than left alone, because a developer who has exported a HOST
-    // would otherwise have every server here bind wherever they were pointing —
-    // and the empty value is read as no value, which is what the suite wants.
-    env: { ...process.env, PORT: "0", HOST: "" },
+    // Passed through rather than scrubbed. `HOST` used to be emptied out of it,
+    // because this server read that variable and a developer who had exported one
+    // would otherwise have had every server here bind wherever they were
+    // pointing. Nothing reads it now — see ADR-0023 — so there is nothing to
+    // empty, and one case below hands one in on purpose to say so.
+    env: { ...process.env, PORT: "0", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  let stdout = "";
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
@@ -125,13 +128,28 @@ async function startServer({ root, reload }) {
 
   const origin = await new Promise((resolve, reject) => {
     const failed = setTimeout(
-      () => reject(new Error(`server did not print that it was listening. stderr: ${stderr}`)),
+      () =>
+        reject(
+          new Error(
+            `server did not print that it was listening. stdout: ${stdout} stderr: ${stderr}`,
+          ),
+        ),
       START_TIMEOUT_MS,
     );
-    let stdout = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
+      // A bind wider than loopback is failed on the moment it is announced rather
+      // than waited out. The deadline above would reach the same verdict twenty
+      // seconds later, and it would spend those twenty seconds serving the tree
+      // this test wrote to everything on the network — which is the one thing
+      // this suite must not do while finding out that it can happen.
+      const wide = /Polynome running at http:\/\/(?!localhost)(\S+)/.exec(stdout);
+      if (wide) {
+        clearTimeout(failed);
+        reject(new Error(`the server announced a bind on ${wide[1]} rather than loopback`));
+        return;
+      }
       const listening = /Polynome running at (http:\/\/localhost:(\d+))/.exec(stdout);
       if (!listening) return;
       clearTimeout(failed);
@@ -150,7 +168,10 @@ async function startServer({ root, reload }) {
     throw failure;
   });
 
-  return { child, origin };
+  // Everything the child has said so far, read as a function because it goes on
+  // saying things after this returns. It is what lets a case assert on the line
+  // that was printed as well as on the fact that one was.
+  return { child, origin, output: () => stdout };
 }
 
 /**
@@ -394,25 +415,37 @@ test("a TypeScript module that does not parse answers with the diagnostic", asyn
  * The served directory is the working tree, `.git` is in it, and no request is
  * ever asked who is making it — so the default has to be the interface that only
  * this machine can reach, and anything wider has to be something a developer
- * asked for by name.
+ * asked for by name, in the command that starts the server.
  *
  * The wider bind is asserted at the resolver rather than by binding it. A test
  * that opened the hole this default exists to close would, for as long as it ran,
  * be the thing being guarded against.
  */
-test("the server binds loopback unless HOST asks for more", async () => {
-  // Spelled as the absence the environment hands over rather than read from
-  // `process.env`, so a developer who has exported a HOST still runs this test.
-  assert.equal(resolveHost(undefined), "127.0.0.1");
-  // An exported-but-empty HOST is what an unset one looks like once a shell has
-  // passed it on, and binding the empty string is how a server binds everything.
-  assert.equal(resolveHost(""), "127.0.0.1");
-  assert.equal(resolveHost("0.0.0.0"), "0.0.0.0");
+test("the server binds loopback unless a --host flag asks for more", async () => {
+  // No flag, which is what `npm start` and `npm run dev` both hand over.
+  assert.equal(boundHost([]), "127.0.0.1");
+  // The other two flags this file reads are not this one. A prefix match across
+  // an argument vector is where that goes wrong, so it is stated rather than
+  // assumed.
+  assert.equal(boundHost(["--reload", "--root=/tmp/x"]), "127.0.0.1");
+  // `--host=` with nothing after it is read as no host, for the reason an empty
+  // `HOST` was before it: an empty string is how `listen` is asked for every
+  // interface, so taking it at face value would turn the one form that looks
+  // like a retraction into the widest bind there is.
+  assert.equal(boundHost(["--host="]), "127.0.0.1");
+  // The escape hatch, which is the whole reason this is a flag rather than
+  // nothing at all: reaching the network stays possible and stays deliberate.
+  assert.equal(boundHost(["--host=0.0.0.0"]), "0.0.0.0");
+  // The separated form is not the grammar, and it fails towards loopback rather
+  // than towards the address that was typed — which is the direction to fail in,
+  // even though it means a developer who typed it gets a server they cannot
+  // reach from the phone they were holding.
+  assert.equal(boundHost(["--host", "0.0.0.0"]), "127.0.0.1");
 
   const root = await temporaryRoot();
   const listener = createDevServer(root);
   try {
-    await new Promise<void>((ready) => listener.listen(0, resolveHost(undefined), ready));
+    await new Promise<void>((ready) => listener.listen(0, boundHost([]), ready));
     const bound = boundTo(listener);
     // What the socket says it bound, rather than the string that was handed to
     // `listen` — of the two, only this one can report the bind going elsewhere.
@@ -429,6 +462,45 @@ test("the server binds loopback unless HOST asks for more", async () => {
 });
 
 /**
+ * The vulnerability this server used to carry, written down as a test. `HOST` is
+ * a name other tooling exports, and `0.0.0.0` is the ordinary value for it, so
+ * reading it here meant a developer who had never made a decision about this
+ * project could inherit one — and what they inherited was an unauthenticated read
+ * of the whole working tree by anything on the network. The startup warning was
+ * all that stood in front of it, and a warning line in a terminal that has been
+ * backgrounded for an hour is not a thing anyone reads.
+ *
+ * Spawned rather than asserted at the resolver, because the resolver is no longer
+ * where this could go wrong. Nothing in `server.ts` reads the environment for an
+ * address any more, and the only way to demonstrate an absence like that is to
+ * run a process with the variable set and watch it be ignored.
+ */
+test("an exported HOST does not reach the bind", async () => {
+  const root = await temporaryRoot();
+  let running = null;
+  try {
+    running = await startServer({ root, env: { HOST: "0.0.0.0" } });
+
+    // `startServer` fails on any announced bind that is not loopback, so getting
+    // here is already the answer. What follows is the same claim read off the
+    // line itself, so a failure says which address was printed rather than only
+    // that the wait ended.
+    assert.match(running.output(), /Polynome running at http:\/\/localhost:\d+/);
+    assert.doesNotMatch(running.output(), /0\.0\.0\.0/);
+    // The second startup line only exists for a wider bind, so its absence is the
+    // server agreeing that nothing was exposed.
+    assert.doesNotMatch(running.output(), /unauthenticated/);
+
+    // And it is otherwise the server it always was: a variable that decides
+    // nothing is not a variable that quietly decided something else.
+    const page = await (await fetch(`${running.origin}/`)).text();
+    assert.match(page, /<main><\/main>/);
+  } finally {
+    await stopServer(running, root);
+  }
+});
+
+/**
  * `startServer` above learns the port by reading this line, so its shape is load
  * bearing for most of this file. A loopback bind is called `localhost` because
  * that is the name which resolves to it, and the form a developer will paste.
@@ -438,8 +510,9 @@ test("the startup line names loopback as localhost and reports a wider bind", ()
     "Polynome running at http://localhost:3210",
   ]);
 
-  // The developer who exported HOST hours ago is the one who needs telling what
-  // that is now reaching, so the warning names the directory and what is in it.
+  // The developer who typed `--host=` an hour ago and has not looked at that
+  // terminal since is the one who needs telling what it is now reaching, so the
+  // warning names the directory and what is in it.
   const wide = startupLines("0.0.0.0", 3210, "/srv/polynome");
   assert.match(wide[0], /^Polynome running at http:\/\/0\.0\.0\.0:3210$/);
   assert.match(wide.join("\n"), /\/srv\/polynome/);
@@ -540,9 +613,10 @@ test("a server that was not asked to reload has neither the client nor the endpo
 });
 
 /**
- * Both flags are parsed from an argument vector rather than read from
+ * All three flags are parsed from an argument vector rather than read from
  * `process.argv` inside the factory, which is what lets them be checked without
- * a process to carry them.
+ * a process to carry them. The third is `--host=`, and it is asserted above,
+ * beside the default it exists to step around.
  */
 test("the argument vector decides the served directory and whether to reload", () => {
   assert.equal(reloadRequested(["--reload"]), true);

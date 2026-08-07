@@ -158,18 +158,16 @@ async function waitForServer(url, signal) {
 
 async function startServer(port) {
   const signal = { exited: false };
-  // `HOST` is cleared rather than inherited. `server.ts` binds loopback unless
-  // `HOST` names something wider, and what it serves is the working tree, so a
-  // developer who exported `HOST=0.0.0.0` for something else would get a
-  // screenshot run that hands `.git` and every uncommitted change to the
-  // network — from a command whose entire visible output is a page of images.
-  // The wider bind is meant to be chosen, and nobody chooses it here. Empty
-  // rather than `127.0.0.1` because `server.ts` reads an empty `HOST` as no
-  // `HOST` and applies its own default, which is one fewer place holding an
-  // address that has to stay in step with it.
+  // No address is passed, and none is cleared out of the environment either.
+  // `server.ts` used to read `HOST`, so this had to empty it: a developer who had
+  // exported `HOST=0.0.0.0` for something else would otherwise have got a
+  // screenshot run that handed `.git` and every uncommitted change to the
+  // network, from a command whose entire visible output is a page of images. The
+  // address is a `--host=` flag now — ADR-0023 — so the wider bind is something
+  // this file would have to ask for by name, and it has no reason to.
   const child = spawn("node", ["server.ts"], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), HOST: "" },
+    env: { ...process.env, PORT: String(port) },
     stdio: ["ignore", "ignore", "inherit"],
   });
   child.on("exit", () => {
