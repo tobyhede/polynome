@@ -498,6 +498,37 @@ test("every Cycle can switch between Polymeter and Polyrhythm", async ({ page })
   await expect(polyrhythm).toBeFocused();
 });
 
+test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ page }) => {
+  await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
+  const second = page.locator(".rhythm-card").nth(1);
+  const originalCard = await second.elementHandle();
+  await second.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("3");
+  await second.getByRole("combobox", { name: "3/4 meter denominator" }).selectOption("8");
+
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  const polyrhythm = cycleDrawer(page).getByRole("button", { name: "Polyrhythm" });
+  await polyrhythm.click();
+
+  await expect(page.getByRole("button", { name: "Edit 4/4", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit 3:4", exact: true })).toBeVisible();
+  await expect(second.getByRole("combobox", { name: "3:4 meter numerator" })).toBeVisible();
+  await expect(second.getByRole("combobox", { name: /meter denominator/ })).toHaveCount(0);
+  await second.getByRole("button", { name: "3:4 subdivision" }).click();
+  await expect(second.getByRole("option", { name: "2 subdivisions · duple" })).toBeVisible();
+  await second.getByRole("option", { name: "2 subdivisions · duple" }).click();
+  await expect(page.locator("#status")).toHaveText("Subdivision 2 subdivisions · duple");
+
+  await second.getByRole("combobox", { name: "3:4 meter numerator" }).selectOption("5");
+  await expect(page.locator("#status")).toHaveText("Meter 5:4");
+  expect(await second.evaluate((node, original) => node === original, originalCard)).toBe(true);
+
+  const polymeter = cycleDrawer(page).getByRole("button", { name: "Polymeter" });
+  await polymeter.click();
+  await expect(second.getByRole("combobox", { name: "5/8 meter denominator" })).toHaveValue("8");
+  expect(await second.evaluate((node, original) => node === original, originalCard)).toBe(true);
+  await expect(polymeter).toBeFocused();
+});
+
 /**
  * With the drawer closed the controls that set the envelope are out of sight,
  * so the shape itself stands in for them at the end of the repetition row. It
@@ -854,6 +885,26 @@ test("Preset notation describes a Cycle envelope as a relative change", async ({
     /rising 40 bpm over 1 repetition/,
   );
   await expect(card.locator(".preset-button")).not.toHaveAccessibleName(/136/);
+});
+
+test("Preset notation describes Polyrhythm ratios and subdivisions truthfully", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
+  const second = page.locator(".rhythm-card").nth(1);
+  await second.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("3");
+  await second.getByRole("button", { name: "Edit 3/4", exact: true }).click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await cycleDrawer(page).getByRole("button", { name: "Polyrhythm" }).click();
+  await savePreset(page, "Three against four");
+
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  const card = presetCard(page, "Three against four");
+  await expect(card.locator(".preset-notation")).toContainText("4/4");
+  await expect(card.locator(".preset-notation")).toContainText("3:4");
+  await expect(card.locator(".preset-button")).toHaveAccessibleName(
+    /4\/4, 1 per quarter unit · straight plus 3:4, 1 subdivision · straight/,
+  );
 });
 
 /**

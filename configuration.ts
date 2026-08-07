@@ -12,6 +12,7 @@ import {
   SOUND,
   STEP,
   SUBDIVISION_LIMIT,
+  subdivisionLabel,
   TEMPO_LIMIT,
   TIMING_MODE,
 } from "./model.ts";
@@ -587,12 +588,34 @@ export function describeConfiguration(configuration) {
       // The fold walks these same Cycles in this same order, so the position is
       // the Cycle — searching for the id it was just handed would be a second
       // answer to a question already settled.
-      const { envelope, repetitions } = valid.sequence.cycles[index];
+      const cycle = valid.sequence.cycles[index];
+      const { envelope, repetitions } = cycle;
       const { shape, amount } = envelope;
       const span = ` over ${repetitions} ${repetitions === 1 ? "repetition" : "repetitions"}`;
       return {
         id,
         active,
+        rhythms: cycle.rhythms.map((rhythm, rhythmIndex) => {
+          const ratio = cycle.timingMode === TIMING_MODE.POLYRHYTHM && rhythmIndex > 0;
+          const subdivisions = SUBDIVISIONS.map((value) => {
+            const ordinary = subdivisionLabel(value, rhythm.signature.unit);
+            return {
+              value,
+              label: ratio
+                ? `${value} ${value === 1 ? "subdivision" : "subdivisions"}${ordinary.slice(ordinary.indexOf(" ·"))}`
+                : ordinary,
+            };
+          });
+          return {
+            id: rhythm.id,
+            meter: ratio
+              ? `${rhythm.signature.count}:${cycle.rhythms[0].signature.count}`
+              : `${rhythm.signature.count}/${rhythm.signature.unit}`,
+            subdivision: subdivisions.find(({ value }) => value === rhythm.subdivision).label,
+            subdivisions,
+            denominatorAvailable: !ratio,
+          };
+        }),
         incomingBpm,
         // The tempo the Cycle opens on, which is its inherited one for a ramp and
         // its stepped one for a Flat — a Flat spends its whole change on the

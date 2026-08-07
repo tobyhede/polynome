@@ -1382,6 +1382,59 @@ test("Configuration description exposes domain choices and unavailable final rem
   });
 });
 
+test("Configuration describes Polyrhythm Meter and Subdivision readings", () => {
+  const configuration = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [
+            { signature: { count: 4, unit: 4 }, subdivision: 3 },
+            { signature: { count: 5, unit: 8 }, subdivision: 2 },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    describeConfiguration(configuration).cycles[0].rhythms.map(
+      ({ meter, subdivision, subdivisions, denominatorAvailable }) => ({
+        meter,
+        subdivision,
+        subdivisions,
+        denominatorAvailable,
+      }),
+    ),
+    [
+      {
+        meter: "4/4",
+        subdivision: "3 per quarter unit · triplet",
+        subdivisions: [
+          { value: 1, label: "1 per quarter unit · straight" },
+          { value: 2, label: "2 per quarter unit · duple" },
+          { value: 3, label: "3 per quarter unit · triplet" },
+          { value: 4, label: "4 per quarter unit · even four" },
+          { value: 5, label: "5 per quarter unit · quintuplet" },
+        ],
+        denominatorAvailable: true,
+      },
+      {
+        meter: "5:4",
+        subdivision: "2 subdivisions · duple",
+        subdivisions: [
+          { value: 1, label: "1 subdivision · straight" },
+          { value: 2, label: "2 subdivisions · duple" },
+          { value: 3, label: "3 subdivisions · triplet" },
+          { value: 4, label: "4 subdivisions · even four" },
+          { value: 5, label: "5 subdivisions · quintuplet" },
+        ],
+        denominatorAvailable: false,
+      },
+    ],
+  );
+});
+
 /**
  * The three readings a Cycle offers, and what separates them: the Tempo output
  * is the only one that names a tempo at all, and it is the calculated incoming
