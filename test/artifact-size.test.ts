@@ -39,17 +39,33 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
-   * The last raise drew the tempo band as one element per stretch travelled
-   * rather than as a single pseudo-element across all of them, which is what a
-   * Flat between two ramps needs to be stated at all, measuring 295,311 bytes
-   * after rebase. Almost all of it is prose: the derivation explaining why
-   * touching stretches merge, and the drawing explaining why the bands are
-   * elements. The raise before it added the Help entry explaining what
-   * Polymeter and Polyrhythm count, measuring 294,757 bytes. The one before
-   * that carried that refusal past the unchanged-edit short circuit,
-   * so a denominator a ratio layer already stores is refused by name rather
-   * than reported as an ordinary no-op, measuring 294,471 bytes after rebase.
-   * The raise
+   * This is the first figure here that has ever fallen, and it fell 27,348
+   * bytes, from 295,311 to 267,963. Both embedded faces were re-cut from
+   * upstream at the glyph set the interface draws — 48,944 bytes of woff2 became
+   * 28,436 — and this artifact carries them base64-encoded, so removing 20,508
+   * bytes of font took 27,348 bytes off the file. Nothing about the script or
+   * the markup moved.
+   *
+   * The two site figures below did not move at all, which is worth stating
+   * because the reasoning that produced this change expected all three to. The
+   * site build emits the faces as their own files rather than inlining them, so
+   * neither the script nor the stylesheet has ever contained a font byte: what
+   * a first visit saves is two smaller requests, and no budget here counts
+   * those. See
+   * [ADR-0024](../docs/adr/0024-set-a-redline-the-artifact-ratchet-cannot-raise.md),
+   * which names this subset as the reserve its redline is drawn against.
+   *
+   * The last raise before this fall drew the tempo band as one element per
+   * stretch travelled rather than as a single pseudo-element across all of
+   * them, which is what a Flat between two ramps needs to be stated at all,
+   * measuring 295,311 bytes after rebase. Almost all of it is prose: the
+   * derivation explaining why touching stretches merge, and the drawing
+   * explaining why the bands are elements. The raise before it added the Help
+   * entry explaining what Polymeter and Polyrhythm count, measuring 294,757
+   * bytes. The one before that carried that refusal past the unchanged-edit
+   * short circuit, so a denominator a ratio layer already stores is refused by
+   * name rather than reported as an ordinary no-op, measuring 294,471 bytes
+   * after rebase. The raise
    * before it refused a denominator edit against a layer whose notation
    * carries no denominator, measuring 293,965 bytes after rebase. The one
    * before that added the matched Polymeter and Polyrhythm Presets,
@@ -66,18 +82,20 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 295_400 },
+  "dist/polynome.html": { raw: 268_000 },
   /**
-   * The bundled script alone, which is the half that grows from source. Raised
-   * with the single file above and for the same reason, measuring 174,711 raw
-   * and 42,537 gzipped after rebase: both derivation and drawing are script.
+   * The bundled script alone, which is the half that grows from source, and the
+   * one figure the redline in ADR-0024 is about. Measured 174,711 raw and 42,537
+   * gzipped after rebase — the same figures the tempo band raise took, because
+   * the site build emits the faces as files and the font cut never touched this.
    */
   "site/app-local.js": { raw: 174_750, gzip: 42_600 },
   /**
-   * The stylesheet, which that change left 23 bytes smaller than it found it —
-   * one rule for the band elements says what a pseudo-element and its `content`
-   * did. Not re-taken on a fall: this is a ceiling, and lowering one is a
-   * decision of its own rather than the tail of somebody else's.
+   * The stylesheet, which the tempo band change left 23 bytes smaller than it
+   * found it — one rule for the band elements says what a pseudo-element and
+   * its `content` did — and which the font cut left alone at 30,867. Not
+   * re-taken on a fall: this is a ceiling, and lowering one is a decision of its
+   * own rather than the tail of somebody else's.
    */
   "site/styles-local.css": { raw: 30_900 },
 });
@@ -91,8 +109,9 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
  *
  * Raw bytes carry the budget wherever only one is stated. They are the portable
  * number, and for the single-file distribution they are also the honest one:
- * roughly 65 KB of it is base64-encoded woff2, which compresses to nothing and
- * would mask real script growth behind a flattering total.
+ * roughly 38 KB of it is base64-encoded woff2 — 65 KB before the faces were
+ * re-cut from upstream — which compresses to nothing and would mask real script
+ * growth behind a flattering total.
  */
 const GZIP_LEVEL = 9;
 
