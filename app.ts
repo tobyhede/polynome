@@ -132,16 +132,18 @@ const engine = new MetronomeEngine();
 const openRhythms = new Set();
 const openCycles = new Set();
 /**
- * The stretch of the tempo range the current run travels through, while it is
- * travelling it, and null the rest of the time — including under a Flat, which
- * changes tempo without passing through anything on the way.
+ * The stretches of the tempo range the current run travels through, while it is
+ * travelling them, and empty the rest of the time — including under a Flat,
+ * which changes tempo without passing through anything on the way. There is one
+ * per continuous run of ramps, so a Flat between two of them leaves two with the
+ * tempos it stepped over lying between.
  *
  * The tempo the readout is sized from while the number is moving, and null while
  * it is not. Both are remembered rather than passed because the readout is drawn
  * from two places — a full render, and the per-frame write that follows a live
  * tempo — and the two have to agree.
  */
-let tempoBand = null;
+let tempoStretches = [];
 let heldTempo = null;
 let state = loadState();
 let savedPresets = readSavedPresets() ?? createSavedPresets();
@@ -653,7 +655,7 @@ function renderTransport() {
    * the intent, so there is nothing to work out again here.
    */
   const tempoMoves = playing && description.tempoRange.minimum !== description.tempoRange.maximum;
-  const travelled = playing ? description.travelledRange : null;
+  const travelled = playing ? description.travelledStretches : [];
 
   elements.bpmLabel.textContent = tempoMoves ? String(state.bpm) : "BPM";
   elements.bpmLabel.classList.toggle("is-starting-tempo", tempoMoves);
@@ -663,8 +665,9 @@ function renderTransport() {
   // the glyphs from a tempo nobody hears is a smaller wrong than sizing them
   // from one that keeps changing, but it is still one.
   heldTempo = tempoMoves ? description.cycles.find(({ active }) => active).startBpm : null;
-  elements.bpmTicks.classList.toggle("is-banded", travelled !== null);
-  tempoBand = travelled;
+  elements.bpmTicks.classList.toggle("is-banded", travelled.length > 0);
+  tempoStretches = travelled;
+  renderTempoBands();
   elements.bpmSlider.disabled = playing;
   elements.bpmDown.disabled = playing;
   elements.bpmUp.disabled = playing;
@@ -695,6 +698,35 @@ function renderTransport() {
 function tempoFraction(bpm) {
   const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
   return Math.min(1, Math.max(0, (bpm - TEMPO_LIMIT.minimum) / span));
+}
+
+/**
+ * One element per stretch the run travels. Each is placed from the two tempos
+ * themselves rather than from the marks nearest them, which is the whole of why
+ * the band is a bar: the ticks are a tenth of the range apart, and a ramp
+ * shorter than that either lands on one of them or on none.
+ *
+ * Elements rather than the single pseudo-element this was, because a Flat
+ * between two ramps leaves two stretches with the tempos it stepped over lying
+ * unplayed between them, and one object has one start and one end to say that
+ * with. They are drawn over a row that is `aria-hidden`, so they inherit that
+ * and name nothing.
+ *
+ * Rebuilt from the description rather than reconciled: there is one band for a
+ * run of ramps and rarely more, and the row's own marks are written once at
+ * startup and never touched here.
+ */
+function renderTempoBands() {
+  elements.bpmTicks.querySelectorAll(".bpm-band").forEach((band) => {
+    band.remove();
+  });
+  for (const { minimum, maximum } of tempoStretches) {
+    const band = document.createElement("div");
+    band.className = "bpm-band";
+    band.style.setProperty("--band-start", `${tempoFraction(minimum) * 100}%`);
+    band.style.setProperty("--band-end", `${tempoFraction(maximum) * 100}%`);
+    elements.bpmTicks.append(band);
+  }
 }
 
 /**
@@ -772,23 +804,21 @@ function renderDisplayedTempo(displayedBpm) {
       target.style.removeProperty("--glitch-duration");
     });
   }
-  // The band is placed from the two tempos themselves rather than from the marks
-  // nearest them, which is the whole of why it is a bar: the ticks are a tenth
-  // of the range apart, and a ramp shorter than that either lands on one of them
-  // or on none.
-  const ticks = elements.bpmTicks.style;
-  if (tempoBand) {
-    ticks.setProperty("--band-start", `${tempoFraction(tempoBand.minimum) * 100}%`);
-    ticks.setProperty("--band-end", `${tempoFraction(tempoBand.maximum) * 100}%`);
-  } else {
-    ticks.removeProperty("--band-start");
-    ticks.removeProperty("--band-end");
-  }
+  // The bands themselves are not written here. They stand on the tempos the run
+  // travels rather than on the one it is sounding, so nothing about them changes
+  // between one frame and the next, and this runs on every frame the live tempo
+  // moves the number. `renderTempoBands` draws them where they change, which is
+  // where the run does.
   elements.bpmTicks.querySelectorAll("span").forEach((tick) => {
-    // Nothing on the scale answers a band: the band draws its own ends, at the
+    // Nothing on the scale answers a band: each band draws its own ends, at the
     // tempos rather than at the marks nearest them, and marking the scale as
-    // well would say the same thing a second time and less accurately.
-    tick.classList.toggle("is-passed", !tempoBand && Number(tick.dataset.bpm) <= displayedBpm);
+    // well would say the same thing a second time and less accurately. Whether
+    // there is any band at all is the whole question — which one a mark falls
+    // under is not something the scale has anything to add to.
+    tick.classList.toggle(
+      "is-passed",
+      tempoStretches.length === 0 && Number(tick.dataset.bpm) <= displayedBpm,
+    );
   });
 }
 

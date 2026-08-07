@@ -694,10 +694,10 @@ export function describeConfiguration(configuration) {
     .concat(valid.bpm);
 
   /*
-   * The narrower span the transport draws its band over: not every tempo a
-   * traversal visits, but the stretch it travels continuously through, which is
-   * the only one a bar can claim without saying the run played tempos it never
-   * sounded.
+   * The narrower thing the transport draws its bands over: not every tempo a
+   * traversal visits, but the stretches it travels continuously through, which
+   * are the only ones a bar can claim without saying the run played tempos it
+   * never sounded.
    *
    * Two things are left out, and they are the two ADR-0016 names as the only
    * intentional discontinuities. A Flat jumps from one tempo to the next and
@@ -705,29 +705,51 @@ export function describeConfiguration(configuration) {
    * ends and travelled nowhere. And a ramp is asked for its endpoints rather
    * than for the amount written down: a ramp held against a limit has both of
    * them on that limit and travels nothing at all, however large the amount it
-   * still carries.
+   * still carries, which is why a stretch of zero width is dropped here rather
+   * than drawn as a band of the minimum size the row can show.
    *
-   * `null` rather than a range of zero width, so that having nothing to draw is
-   * one answer here instead of a comparison every reader has to remember to
-   * make.
+   * A list rather than one span, because a Flat *between* two ramps leaves two
+   * stretches with the tempos it stepped over lying unplayed between them, and
+   * one minimum and maximum across the pair claims the step as travelled. That
+   * needs a band each, so it needs a stretch each.
    *
-   * Adjacent ramps meet at their audible endpoint, so a run of them stays one
-   * contiguous stretch. A Flat *between* two ramps does not: the two stretches
-   * either side of it are still reported as one span, which claims the step it
-   * cleared. Saying that exactly needs more than one bar to say it with.
+   * The merge is what keeps that from going the other way. Adjacent ramps meet
+   * at their audible endpoint, so a run of them travels one unbroken stretch
+   * however it happens to be spelled across Cycles, and an inactive Cycle
+   * between two of them passes its tempo through and leaves them meeting still.
+   * Touching therefore merges as surely as overlapping does: at the moment two
+   * stretches share an endpoint they are one, and comparing them any more
+   * strictly would break every chained transition into a band per Cycle.
+   *
+   * Sorted before merging, so a Sequence is only ever compared with the stretch
+   * that could adjoin it. The order that comes out is the tempos ascending,
+   * which is the order the row draws them in and not the order the run travels
+   * them: a band says which tempos were reached, never when.
+   *
+   * An empty list is a run that travels nothing, which is the state that leaves
+   * the tick row unbanded.
    */
-  const travelled = cycles.flatMap(({ active, startBpm, targetBpm, outgoingBpm }, index) =>
-    active && valid.sequence.cycles[index].envelope.shape !== ENVELOPE.FLAT
-      ? [startBpm, targetBpm, outgoingBpm]
-      : [],
-  );
-  const minimum = Math.min(...travelled);
-  const maximum = Math.max(...travelled);
+  const travelledStretches = cycles
+    .flatMap(({ active, startBpm, targetBpm, outgoingBpm }, index) => {
+      if (!active || valid.sequence.cycles[index].envelope.shape === ENVELOPE.FLAT) return [];
+      const ends = [startBpm, targetBpm, outgoingBpm];
+      const minimum = Math.min(...ends);
+      const maximum = Math.max(...ends);
+      return minimum === maximum ? [] : [{ minimum, maximum }];
+    })
+    .sort((first, second) => first.minimum - second.minimum)
+    .reduce((merged, stretch) => {
+      const previous = merged.at(-1);
+      if (previous && stretch.minimum <= previous.maximum) {
+        previous.maximum = Math.max(previous.maximum, stretch.maximum);
+      } else merged.push(stretch);
+      return merged;
+    }, []);
 
   return {
     cycles,
     tempoRange: { minimum: Math.min(...visited), maximum: Math.max(...visited) },
-    travelledRange: travelled.length && minimum !== maximum ? { minimum, maximum } : null,
+    travelledStretches,
     choices: {
       meterCounts: [...METER_COUNTS],
       meterUnits: [...METER_UNITS],
