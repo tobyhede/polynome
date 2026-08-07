@@ -1,8 +1,9 @@
 # Store Presets in browser local storage
 
 The Preset storage key below moved to `polynome-presets-v3` under
-[ADR-0015](0015-refine-defaults-and-sliders.md). The storage model and every
-other consequence remain in force.
+[ADR-0015](0015-refine-defaults-and-sliders.md), then to `polynome-presets-v4`
+under [ADR-0018](0018-give-each-cycle-a-timing-mode.md). The storage model and
+every other consequence remain in force.
 
 Saved Presets are held in `localStorage` under `polynome-presets-v2`, separately from the current Configuration under `polynome-configuration-v2`. Both are plain JSON written by the page that owns the tab. The application keeps its zero runtime dependencies and adds no account, sync service, or backend. The v2 keys make an explicit clean break from the wider meter domain stored under the original keys: those values are retired rather than silently repaired into different rhythms.
 

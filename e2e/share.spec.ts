@@ -156,7 +156,7 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
   );
   await seedStoredConfiguration(page, 90);
   await page.addInitScript(() => {
-    localStorage.setItem("polynome-presets-v3", "[]");
+    localStorage.setItem("polynome-presets-v4", "[]");
   });
 
   await page.goto(`/?display=compact#share=${payload}`);
@@ -182,7 +182,7 @@ test("a Share link replaces and persists the unnamed stopped workspace", async (
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
   await expect.poll(() => page.evaluate(() => location.search)).toBe("?display=compact");
   expect(await storedBpm(page)).toBe(175);
-  expect(await page.evaluate(() => localStorage.getItem("polynome-presets-v3"))).toBe("[]");
+  expect(await page.evaluate(() => localStorage.getItem("polynome-presets-v4"))).toBe("[]");
 
   await page.getByRole("button", { name: "+ Save" }).click();
   await expect(page.getByRole("textbox", { name: "Preset name" })).toHaveValue("");

@@ -502,7 +502,7 @@ test("a Preset key that was never written seeds the example Presets", () => {
 
   assert.deepEqual(
     presets.map(({ name }) => name),
-    ["4/4 8ths", "4/4 Triplets"],
+    ["4/4 8ths", "4/4 Triplets", "4 + 3 Polymeter", "4 over 3 Polyrhythm"],
   );
   for (const { id } of presets) assert.match(id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
   assert.deepEqual(
@@ -514,6 +514,8 @@ test("a Preset key that was never written seeds the example Presets", () => {
     [
       { bpm: 120, subdivision: 2, displayMode: "beat" },
       { bpm: 120, subdivision: 3, displayMode: "beat" },
+      { bpm: 120, subdivision: 1, displayMode: "beat" },
+      { bpm: 120, subdivision: 1, displayMode: "beat" },
     ],
   );
 });
@@ -658,6 +660,54 @@ test("describing Presets describes the stored list alone", () => {
   );
   assert.equal(Object.hasOwn(described[0], "builtIn"), false);
   assert.deepEqual(describePresets(createConfiguration(), []), []);
+});
+
+test("applying the matched examples recalls equivalent 4 and 3 layers in either Timing mode", () => {
+  const examples = createStoredPresets(null).slice(2);
+  const applied = examples.map(({ configuration }) =>
+    changeConfiguration(createConfiguration({ bpm: 88 }), {
+      type: "apply-preset",
+      configuration,
+    }),
+  );
+
+  for (const result of applied) {
+    assert.equal(result.consequence, "restart-transport-run");
+    assert.equal(result.reason, null);
+  }
+
+  const [polymeter, polyrhythm] = applied.map(({ configuration }) => withoutIds(configuration));
+  assert.deepEqual(
+    [polymeter, polyrhythm].map((configuration) => ({
+      bpm: configuration.bpm,
+      cycles: configuration.sequence.cycles.length,
+      signatures: configuration.sequence.cycles[0].rhythms.map(({ signature }) => signature),
+      timingMode: configuration.sequence.cycles[0].timingMode,
+    })),
+    [
+      {
+        bpm: 120,
+        cycles: 1,
+        signatures: [
+          { count: 4, unit: 4 },
+          { count: 3, unit: 4 },
+        ],
+        timingMode: "polymeter",
+      },
+      {
+        bpm: 120,
+        cycles: 1,
+        signatures: [
+          { count: 4, unit: 4 },
+          { count: 3, unit: 4 },
+        ],
+        timingMode: "polyrhythm",
+      },
+    ],
+  );
+
+  polyrhythm.sequence.cycles[0].timingMode = "polymeter";
+  assert.deepEqual(polyrhythm, polymeter);
 });
 
 /**
@@ -1433,6 +1483,138 @@ test("Configuration describes Polyrhythm Meter and Subdivision readings", () => 
       },
     ],
   );
+});
+
+/**
+ * The reading above withholds the denominator control from a later Polyrhythm
+ * layer, and the edit layer withholds the edit, so there is no way to store a
+ * denominator against a layer whose notation never shows one. What decides it
+ * is the Timing mode rather than the position: the same layer takes the same
+ * edit in Polymeter, where its denominator is on screen and describes it.
+ */
+test("a denominator edit is refused where the layer is read as a ratio", () => {
+  const polyrhythm = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+        },
+      ],
+    },
+  });
+  const cycle = polyrhythm.sequence.cycles[0];
+
+  const refused = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 8,
+  });
+  assert.equal(refused.consequence, "none");
+  assert.equal(refused.reason, "denominator-unavailable");
+  assert.deepEqual(refused.configuration, polyrhythm);
+
+  const first = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+    unit: 8,
+  });
+  assert.equal(first.consequence, "update-configuration");
+  assert.equal(first.configuration.sequence.cycles[0].rhythms[0].signature.unit, 8);
+
+  const polymeter = createConfiguration({
+    ...polyrhythm,
+    sequence: { cycles: [{ ...cycle, timingMode: "polymeter" }] },
+  });
+  const accepted = changeConfiguration(polymeter, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 8,
+  });
+  assert.equal(accepted.consequence, "update-configuration");
+  assert.equal(accepted.configuration.sequence.cycles[0].rhythms[1].signature.unit, 8);
+});
+
+/**
+ * The denominator a later Polyrhythm layer is still storing is one it does not
+ * sound, so an edit naming that same value is as unavailable as any other and
+ * has to say so. Nothing changes either way, but the two silences mean opposite
+ * things: `null` says the Configuration already reads that way, and this one
+ * says the control was never on offer.
+ */
+test("a denominator edit is refused as unavailable even where it names the stored unit", () => {
+  const polyrhythm = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+        },
+      ],
+    },
+  });
+  const cycle = polyrhythm.sequence.cycles[0];
+
+  const refused = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 4,
+  });
+  assert.equal(refused.consequence, "none");
+  assert.equal(refused.reason, "denominator-unavailable");
+  assert.deepEqual(refused.configuration, polyrhythm);
+
+  // The first layer keeps the ordinary no-op, so the refusal above is the ratio
+  // reading rather than a denominator edit having stopped reporting nothing.
+  const settled = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+    unit: 4,
+  });
+  assert.equal(settled.consequence, "none");
+  assert.equal(settled.reason, null);
+});
+
+/**
+ * A rhythmId the Cycle does not hold is a stale target and not an unavailable
+ * control, and nothing about the notation may answer first. Availability is
+ * read off a position, which a rhythm that is not there does not have: the
+ * lookup answers -1, and -1 has to fall through as absent rather than count as
+ * one of the later positions a Polyrhythm reads as a ratio. That is why the
+ * Polyrhythm Cycle is asserted here at all — it is where the two answers would
+ * be confused first, and where confusing them would report a denominator the
+ * caller never named against a layer the Cycle does not have.
+ */
+test("a denominator edit naming a rhythm the Cycle does not hold reports the stale target", () => {
+  for (const timingMode of ["polymeter", "polyrhythm"]) {
+    const configuration = createConfiguration({
+      sequence: {
+        cycles: [
+          {
+            timingMode,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    });
+    const cycle = configuration.sequence.cycles[0];
+
+    const result = changeConfiguration(configuration, {
+      type: "set-meter-unit",
+      cycleId: cycle.id,
+      rhythmId: "layer-absent-1",
+      unit: 8,
+    });
+
+    assert.equal(result.consequence, "none", timingMode);
+    assert.equal(result.reason, "rhythm-not-found", timingMode);
+    assert.deepEqual(result.configuration, configuration, timingMode);
+  }
 });
 
 /**

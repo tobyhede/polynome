@@ -136,7 +136,7 @@ test("the preset panel has no accessibility violations, populated and empty", as
   // An empty list is a state the listener now arrives at by deleting every
   // Preset, rather than the one a new browser opens in.
   await page.getByRole("button", { name: "Confirm deleting Scanned preset" }).click();
-  for (const name of ["4/4 8ths", "4/4 Triplets"]) {
+  for (const name of ["4/4 8ths", "4/4 Triplets", "4 + 3 Polymeter", "4 over 3 Polyrhythm"]) {
     await page.getByRole("button", { name: `Delete ${name} preset`, exact: true }).click();
     await page
       .getByRole("button", { name: `Confirm deleting ${name} preset`, exact: true })

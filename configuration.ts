@@ -242,6 +242,34 @@ const SEED_PRESETS = Object.freeze([
       },
     },
   },
+  {
+    name: "4 + 3 Polymeter",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            timingMode: TIMING_MODE.POLYMETER,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: "4 over 3 Polyrhythm",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            timingMode: TIMING_MODE.POLYRHYTHM,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    },
+  },
 ]);
 
 function freshPresetConfiguration(configuration) {
@@ -540,6 +568,23 @@ function removeRhythmPolicy(cycle) {
 }
 
 /**
+ * A later layer in a Polyrhythm Cycle is read against the first layer's Meter,
+ * so its denominator names nothing it sounds. The reading below withholds the
+ * control and the policy withholds the edit, from this one answer, so what the
+ * interface never offers is never stored either. A rhythm the Cycle does not
+ * hold is not refused here: that is `rhythm-not-found`, which `changeRhythm`
+ * already reports.
+ */
+function ratioRhythm(cycle, rhythmIndex) {
+  return cycle.timingMode === TIMING_MODE.POLYRHYTHM && rhythmIndex > 0;
+}
+
+function meterUnitPolicy(cycle, rhythmId) {
+  const index = cycle.rhythms.findIndex(({ id }) => id === rhythmId);
+  return availability(!ratioRhythm(cycle, index), "denominator-unavailable");
+}
+
+/**
  * Preset notation is relative and never absolute: a Preset carries the change a
  * Cycle makes, not the tempo that change happened to produce when it was saved.
  * Flat 0 is the no-envelope state, so it gets no suffix at all.
@@ -597,7 +642,7 @@ export function describeConfiguration(configuration) {
         id,
         active,
         rhythms: cycle.rhythms.map((rhythm, rhythmIndex) => {
-          const ratio = cycle.timingMode === TIMING_MODE.POLYRHYTHM && rhythmIndex > 0;
+          const ratio = ratioRhythm(cycle, rhythmIndex);
           const subdivisions = SUBDIVISIONS.map((value) => {
             return {
               value,
@@ -1096,9 +1141,24 @@ const COMMANDS = Object.freeze({
   "set-meter-unit": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "unit"),
     validValue: (edit) => METER_UNITS.includes(formNumber(edit.unit)),
-    leavesUnchanged: (current, edit) =>
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
+    /*
+     * Dispatch asks this before `apply`, so a ratio layer already storing the
+     * requested unit would report the generic no-op rather than reach the
+     * policy below, and an unavailable control would read as one that had been
+     * offered. A layer that owns its denominator still short-circuits here.
+     */
+    leavesUnchanged: (current, edit) => {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle || !meterUnitPolicy(cycle, edit.rhythmId).available) return false;
+      return (
+        findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit)
+      );
+    },
     apply(current, edit) {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle) return unchanged(current, "cycle-not-found");
+      const rejection = rejectedByPolicy(current, meterUnitPolicy(cycle, edit.rhythmId));
+      if (rejection) return rejection;
       return changeRhythm(current, edit, "update-configuration", (rhythm) => ({
         ...rhythm,
         signature: { ...rhythm.signature, unit: formNumber(edit.unit) },

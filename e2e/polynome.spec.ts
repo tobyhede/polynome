@@ -2231,25 +2231,51 @@ test("sound customization clears preset selection and persists", async ({ page }
  * outside storage. Writing them at once is what makes the second load an
  * ordinary one, with nothing left that has to be rebuilt from a name.
  */
-test("a first load seeds the example Presets into storage", async ({ page }) => {
+test("a first load seeds four examples with truthful matched Timing modes", async ({ page }) => {
   await page.getByRole("button", { name: "Presets" }).click();
 
   await expect(presetCard(page, "4/4 8ths")).toBeVisible();
   await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  const polymeter = presetCard(page, "4 + 3 Polymeter");
+  const polyrhythm = presetCard(page, "4 over 3 Polyrhythm");
+  await expect(polymeter).toBeVisible();
+  await expect(polyrhythm).toBeVisible();
+  await expect(polymeter.locator(".preset-notation")).toContainText("4/4 + 3/4");
+  await expect(polyrhythm.locator(".preset-notation")).toContainText("4/4 + 3:4");
   await expect
     .poll(() =>
       page.evaluate(() =>
-        JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "null")?.map(({ name }) => name),
+        JSON.parse(localStorage.getItem("polynome-presets-v4") ?? "null")?.map(({ name }) => name),
       ),
     )
-    .toEqual(["4/4 8ths", "4/4 Triplets"]);
+    .toEqual(["4/4 8ths", "4/4 Triplets", "4 + 3 Polymeter", "4 over 3 Polyrhythm"]);
+
+  await polymeter.locator(".preset-button").click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await expect(cycleDrawer(page).getByRole("button", { name: "Polymeter" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await polyrhythm.locator(".preset-button").click();
+  await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
+  await expect(cycleDrawer(page).getByRole("button", { name: "Polyrhythm" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", '[{"name":"Old"}]'));
+  await page.reload();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("polynome-presets-v3")))
+    .toBeNull();
 });
 
 test("Alt+Shift+P restores factory Presets outside form controls", async ({ page }) => {
   await savePreset(page, "Custom");
   const storedNames = () =>
     page.evaluate(() =>
-      JSON.parse(localStorage.getItem("polynome-presets-v3") ?? "[]").map(({ name }) => name),
+      JSON.parse(localStorage.getItem("polynome-presets-v4") ?? "[]").map(({ name }) => name),
     );
 
   const bpm = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
@@ -2261,9 +2287,13 @@ test("Alt+Shift+P restores factory Presets outside form controls", async ({ page
   await presetButton(page, "Custom").focus();
   await page.keyboard.press("Alt+Shift+P");
   await expect(page.getByRole("status")).toHaveText("Factory presets restored");
-  await expect.poll(storedNames).toEqual(["4/4 8ths", "4/4 Triplets"]);
+  await expect
+    .poll(storedNames)
+    .toEqual(["4/4 8ths", "4/4 Triplets", "4 + 3 Polymeter", "4 over 3 Polyrhythm"]);
   await expect(presetCard(page, "4/4 8ths")).toBeVisible();
   await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetCard(page, "4 + 3 Polymeter")).toBeVisible();
+  await expect(presetCard(page, "4 over 3 Polyrhythm")).toBeVisible();
   await expect(presetButton(page, "Custom")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Close presets" })).toBeFocused();
 
@@ -2271,6 +2301,8 @@ test("Alt+Shift+P restores factory Presets outside form controls", async ({ page
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetCard(page, "4/4 8ths")).toBeVisible();
   await expect(presetCard(page, "4/4 Triplets")).toBeVisible();
+  await expect(presetCard(page, "4 + 3 Polymeter")).toBeVisible();
+  await expect(presetCard(page, "4 over 3 Polyrhythm")).toBeVisible();
   await expect(presetButton(page, "Custom")).toHaveCount(0);
 });
 
@@ -2290,6 +2322,8 @@ test("a deleted example Preset stays deleted across a reload", async ({ page }) 
   await expect(presetCard(page, "4/4 8ths")).toBeVisible();
 
   await deletePreset(page, "4/4 8ths");
+  await deletePreset(page, "4 + 3 Polymeter");
+  await deletePreset(page, "4 over 3 Polyrhythm");
   await page.reload();
   await page.getByRole("button", { name: "Presets" }).click();
   await expect(page.locator(".preset-card")).toHaveCount(0);
@@ -2327,11 +2361,13 @@ test("the preset heading counts the stored Presets before the panel is opened", 
 
   await page.reload();
   await expect(heading).toBeHidden();
-  await expect(count).toHaveText("1");
-  await expect(noun).toHaveText("preset");
+  await expect(count).toHaveText("3");
+  await expect(noun).toHaveText("presets");
 
   await page.getByRole("button", { name: "Presets" }).click();
   await deletePreset(page, "4/4 8ths");
+  await deletePreset(page, "4 + 3 Polymeter");
+  await deletePreset(page, "4 over 3 Polyrhythm");
   await page.reload();
   await expect(heading).toBeHidden();
   await expect(count).toHaveText("0");
@@ -2352,7 +2388,7 @@ test("saving writes what storage holds now, not what this tab read at startup", 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Shared");
 
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v4", "[]"));
   await savePreset(page, "Later");
 
   await expect(presetButton(page, "Later")).toBeVisible();
@@ -2371,9 +2407,9 @@ test("deleting removes one preset without dropping presets this tab never saw", 
   await savePreset(page, "Doomed");
 
   await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("polynome-presets-v3"));
+    const stored = JSON.parse(localStorage.getItem("polynome-presets-v4"));
     stored.push({ id: "preset-elsewhere-1", name: "Keeper", configuration: {} });
-    localStorage.setItem("polynome-presets-v3", JSON.stringify(stored));
+    localStorage.setItem("polynome-presets-v4", JSON.stringify(stored));
   });
   await deletePreset(page, "Doomed");
 
@@ -2399,11 +2435,11 @@ test("an open preset panel follows another tab's saves and deletions", async ({
 
   await savePreset(other, "Rehearsal");
   await expect(presetButton(page, "Rehearsal")).toBeVisible();
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
 
   await deletePreset(other, "Rehearsal");
   await expect(presetButton(page, "Rehearsal")).toHaveCount(0);
-  await expect(heading).toContainText("2");
+  await expect(heading).toContainText("4");
 });
 
 test("a preset deleted in another tab stays deleted when this tab saves", async ({
@@ -2480,7 +2516,7 @@ test("an armed delete is dismissed by Escape and by a click elsewhere", async ({
 test("deleting a preset another tab already removed says so and clears it", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await savePreset(page, "Ghost");
-  await page.evaluate(() => localStorage.setItem("polynome-presets-v3", "[]"));
+  await page.evaluate(() => localStorage.setItem("polynome-presets-v4", "[]"));
 
   await deletePreset(page, "Ghost");
 
@@ -2529,7 +2565,7 @@ test("a hidden preset panel is not rebuilt while the tempo changes", async ({ pa
 
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   await expect(presetButton(page, "Watched")).toBeVisible();
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
 });
 
 /**
@@ -2696,7 +2732,7 @@ test("both heading counts are set in tabular figures", async ({ page }) => {
   const presetCount = page.locator("#preset-count");
   const repetitions = page.locator(".cycle-heading h2 span").last();
 
-  await expect(presetCount).toHaveText("2");
+  await expect(presetCount).toHaveText("4");
   await expect(presetCount).toHaveCSS("font-variant-numeric", "tabular-nums");
   await expect(repetitions).toHaveText("1");
   await expect(repetitions).toHaveCSS("font-variant-numeric", "tabular-nums");
@@ -3701,10 +3737,10 @@ test("deleting another preset leaves the name the save field opens on", async ({
   await typeTempo(page, 139);
   await savePreset(page, "Kept");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await expect(heading).toContainText("4");
+  await expect(heading).toContainText("6");
 
   await deletePreset(page, "Spare");
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
   await saveNotOffered(page);
 
   await typeTempo(page, 140);
@@ -3712,7 +3748,7 @@ test("deleting another preset leaves the name the save field opens on", async ({
   const panel = page.getByRole("region", { name: /^Save preset/ });
   await expect(panel.getByRole("textbox", { name: "Preset name" })).toHaveValue("Kept");
   await panel.getByRole("button", { name: "Replace" }).click();
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
 });
 
 /**
@@ -3730,7 +3766,7 @@ test("the save field opens on the preset the setup came from", async ({ page }) 
   await typeTempo(page, 144);
   await savePreset(page, "Fast");
   await page.getByRole("button", { name: "Presets", exact: true }).click();
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
 
   await typeTempo(page, 145);
   await page.getByRole("button", { name: "+ Save" }).click();
@@ -3741,7 +3777,7 @@ test("the save field opens on the preset the setup came from", async ({ page }) 
   await panel.getByRole("button", { name: "Replace" }).click();
   await expect(page.getByRole("status")).toHaveText("Fast preset saved");
   await expect(panel).toBeHidden();
-  await expect(heading).toContainText("3");
+  await expect(heading).toContainText("5");
   await presetButton(page, "Fast").click();
   await expect(bpm).toHaveValue("145");
 });

@@ -4,7 +4,7 @@ A deliberately small browser metronome with:
 
 - ordered cycles of one or more simultaneous rhythm layers
 - per-cycle Polymeter or Polyrhythm timing
-- named presets holding a complete configuration, with two examples seeded on a first run
+- named presets holding a complete configuration, with four examples seeded on a first run
 - editable numerator and subdivision for every layer, with a written-unit
   denominator where it still describes the layer
 - a per-layer view of either one control per beat or one per pattern position
