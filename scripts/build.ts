@@ -1,4 +1,5 @@
 import { build, formatMessages } from "esbuild";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,6 +148,109 @@ function referenceTo(specifier) {
   return new RegExp(`(?<=["'])\\./${specifier.replaceAll(".", "\\.")}(?=["'])`, "g");
 }
 
+/**
+ * Every inline `<script>` and `<style>` in a finished document, keyed by name,
+ * read the way the tokenizer reads them: from the open tag to the first `</name`
+ * followed by whitespace, `/`, or `>`. That is the same rule
+ * `withoutRawTextTerminator` above is written against, and reading by it here is
+ * what makes a hash cover the text a browser will actually hand the element.
+ *
+ * The two names are found in one pass rather than scanned for separately, and
+ * the scan resumes after each end tag rather than anywhere inside a body.
+ * Element content is text, not markup: the bundled application is one of these
+ * bodies, and a `<style>` sitting in a string literal there is a sequence of
+ * characters the parser never looks at. Scanning for the two names apart would
+ * find it and hash a stylesheet that does not exist.
+ *
+ * An element carrying `src` is passed over. It holds no text, and what a digest
+ * of its emptiness would admit is not what the browser is being asked to run —
+ * an external script is governed by its URL, which is what `'self'` is for.
+ */
+function inlineElements(html) {
+  const found: { script: string[]; style: string[] } = { script: [], style: [] };
+  const open = /<(script|style)(\s[^>]*)?>/gi;
+  let index = 0;
+  while (index < html.length) {
+    open.lastIndex = index;
+    const start = open.exec(html);
+    if (!start) break;
+    const name = start[1].toLowerCase();
+    const bodyStart = start.index + start[0].length;
+    const close = new RegExp(`</${name}(?=[\\t\\n\\f\\r />]|$)`, "gi");
+    close.lastIndex = bodyStart;
+    const end = close.exec(html);
+    if (!/\ssrc\s*=/i.test(start[2] ?? "")) {
+      found[name].push(html.slice(bodyStart, end ? end.index : html.length));
+    }
+    index = end ? close.lastIndex : html.length;
+  }
+  return found;
+}
+
+/**
+ * A CSP source expression naming one exact inline body. Base64 of the raw SHA-256
+ * over the UTF-8 bytes, which is what the algorithm asks for and what every
+ * browser computes; the digest is not URL-safe Base64 and must not be made so.
+ */
+function inlineDigest(body) {
+  return `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
+}
+
+/**
+ * The Content-Security-Policy both artifacts ship, spliced into the finished
+ * document. [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md)
+ * records why it is computed here and not written into `index.html`, why the
+ * single-file artifact gets hashes and no origins, and why `frame-ancestors` is
+ * absent.
+ *
+ * The short of it: GitHub Pages serves a directory and sets no response headers,
+ * so a meta element is the only mechanism there is, and a meta element cannot
+ * carry a nonce — a nonce has to differ per response, and both artifacts are
+ * static files. That leaves hashes, and a hash is over content that changes
+ * every time the bootstrap or the bundle changes. Pasting one in by hand is
+ * therefore not a smaller version of this: a stale hash refuses its element in
+ * silence, the page still renders, and nothing in the build or the suite is any
+ * the wiser. So the digest is taken from the artifact as written, at the last
+ * step before it is handed over, after every rewrite and every escape.
+ *
+ * The caller supplies only what cannot be derived — the origins and schemes its
+ * artifact loads from — and the hashes are found rather than declared, so an
+ * inline element added to `index.html` is admitted by having been emitted. The
+ * directives with no caller-supplied part are the ones both artifacts state
+ * identically: everything not named falls to `default-src 'none'`, `base-uri`
+ * shuts off rewriting what relative URLs resolve against, and `form-action`
+ * shuts off the one form as a route out. Nothing here reaches the network, so
+ * there is no `connect-src` and no `img-src`: the interface's only images are
+ * inline SVG, which is markup rather than a fetch.
+ *
+ * The policy goes immediately after the character encoding declaration, because
+ * a policy governs what is fetched after the parser reaches it and the encoding
+ * declaration is the one thing that must come earlier still. A document with no
+ * encoding declaration has nowhere to put it, and that is a refusal rather than
+ * a skip: an artifact silently shipped without a policy is exactly the state
+ * this is here to end.
+ */
+function withContentSecurityPolicy(
+  html,
+  sources: { script: string[]; style: string[]; font: string[] },
+) {
+  const inline = inlineElements(html);
+  const policy = [
+    "default-src 'none'",
+    `script-src ${[...sources.script, ...inline.script.map(inlineDigest)].join(" ")}`,
+    `style-src ${[...sources.style, ...inline.style.map(inlineDigest)].join(" ")}`,
+    `font-src ${sources.font.join(" ")}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+  return replaceRequired(
+    html,
+    /(?<=<meta\s+charset=["'][^"']*["']\s*\/?>)/i,
+    `\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`,
+    "character encoding declaration",
+  );
+}
+
 async function buildSingleFile(
   root,
   outputRoot,
@@ -203,6 +307,18 @@ async function buildSingleFile(
     `\n    <script>\n${withoutRawTextTerminator(javascript, "script")}    </script>`,
     "./app.ts module script",
   );
+  /**
+   * Hashes and schemes, with no origin anywhere in it. This artifact is one file
+   * and gets opened off disk as readily as it gets served, and a `file://`
+   * document has an opaque origin that `'self'` cannot match — not even against
+   * the very document declaring the policy. A policy carrying `'self'` here
+   * refuses the stylesheet, the bootstrap and the bundle together and leaves an
+   * unstyled shell that still lays out, which is the failure mode this whole
+   * exercise is written against. The fonts arrive through the `.woff2` dataurl
+   * loader, so `data:` is what admits them, and it admits nothing else: no other
+   * directive names a scheme.
+   */
+  artifact = withContentSecurityPolicy(artifact, { script: [], style: [], font: ["data:"] });
 
   const output = join(outputRoot, "dist");
   await mkdir(output, { recursive: true });
@@ -281,6 +397,18 @@ async function buildSite(
     `./app-${version}.js`,
     "./app.ts reference",
   );
+  /**
+   * Everything but the Accent bootstrap is a separate file beside the document
+   * on one origin, so `'self'` carries the module, the stylesheet, and both
+   * woff2 faces, and the one hash covers the one thing left inline. The
+   * versioned filenames mean `'self'` is doing less than it looks: a request
+   * this policy would admit is one for a name only this build emits.
+   */
+  siteHtml = withContentSecurityPolicy(siteHtml, {
+    script: ["'self'"],
+    style: ["'self'"],
+    font: ["'self'"],
+  });
   await mkdir(output, { recursive: true });
   await Promise.all([
     ...result.outputFiles.map(async (file) => {

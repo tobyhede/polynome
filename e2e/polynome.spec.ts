@@ -1359,9 +1359,32 @@ test("storage from the wider meter domain is retired instead of repaired", async
 const paintedColour = (locator) =>
   locator.evaluate((element) => getComputedStyle(element).backgroundColor);
 
+const paintedBorderColour = (locator) =>
+  locator.evaluate((element) => getComputedStyle(element).borderColor);
+
+const paintedShadow = (locator) =>
+  locator.evaluate((element) => getComputedStyle(element).boxShadow);
+
 function accentPanel(page) {
   return page.getByRole("button", { name: "Colour", exact: true });
 }
+
+test("Colour keeps a neutral border while Save carries the Accent call to action", async ({
+  page,
+}) => {
+  const colour = accentPanel(page);
+  const help = page.getByRole("button", { name: "Help", exact: true });
+  const save = page.getByRole("button", { name: "+ Save", exact: true });
+
+  expect(await paintedBorderColour(colour)).toBe(await paintedBorderColour(help));
+  expect(await paintedBorderColour(colour)).not.toBe(await paintedBorderColour(save));
+
+  await colour.click();
+  await page.getByRole("button", { name: "Laser", exact: true }).click();
+
+  expect(await paintedBorderColour(colour)).toBe(await paintedBorderColour(help));
+  expect(await paintedShadow(colour)).toBe("none");
+});
 
 test("an Accent is chosen from the panel and survives a reload", async ({ page }) => {
   const glyph = page.locator("#accent-toggle .accent-glyph");

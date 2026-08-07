@@ -175,6 +175,12 @@ _Avoid_: Theme, colour scheme, skin, palette
 A named reusable snapshot of a Configuration. Applying a preset recalls that Configuration exactly. Its name is its primary identity; meter-and-subdivision notation is only a summary.
 _Avoid_: Pattern, project, session
 
+**Share link**:
+A URL carrying an unnamed Configuration for another browser to open as its
+current workspace. It is not a Preset until the recipient saves and names it;
+see [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.md).
+_Avoid_: Shared Preset, export
+
 **Seeding**:
 Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time
 Polynome runs, when the preset key has never been written. Both recall one 4/4

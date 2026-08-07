@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -174,7 +175,7 @@ test("single-file distribution discovers transitive modules and preserves their 
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body { color: white; }"),
     // The string below is not a template that lost its backticks. It is the
@@ -210,7 +211,7 @@ test("single-file distribution preserves String.replace tokens in bundled source
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), 'body::before { content: "$&"; }'),
     writeFile(join(fixture, "app.ts"), 'globalThis.fixtureToken = "$&";'),
@@ -253,7 +254,7 @@ test("single-file distribution keeps a bundled `</script>` inside the inline scr
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body { color: white; }"),
     writeFile(
@@ -288,7 +289,7 @@ test("single-file distribution keeps a bundled `</style>` inside the inline styl
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), ":root { --lower: a</style>b; --upper: c</STYLE>d; }"),
     writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
@@ -329,7 +330,7 @@ test("single-file distribution escapes an end tag and leaves a longer name alone
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(
       join(fixture, "styles.css"),
@@ -379,7 +380,7 @@ test("single-file distribution refuses JavaScript esbuild warns about", async (t
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.ts"), "globalThis.fixture = { rate: 1, rate: 2 };"),
@@ -397,7 +398,7 @@ test("single-file distribution refuses CSS esbuild warns about", async (t) => {
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body { colr: red; }"),
     writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
@@ -421,13 +422,19 @@ test("single-file distribution refuses a document it cannot rewrite", async (t) 
   await writeFile(join(fixture, "styles.css"), "body {}");
   await writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;");
 
-  await writeFile(join(fixture, "index.html"), '<script type="module" src="./app.ts"></script>');
+  await writeFile(
+    join(fixture, "index.html"),
+    '<meta charset="UTF-8" /><script type="module" src="./app.ts"></script>',
+  );
   await assert.rejects(
     buildDistribution({ target: "single-file", projectRoot: fixture }),
     /index\.html has no \.\/styles\.css stylesheet/,
   );
 
-  await writeFile(join(fixture, "index.html"), '<link rel="stylesheet" href="./styles.css" />');
+  await writeFile(
+    join(fixture, "index.html"),
+    '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" />',
+  );
   await assert.rejects(
     buildDistribution({ target: "single-file", projectRoot: fixture }),
     /index\.html has no \.\/app\.ts module script/,
@@ -440,7 +447,7 @@ test("build diagnostics identify an unresolved transitive module", async (t) => 
   await Promise.all([
     writeFile(
       join(fixture, "index.html"),
-      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
     ),
     writeFile(join(fixture, "styles.css"), "body {}"),
     writeFile(join(fixture, "app.ts"), 'import "./missing.js";'),
@@ -449,5 +456,178 @@ test("build diagnostics identify an unresolved transitive module", async (t) => 
   await assert.rejects(
     buildDistribution({ target: "single-file", projectRoot: fixture }),
     /Could not resolve ["']\.\/missing\.js["']/,
+  );
+});
+
+/**
+ * The Content-Security-Policy helpers, written out here rather than imported
+ * from `scripts/build.ts` for the reason `test/site.test.ts` states at length: a
+ * test that hashed through the build's own helper would agree with the build
+ * about a wrong answer. `rawTextOf` above already reads one element the way the
+ * tokenizer does; this reads every element of a name, and resumes the scan after
+ * each end tag rather than anywhere inside a body — which is what this artifact
+ * makes necessary, since one of its bodies is the whole bundled application and
+ * a `<script` inside a string literal there is text, not a second open tag.
+ */
+const inlineDigest = (body: string) =>
+  `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
+
+function inlineBodies(html: string, tagName: string) {
+  const open = new RegExp(`<${tagName}(\\s[^>]*)?>`, "gi");
+  const close = new RegExp(`</${tagName}(?=[\\t\\n\\f\\r />]|$)`, "gi");
+  const bodies = [];
+  let index = 0;
+  while (index < html.length) {
+    open.lastIndex = index;
+    const start = open.exec(html);
+    if (!start) break;
+    const bodyStart = start.index + start[0].length;
+    close.lastIndex = bodyStart;
+    const end = close.exec(html);
+    if (!/\ssrc\s*=/i.test(start[1] ?? "")) {
+      bodies.push(html.slice(bodyStart, end ? end.index : html.length));
+    }
+    index = end ? close.lastIndex : html.length;
+  }
+  return bodies;
+}
+
+function policyOf(html: string) {
+  const content = html.match(
+    /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"\s*\/?>/i,
+  )?.[1];
+  assert.ok(content, "Expected a Content-Security-Policy meta element");
+  return content;
+}
+
+function directivesOf(policy: string) {
+  return new Map(
+    policy.split(";").map((directive) => {
+      const [name, ...sources] = directive.trim().split(/\s+/);
+      return [name, sources];
+    }),
+  );
+}
+
+/**
+ * Everything this artifact loads, it carries: an inline stylesheet, the Accent
+ * bootstrap, and the bundled application as a second inline script, with both
+ * woff2 faces as `data:` URIs. So every source in its policy is a hash or a
+ * scheme, and there are three hashes to get right rather than one — a wrong one
+ * refuses its element in silence and leaves a page that still renders.
+ *
+ * The order the hashes are stated in is the document order the artifact writes
+ * them in, which is what makes this an equality rather than a set comparison.
+ */
+test("the single-file policy hashes every inline element the artifact carries", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const html = await readFile(artifact, "utf8");
+  const scripts = inlineBodies(html, "script");
+  const styles = inlineBodies(html, "style");
+
+  assert.equal(scripts.length, 2, "Expected the Accent bootstrap and the bundled application");
+  assert.equal(styles.length, 1, "Expected the inlined stylesheet");
+  assert.equal(
+    policyOf(html),
+    [
+      "default-src 'none'",
+      `script-src ${scripts.map(inlineDigest).join(" ")}`,
+      `style-src ${inlineDigest(styles[0])}`,
+      "font-src data:",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; "),
+  );
+});
+
+/**
+ * This artifact is one file, and one file is opened from `file://` as often as
+ * it is served. There `'self'` matches nothing — an opaque origin is not equal
+ * to itself — so a policy carrying it would refuse the bundle, the stylesheet
+ * and the bootstrap together, and the page would still lay out: the markup is
+ * static, so what a reader gets is an unstyled shell rather than a blank tab or
+ * an error. Measured rather than reasoned about: with `script-src 'self'` a
+ * Chromium loading the artifact off disk reports `script-src-elem` and
+ * `style-src-elem` violations for all three, renders no Cycles, and falls back
+ * to Times. Hashes match on any origin, so hashes are the whole policy here.
+ */
+test("the single-file policy names no origin a file:// document cannot match", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const policy = policyOf(await readFile(artifact, "utf8"));
+
+  assert.ok(
+    !policy.includes("'self'"),
+    `Policy relies on an origin file:// has none of: ${policy}`,
+  );
+  assert.ok(!/https?:/.test(policy), `Policy names a network origin: ${policy}`);
+});
+
+/**
+ * The same regression guard `test/site.test.ts` holds over the site policy, and
+ * it is repeated rather than shared because the two policies are built
+ * separately and either one can be loosened without the other.
+ */
+test("the single-file policy admits no route to executing injected markup", async () => {
+  await buildDistribution({ target: "single-file", projectRoot });
+  const policy = policyOf(await readFile(artifact, "utf8"));
+  const directives = directivesOf(policy);
+
+  assert.deepEqual(directives.get("default-src"), ["'none'"]);
+  for (const keyword of ["'unsafe-inline'", "'unsafe-eval'", "'unsafe-hashes'"]) {
+    assert.ok(
+      !directives.get("script-src")?.includes(keyword),
+      `script-src admits ${keyword}: ${policy}`,
+    );
+  }
+  assert.ok(!/'unsafe-/.test(policy), `Policy admits an unsafe keyword: ${policy}`);
+  for (const ignored of ["frame-ancestors", "report-uri", "sandbox"]) {
+    assert.ok(!policy.includes(ignored), `Policy states ${ignored}, which a meta element ignores`);
+  }
+});
+
+/**
+ * A hash is over the exact text the parser hands the element, so the build has
+ * to hash what it wrote and not what it was about to write. The escaping of a
+ * raw text terminator happens on the way into the element, and a policy computed
+ * before it would name the digest of a body no browser ever sees. The fixture
+ * puts a `</script>` in a string literal, which is the one thing that moves
+ * between the two.
+ */
+test("the single-file policy hashes the escaped body, not the source before it", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-csp-escape-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(
+      join(fixture, "index.html"),
+      '<meta charset="UTF-8" /><link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+    ),
+    writeFile(join(fixture, "styles.css"), ":root { --raw: a</style>b; }"),
+    writeFile(join(fixture, "app.ts"), 'globalThis.fixture = "</script>";'),
+  ]);
+
+  await buildDistribution({ target: "single-file", projectRoot: fixture });
+  const html = await readFile(join(fixture, "dist", "polynome.html"), "utf8");
+  const directives = directivesOf(policyOf(html));
+
+  assert.deepEqual(directives.get("script-src"), inlineBodies(html, "script").map(inlineDigest));
+  assert.deepEqual(directives.get("style-src"), inlineBodies(html, "style").map(inlineDigest));
+  assert.ok(html.includes("<\\/script>"), "Expected the terminator to have been escaped");
+});
+
+test("the single-file build refuses a document with no character encoding declaration", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "polynome-build-charset-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await Promise.all([
+    writeFile(
+      join(fixture, "index.html"),
+      '<link rel="stylesheet" href="./styles.css" /><script type="module" src="./app.ts"></script>',
+    ),
+    writeFile(join(fixture, "styles.css"), "body {}"),
+    writeFile(join(fixture, "app.ts"), "globalThis.fixture = 1;"),
+  ]);
+
+  await assert.rejects(
+    buildDistribution({ target: "single-file", projectRoot: fixture }),
+    /index\.html has no character encoding declaration/,
   );
 });

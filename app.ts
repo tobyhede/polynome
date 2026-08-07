@@ -25,6 +25,11 @@ import {
 } from "./model.ts";
 import { controlCounts, controlIndexAt, controls } from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
+import {
+  createShareConfigurationUrl,
+  decodeShareConfigurationFragment,
+  isShareConfigurationFragment,
+} from "./share.ts";
 // `htm/preact` is Preact's own no-build path: tagged templates the browser
 // parses, and `html` already bound to its `h`. The import map in `index.html`
 // resolves all three specifiers this pulls in.
@@ -87,6 +92,7 @@ const elements = {
   presetSaveIconSave: document.querySelector("#preset-save-icon-save") as SVGElement,
   presetSaveIconReplace: document.querySelector("#preset-save-icon-replace") as SVGElement,
   presetName: document.querySelector("#preset-name") as HTMLInputElement,
+  shareConfiguration: document.querySelector("#share-configuration") as HTMLButtonElement,
   helpToggle: document.querySelector("#help-toggle") as HTMLButtonElement,
   helpPanel: document.querySelector("#help-panel") as HTMLElement,
   accentToggle: document.querySelector("#accent-toggle") as HTMLButtonElement,
@@ -97,6 +103,7 @@ const elements = {
   accentCaptionContrast: document.querySelector("#accent-caption-contrast") as HTMLElement,
   cycles: document.querySelector("#cycles") as HTMLElement,
   addCycle: document.querySelector("#add-cycle") as HTMLButtonElement,
+  feedback: document.querySelector("#feedback") as HTMLParagraphElement,
   status: document.querySelector("#status") as HTMLParagraphElement,
 };
 
@@ -183,6 +190,181 @@ function loadState() {
 
 function writeState(configuration) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configuration));
+}
+
+function showFeedback(message) {
+  elements.feedback.textContent = message;
+  elements.feedback.hidden = false;
+  elements.status.textContent = message;
+}
+
+function clearFeedback() {
+  elements.feedback.textContent = "";
+  elements.feedback.hidden = true;
+  elements.status.textContent = engine.playing ? "Playing" : "Stopped";
+}
+
+function shareUrlBase() {
+  if (typeof location === "undefined") return null;
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
+
+async function shareCurrentConfiguration() {
+  try {
+    const base = shareUrlBase();
+    if (base === null) return;
+    const url = await createShareConfigurationUrl(base, state);
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "Polynome", url });
+        clearFeedback();
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    if (typeof navigator.clipboard?.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(url);
+        showFeedback("Share link copied");
+        return;
+      } catch {
+        // The terminal failure below covers a refused clipboard write.
+      }
+    }
+    showFeedback("Configuration could not be shared");
+  } catch {
+    showFeedback("Configuration could not be shared");
+  }
+}
+
+/**
+ * Nothing serialises Share loads. The startup load and a `hashchange` can be in
+ * flight together, and two `hashchange`s in quick succession just as easily, and
+ * they finish in the order their decoding takes rather than the order the reader
+ * asked for them in. Each load claims the next number here and does nothing at
+ * all once a later one exists, so the link opened first cannot land last and
+ * write itself over the newer one — in storage, in the URL, or in the interface.
+ *
+ * The number alone leaves that window open, because the two halves of a newer
+ * link arriving do not happen together: assigning `location.hash` moves the URL
+ * synchronously, and the `hashchange` that claims the next number is a task
+ * queued behind every microtask a resolving decode runs through. A load
+ * finishing in between still reads as the newest there is, and would consume a
+ * fragment it never decoded. Being current is therefore two claims rather than
+ * one — no later load has begun, and the URL still holds the link this one
+ * decoded — and a load that fails either does the same nothing. The second also
+ * covers the hash leaving Share behind altogether, `#help` or a step back in
+ * history: no load begins there, so no number is ever claimed, and the fragment
+ * is the only thing that says the link being opened is not the one in the URL.
+ */
+let shareLoadGeneration = 0;
+
+async function loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent) {
+  try {
+    const configuration = await decodeShareConfigurationFragment(fragment);
+    if (!isCurrent()) return null;
+    try {
+      writeState(configuration);
+      history.replaceState(null, "", `${location.pathname}${location.search}`);
+    } catch {
+      // The fragment remains the recoverable copy when this browser cannot
+      // persist the Configuration or consume the URL safely.
+    }
+    return { configuration };
+  } catch {
+    // A superseded failure is discarded rather than reported: its fallback was
+    // captured before the newer link existed, so adopting it would replace a
+    // Configuration that loaded correctly with an older one and a message about
+    // a link nobody is waiting on any more.
+    if (!isCurrent()) return null;
+    return {
+      configuration: fallbackConfiguration,
+      feedback: "This share link could not be loaded.",
+    };
+  }
+}
+
+/**
+ * A load that failed adopts the workspace it was handed as its own fallback, so
+ * the Configuration here is the one already in hand and nothing about it arrived
+ * from the link. That is what the identity check separates, and everything the
+ * link would have replaced hangs off it: the run it would have stopped, and the
+ * Preset origin, which is a claim about where this Configuration came from and
+ * stays true when nothing replaced it. Cleared regardless, a Configuration that
+ * still is a stored Preset reads as unsaved, and + Save offers to store a second
+ * copy of it under a blank name.
+ */
+function adoptSharedConfiguration(shared) {
+  if (shared.configuration !== state) {
+    engine.stop();
+    state = shared.configuration;
+    description = describeConfiguration(state);
+    presetOrigin = null;
+  }
+  renderInterface();
+  if (shared.feedback) showFeedback(shared.feedback);
+  else clearFeedback();
+}
+
+/**
+ * The whole arrival of a Share link, and the one route to it: the workspace
+ * closes, the fragment decodes, and the outcome is either adopted or discarded
+ * because a newer link has arrived meanwhile.
+ *
+ * The fragment is read once, before the first await. `location.hash` is free to
+ * change while this decodes, and a load that decoded one link must never consume
+ * or report another.
+ *
+ * `inert` lifts before the outcome is adopted rather than after it. `#status` and
+ * `#feedback` both live inside the shell, and an inert subtree is outside the
+ * accessibility tree, so a message written while it is still inert is a live
+ * region mutation with nothing listening — and lifting `inert` afterwards leaves
+ * nothing left to announce. The two statements share one synchronous block, so
+ * there is no moment in between for input to reach a workspace still loading.
+ */
+async function openSharedConfiguration(fallbackConfiguration) {
+  if (typeof location === "undefined" || !isShareConfigurationFragment(location.hash)) return;
+  const fragment = location.hash;
+  shareLoadGeneration += 1;
+  const generation = shareLoadGeneration;
+  const isNewest = () => shareLoadGeneration === generation;
+  const isCurrent = () => isNewest() && location.hash === fragment;
+  const focusedElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const restoreFocus = () => {
+    if (
+      focusedElement?.isConnected &&
+      focusedElement.tabIndex >= 0 &&
+      !focusedElement.matches(":disabled") &&
+      focusedElement.getClientRects().length > 0
+    ) {
+      focusedElement.focus();
+    }
+  };
+  elements.appShell.inert = true;
+  persistence.flush();
+  const shared = await loadSharedConfiguration(fragment, fallbackConfiguration, isCurrent);
+  // Nothing comes back from a load that is no longer current, and that is the
+  // only way nothing comes back: it adopts no outcome and says nothing about a
+  // workspace it no longer speaks for. Whether it hands that workspace back is
+  // the separate question, and the answer is whether anything else holds it. A
+  // newer load owns the workspace from the moment it begins, so a load numbered
+  // past leaves it closed for that one to finish. A load left behind by the URL
+  // alone has no such successor — the hash may have gone somewhere no Share load
+  // reaches — so it lifts the inertness itself rather than close the application
+  // on nobody's behalf, and a load already queued for a newer link closes it
+  // again in the turn that follows.
+  if (shared || isNewest()) elements.appShell.inert = false;
+  if (!shared) {
+    if (isNewest()) restoreFocus();
+    return;
+  }
+  adoptSharedConfiguration(shared);
+  restoreFocus();
 }
 
 /**
@@ -2460,6 +2642,7 @@ engine.addEventListener("playstate", () => {
 });
 engine.addEventListener("audioerror", (event) => showError((event as CustomEvent).detail));
 document.addEventListener("keydown", (event) => {
+  if (elements.appShell.inert) return;
   if (
     event.code === "KeyP" &&
     event.altKey &&
@@ -2553,4 +2736,16 @@ applyAccent(loadAccent());
 // stored list, so every edit-driven render would rewrite a number that cannot
 // have moved. It is rendered once here and again wherever `savedPresets` does.
 renderPresetCount();
+elements.shareConfiguration.hidden = !(
+  typeof CompressionStream === "function" && typeof DecompressionStream === "function"
+);
+elements.shareConfiguration.addEventListener("click", shareCurrentConfiguration);
+// Started before the first render rather than after it: everything up to the
+// decode runs synchronously, so a link already in the URL closes the workspace
+// before anything is painted into it.
+openSharedConfiguration(state);
 renderInterface();
+
+window.addEventListener("hashchange", () => {
+  openSharedConfiguration(state);
+});

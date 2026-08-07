@@ -56,20 +56,34 @@ const LOOPBACK = "127.0.0.1";
  */
 const LOOPBACK_HOSTS = new Set([LOOPBACK, "::1", "localhost"]);
 
+const HOST_FLAG = "--host=";
+
 /**
- * Loopback unless `HOST` asks for more. What is being served is a working tree —
- * `.git` with every branch and message in it, alongside whatever else is lying
- * about — and no request here is ever asked who is making it, so reaching the
- * rest of the network has to be something a developer chose rather than something
- * they got.
+ * Loopback unless the command that started this asked for more. What is being
+ * served is a working tree — `.git` with every branch and message in it, alongside
+ * whatever else is lying about — and no request here is ever asked who is making
+ * it, so reaching the rest of the network has to be something a developer chose
+ * rather than something they got.
  *
- * An empty `HOST` is read as no `HOST`. A shell that exported the name without a
- * value, or `HOST= npm run dev`, would otherwise hand `listen` an empty string,
- * and an empty string is how every interface is asked for — the opposite of what
- * anyone typing it that way meant.
+ * The address comes from the argument vector and not from the environment, which
+ * is the whole of ADR-0023. This used to read `HOST`, and `HOST` is a name other
+ * tooling exports — commonly as `0.0.0.0` — so a shell that had been set up for
+ * something else was enough to hand the tree to the network without anyone here
+ * deciding anything. An argument is a decision about this server, made in the
+ * command that starts it, and it cannot be inherited.
+ *
+ * `--host=` with nothing after it is read as no host, for the same reason an
+ * empty `HOST` was: an empty string is how `listen` is asked for every interface,
+ * so taking it at face value would make the one form that looks like a retraction
+ * into the widest bind there is.
+ *
+ * Read out here and handed to `listen` rather than reached for further in, for
+ * the reason given at `servedRoot`: a process has one answer to this and keeps
+ * it, and a test needs every answer without spawning one to get at it.
  */
-export function resolveHost(host) {
-  return host || LOOPBACK;
+export function boundHost(argv) {
+  const flagged = argv.find((argument) => argument.startsWith(HOST_FLAG));
+  return flagged?.slice(HOST_FLAG.length) || LOOPBACK;
 }
 
 /**
@@ -82,8 +96,10 @@ export function resolveHost(host) {
  * is load bearing beyond what it says.
  *
  * Any other bind is announced as itself and carries a second line naming what is
- * now reachable. The developer who exported `HOST` hours ago is the one who needs
- * telling, and by then the flag is not something they are looking at.
+ * now reachable. It is a reminder rather than a safeguard — the developer who
+ * typed `--host=` and then backgrounded the terminal is the one it is for, and by
+ * then it is not something they are looking at. What keeps the wide bind from
+ * arriving unasked for is that it has to be typed at all; see ADR-0023.
  */
 export function startupLines(host, port, root) {
   if (LOOPBACK_HOSTS.has(host)) return [`Polynome running at http://localhost:${port}`];
@@ -349,7 +365,11 @@ export function createDevServer(root = DEFAULT_ROOT, reload = false) {
 // can be started by.
 if (import.meta.main) {
   const root = servedRoot(process.argv);
-  const host = resolveHost(process.env.HOST);
+  const host = boundHost(process.argv);
+  // The port stays an environment variable, where the address no longer is,
+  // because the two are not the same kind of thing: a port that arrives from a
+  // shell moves a server that only this machine can reach, and `playwright.config.ts`
+  // hands one to `npm start` for exactly that reason.
   const port = Number(process.env.PORT || 4173);
   const listener = createDevServer(root, reloadRequested(process.argv));
   // The port that was actually bound rather than the one that was asked for. They
