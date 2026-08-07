@@ -242,6 +242,34 @@ const SEED_PRESETS = Object.freeze([
       },
     },
   },
+  {
+    name: "4 + 3 Polymeter",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            timingMode: TIMING_MODE.POLYMETER,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: "4 over 3 Polyrhythm",
+    configuration: {
+      bpm: 120,
+      sequence: {
+        cycles: [
+          {
+            timingMode: TIMING_MODE.POLYRHYTHM,
+            rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+          },
+        ],
+      },
+    },
+  },
 ]);
 
 function freshPresetConfiguration(configuration) {

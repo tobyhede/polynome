@@ -36,7 +36,7 @@ import {
 import { html, render } from "htm/preact";
 
 const STORAGE_KEY = "polynome-configuration-v2";
-const PRESET_STORAGE_KEY = "polynome-presets-v3";
+const PRESET_STORAGE_KEY = "polynome-presets-v4";
 // The Accent is a preference of this browser, not part of the Configuration:
 // no Preset carries it and changing it never marks a setup unsaved. It is a
 // third key for that reason rather than a field — see ADR-0017.
@@ -53,7 +53,11 @@ const RETIRED_STORAGE_KEYS = [
   "polynome:v1",
   "polyrhythm-metronome:v1",
 ];
-const RETIRED_PRESET_STORAGE_KEYS = ["polynome-presets", "polynome-presets-v2"];
+const RETIRED_PRESET_STORAGE_KEYS = [
+  "polynome-presets",
+  "polynome-presets-v2",
+  "polynome-presets-v3",
+];
 
 /**
  * `querySelector` is typed as returning the base `Element`, which carries none

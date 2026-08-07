@@ -502,7 +502,7 @@ test("a Preset key that was never written seeds the example Presets", () => {
 
   assert.deepEqual(
     presets.map(({ name }) => name),
-    ["4/4 8ths", "4/4 Triplets"],
+    ["4/4 8ths", "4/4 Triplets", "4 + 3 Polymeter", "4 over 3 Polyrhythm"],
   );
   for (const { id } of presets) assert.match(id, /^preset-[0-9a-z]+-[0-9a-z]+$/);
   assert.deepEqual(
@@ -514,6 +514,8 @@ test("a Preset key that was never written seeds the example Presets", () => {
     [
       { bpm: 120, subdivision: 2, displayMode: "beat" },
       { bpm: 120, subdivision: 3, displayMode: "beat" },
+      { bpm: 120, subdivision: 1, displayMode: "beat" },
+      { bpm: 120, subdivision: 1, displayMode: "beat" },
     ],
   );
 });
@@ -658,6 +660,54 @@ test("describing Presets describes the stored list alone", () => {
   );
   assert.equal(Object.hasOwn(described[0], "builtIn"), false);
   assert.deepEqual(describePresets(createConfiguration(), []), []);
+});
+
+test("applying the matched examples recalls equivalent 4 and 3 layers in either Timing mode", () => {
+  const examples = createStoredPresets(null).slice(2);
+  const applied = examples.map(({ configuration }) =>
+    changeConfiguration(createConfiguration({ bpm: 88 }), {
+      type: "apply-preset",
+      configuration,
+    }),
+  );
+
+  for (const result of applied) {
+    assert.equal(result.consequence, "restart-transport-run");
+    assert.equal(result.reason, null);
+  }
+
+  const [polymeter, polyrhythm] = applied.map(({ configuration }) => withoutIds(configuration));
+  assert.deepEqual(
+    [polymeter, polyrhythm].map((configuration) => ({
+      bpm: configuration.bpm,
+      cycles: configuration.sequence.cycles.length,
+      signatures: configuration.sequence.cycles[0].rhythms.map(({ signature }) => signature),
+      timingMode: configuration.sequence.cycles[0].timingMode,
+    })),
+    [
+      {
+        bpm: 120,
+        cycles: 1,
+        signatures: [
+          { count: 4, unit: 4 },
+          { count: 3, unit: 4 },
+        ],
+        timingMode: "polymeter",
+      },
+      {
+        bpm: 120,
+        cycles: 1,
+        signatures: [
+          { count: 4, unit: 4 },
+          { count: 3, unit: 4 },
+        ],
+        timingMode: "polyrhythm",
+      },
+    ],
+  );
+
+  polyrhythm.sequence.cycles[0].timingMode = "polymeter";
+  assert.deepEqual(polyrhythm, polymeter);
 });
 
 /**

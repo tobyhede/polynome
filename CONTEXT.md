@@ -211,11 +211,13 @@ see [ADR-0021](docs/adr/0021-share-configurations-in-client-only-url-fragments.m
 _Avoid_: Shared Preset, export
 
 **Seeding**:
-Writing the examples `4/4 8ths` and `4/4 Triplets` into storage the first time
-Polynome runs, when the preset key has never been written. Both recall one 4/4
-Beat Mode rhythm at 120 BPM: the first at Subdivision two and the second at
-Subdivision three. Seeding names the act and nothing else: what it writes are
-Presets, renameable, replaceable, and deletable like any other, and afterwards
-nothing tells them apart from the ones a user saved. Deleting them all leaves no
-Presets, which is a state Polynome stays in.
+Writing the examples `4/4 8ths`, `4/4 Triplets`, `4 + 3 Polymeter`, and `4 over
+3 Polyrhythm` into storage the first time Polynome runs, when the preset key has
+never been written. The first two recall one 4/4 Beat Mode rhythm at 120 BPM,
+at Subdivision two and three respectively. The matched pair each recall one
+Cycle with otherwise equivalent 4/4 and 3/4 Rhythm layers at 120 BPM; their
+Timing mode is the only difference. Seeding names the act and nothing else:
+what it writes are Presets, renameable, replaceable, and deletable like any
+other, and afterwards nothing tells them apart from the ones a user saved.
+Deleting them all leaves no Presets, which is a state Polynome stays in.
 _Avoid_: Built-in preset, factory preset, default preset, seed preset

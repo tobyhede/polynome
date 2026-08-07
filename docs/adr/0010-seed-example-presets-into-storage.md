@@ -2,8 +2,9 @@
 
 The two example names and Configurations below, and references to their v2
 storage key, are superseded by
-[ADR-0015](0015-refine-defaults-and-sliders.md). The seeding predicate and the
-ordinary-Preset behaviour this decision establishes remain in force.
+[ADR-0015](0015-refine-defaults-and-sliders.md), then expanded by
+[ADR-0018](0018-give-each-cycle-a-timing-mode.md). The seeding predicate and
+the ordinary-Preset behaviour this decision establishes remain in force.
 
 Polynome writes its two examples, `4/4` and `4/4 + 3/4`, into `localStorage` the first time it runs, as ordinary Presets. From that write on they are renameable, replaceable and deletable like any other, and "built-in" stops being a kind of Preset. Where Presets are kept does not change, and neither does anything ADR-0006 decided about reads treating storage as untrusted input; this decides what the store holds on a first run, not where the store is.
 

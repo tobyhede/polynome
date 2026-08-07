@@ -39,12 +39,13 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
-   * The last raise added per-Cycle Polyrhythm timing and its truthful visible
-   * and accessible descriptions, measuring 292,707 bytes after rebase. The
-   * preceding raise combined focus restoration after an asynchronous Share
-   * load with the editing-state playback changes already on main, measuring
-   * 288,495 bytes after rebase. Before that, the Content-Security-Policy meta
-   * element was 317 bytes of
+   * The last raise added the matched Polymeter and Polyrhythm Presets,
+   * measuring 293,415 bytes after rebase. The preceding raise added per-Cycle
+   * Polyrhythm timing and its truthful visible and accessible descriptions,
+   * measuring 292,707 bytes after rebase. Before that, focus restoration after
+   * an asynchronous Share load combined with the editing-state playback changes
+   * already on main measured 288,495 bytes after rebase. The preceding
+   * Content-Security-Policy meta element was 317 bytes of
    * the 285,156 measured there — three SHA-256 digests and their
    * directives, since this artifact admits its inline elements by hash and has
    * no origin to name. It is the one growth in this file that does not scale
@@ -52,9 +53,9 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 292_750 },
+  "dist/polynome.html": { raw: 293_500 },
   /** The bundled script alone, which is the half that grows from source. */
-  "site/app-local.js": { raw: 172_550, gzip: 42_100 },
+  "site/app-local.js": { raw: 173_250, gzip: 42_200 },
   "site/styles-local.css": { raw: 30_900 },
 });
 
