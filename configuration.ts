@@ -1141,8 +1141,19 @@ const COMMANDS = Object.freeze({
   "set-meter-unit": {
     validPayload: (edit) => targetsRhythm(edit) && hasFormNumber(edit, "unit"),
     validValue: (edit) => METER_UNITS.includes(formNumber(edit.unit)),
-    leavesUnchanged: (current, edit) =>
-      findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit),
+    /*
+     * Dispatch asks this before `apply`, so a ratio layer already storing the
+     * requested unit would report the generic no-op rather than reach the
+     * policy below, and an unavailable control would read as one that had been
+     * offered. A layer that owns its denominator still short-circuits here.
+     */
+    leavesUnchanged: (current, edit) => {
+      const cycle = findCycle(current, edit.cycleId);
+      if (!cycle || !meterUnitPolicy(cycle, edit.rhythmId).available) return false;
+      return (
+        findRhythm(current, edit.cycleId, edit.rhythmId)?.signature.unit === formNumber(edit.unit)
+      );
+    },
     apply(current, edit) {
       const cycle = findCycle(current, edit.cycleId);
       if (!cycle) return unchanged(current, "cycle-not-found");

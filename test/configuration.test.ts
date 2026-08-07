@@ -1539,6 +1539,48 @@ test("a denominator edit is refused where the layer is read as a ratio", () => {
 });
 
 /**
+ * The denominator a later Polyrhythm layer is still storing is one it does not
+ * sound, so an edit naming that same value is as unavailable as any other and
+ * has to say so. Nothing changes either way, but the two silences mean opposite
+ * things: `null` says the Configuration already reads that way, and this one
+ * says the control was never on offer.
+ */
+test("a denominator edit is refused as unavailable even where it names the stored unit", () => {
+  const polyrhythm = createConfiguration({
+    sequence: {
+      cycles: [
+        {
+          timingMode: "polyrhythm",
+          rhythms: [{ signature: { count: 4, unit: 4 } }, { signature: { count: 3, unit: 4 } }],
+        },
+      ],
+    },
+  });
+  const cycle = polyrhythm.sequence.cycles[0];
+
+  const refused = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[1].id,
+    unit: 4,
+  });
+  assert.equal(refused.consequence, "none");
+  assert.equal(refused.reason, "denominator-unavailable");
+  assert.deepEqual(refused.configuration, polyrhythm);
+
+  // The first layer keeps the ordinary no-op, so the refusal above is the ratio
+  // reading rather than a denominator edit having stopped reporting nothing.
+  const settled = changeConfiguration(polyrhythm, {
+    type: "set-meter-unit",
+    cycleId: cycle.id,
+    rhythmId: cycle.rhythms[0].id,
+    unit: 4,
+  });
+  assert.equal(settled.consequence, "none");
+  assert.equal(settled.reason, null);
+});
+
+/**
  * The three readings a Cycle offers, and what separates them: the Tempo output
  * is the only one that names a tempo at all, and it is the calculated incoming
  * one folded through every active Cycle before it. Both notations are relative,
