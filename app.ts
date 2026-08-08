@@ -1003,8 +1003,13 @@ function layoutSteps() {
   // Batching also makes the answer independent of the order rhythms are visited
   // in, since none of them is measured against another's freshly applied rows.
   const plans = [];
+  const referenceLayouts = new Map();
+  const polyrhythmSteps = [];
   for (const steps of elements.cycles.querySelectorAll(".steps") as NodeListOf<HTMLElement>) {
-    if (steps.classList.contains("is-polyrhythm")) continue;
+    if (steps.classList.contains("is-polyrhythm")) {
+      polyrhythmSteps.push(steps);
+      continue;
+    }
     const signatureUnit = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
@@ -1024,10 +1029,27 @@ function layoutSteps() {
           candidate * signatureUnitWidth + (candidate - 1) * signatureUnitGap <= available,
       ) ?? 1;
 
-    plans.push({ steps, perRow, scrolling: signatureUnitWidth > available });
+    const layout = {
+      perRow,
+      scrolling: signatureUnitWidth > available,
+      temporalWidth: signatureUnits * (signatureUnitWidth + signatureUnitGap),
+    };
+    plans.push({ steps, ...layout });
+    if (!referenceLayouts.has(steps.closest(".cycle-group"))) {
+      referenceLayouts.set(steps.closest(".cycle-group"), layout);
+    }
   }
 
-  for (const { steps, perRow, scrolling } of plans) {
+  for (const steps of polyrhythmSteps) {
+    const reference = referenceLayouts.get(steps.closest(".cycle-group"));
+    if (reference) plans.push({ steps, temporalContentWidth: reference.temporalWidth });
+  }
+
+  for (const { steps, perRow, scrolling, temporalContentWidth } of plans) {
+    if (temporalContentWidth !== undefined) {
+      steps.style.setProperty("--temporal-content-width", `${temporalContentWidth}px`);
+      continue;
+    }
     steps.style.setProperty("--beats-per-row", String(perRow));
     steps.classList.toggle("is-scrolling", scrolling);
   }
@@ -1210,6 +1232,7 @@ function CycleGroup({ cycle, cycleIndex, cycleCount, playing }) {
             rhythmDescription=${tempoDescription.rhythms[position]}
             cycle=${cycle}
             playing=${playing}
+            position=${position}
           />
         `,
         )}
@@ -1331,13 +1354,14 @@ function CycleSettings({ cycle, cycleTitle, tempo }) {
   `;
 }
 
-function RhythmCard({ rhythm, rhythmDescription, cycle, playing }) {
+function RhythmCard({ rhythm, rhythmDescription, cycle, playing, position }) {
   const label = rhythmDescription.meter;
   const drawerId = `rhythm-${rhythm.id}-settings`;
   const open = openRhythms.has(rhythm.id);
   const effectivelyOpen = open && !playing;
   const counts = controlCounts(rhythm);
-  const polyrhythm = cycle.timingMode === TIMING_MODE.POLYRHYTHM && cycle.rhythms.length > 1;
+  const polyrhythm =
+    cycle.timingMode === TIMING_MODE.POLYRHYTHM && cycle.rhythms.length > 1 && position > 0;
   const temporalColumns = polyrhythm ? temporalGridColumns(cycle.rhythms) : null;
   const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
   return html`
