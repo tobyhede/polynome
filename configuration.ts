@@ -97,10 +97,9 @@ function createRhythm(overrides: Unvalidated = {}) {
     // `model.ts`, and a default off that grid is rounded onto it by the control
     // itself without an event, leaving the thumb, this Configuration and the
     // audio graph on three different numbers. Written as the literal it is
-    // rather than counted out in steps, because a count is a product and
-    // `14 * 0.05` is `0.7000000000000001`, which is the same bug again.
+    // rather than counted out in steps, so the intended default is immediate.
     // `test/model.test.ts` holds every default here to its control's grid.
-    volume: normaliseNumber(overrides.volume, 0.7, 0, 1),
+    volume: normaliseNumber(overrides.volume, 0.8, 0, 1),
     pan: normaliseNumber(overrides.pan, 0, -1, 1),
     sound: SOUNDS.includes(overrides.sound) ? overrides.sound : SOUND.HIGH,
     muted: Boolean(overrides.muted),

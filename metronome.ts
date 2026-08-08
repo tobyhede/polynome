@@ -6,7 +6,7 @@ const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.06;
 // The output stage is fixed: loudness is the device's to control. The node
 // remains because stopping silences the graph through it.
-const MASTER_GAIN = 0.8;
+const MASTER_GAIN = 1;
 
 /**
  * How long a run may report `playing` while its context has never once been
