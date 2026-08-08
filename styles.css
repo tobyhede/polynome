@@ -1300,6 +1300,9 @@ h1.is-glitching {
    later onset lands on an exact column: a 4:3 pair uses 12 columns, placing
    the later layer at columns 1, 5, and 9. */
 .steps.is-polyrhythm {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   grid-template-columns: repeat(var(--temporal-columns), minmax(0, 1fr));
   column-gap: 0;
   width: calc(
@@ -1335,7 +1338,7 @@ h1.is-glitching {
 }
 
 .steps.is-polyrhythm .beat {
-  min-width: 0;
+  min-width: max-content;
 }
 
 /* A dot under the step the beat starts on: the quietest mark that still says
@@ -1389,6 +1392,10 @@ h1.is-glitching {
     border-color 90ms ease,
     box-shadow 90ms ease,
     background 120ms ease;
+}
+
+.steps.is-polyrhythm .step {
+  flex: 0 0 var(--step-size);
 }
 
 .step-primary {

@@ -67,7 +67,8 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * name rather than reported as an ordinary no-op, measuring 294,471 bytes
    * after rebase. The Polyrhythm shared-span layout adds the intentional visual
    * geometry; the base row remains on ordinary spacing while later rows expand
-   * against it, measuring 270,605 bytes after this rebase.
+   * against it, measuring 270,605 bytes after this rebase. The responsive
+   * scrolling guard for those rows leaves the stylesheet at 31,200 bytes.
    * before it refused a denominator edit against a layer whose notation
    * carries no denominator, measuring 293,965 bytes after rebase. The one
    * before that added the matched Polymeter and Polyrhythm Presets,
@@ -99,7 +100,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * re-taken on a fall: this is a ceiling, and lowering one is a decision of its
    * own rather than the tail of somebody else's.
    */
-  "site/styles-local.css": { raw: 31_100 },
+  "site/styles-local.css": { raw: 31_300 },
 });
 
 /**

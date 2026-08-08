@@ -1072,12 +1072,19 @@ function layoutSteps() {
 
   for (const steps of polyrhythmSteps) {
     const reference = referenceLayouts.get(steps.closest(".cycle-group"));
-    if (reference) plans.push({ steps, temporalContentWidth: reference.temporalWidth });
+    if (reference) {
+      plans.push({
+        steps,
+        temporalContentWidth: reference.temporalWidth,
+        scrolling: reference.temporalWidth > steps.clientWidth,
+      });
+    }
   }
 
   for (const { steps, perRow, scrolling, temporalContentWidth } of plans) {
     if (temporalContentWidth !== undefined) {
       steps.style.setProperty("--temporal-content-width", `${temporalContentWidth}px`);
+      steps.classList.toggle("is-scrolling", scrolling);
       continue;
     }
     steps.style.setProperty("--beats-per-row", String(perRow));
