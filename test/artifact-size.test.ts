@@ -112,7 +112,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
  * roughly 38 KB of it is base64-encoded woff2 — 65 KB before the faces were
  * re-cut from upstream — and woff2 is already Brotli-compressed, so gzip takes
  * back base64's expansion and nothing beyond it. Those 37,916 characters cost
- * 29,520 bytes of the 83,398-byte gzipped artifact, against the 28,436 the two
+ * 29,514 bytes of the 83,675-byte gzipped artifact, against the 28,436 the two
  * faces weigh on disk. A gzip budget would therefore carry 35% of itself as a
  * floor no source change can move, and script growth measured against so
  * diluted a total reads smaller than it is. The last test below holds that.
