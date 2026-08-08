@@ -521,12 +521,34 @@ test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ 
   await second.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("3");
   await second.getByRole("combobox", { name: "3/4 meter denominator" }).selectOption("8");
 
+  const baseSpacingBefore = await page.evaluate(() => {
+    const steps = document.querySelectorAll(".steps")[0];
+    const beats = steps.querySelectorAll(".beat");
+    return beats[1].getBoundingClientRect().left - beats[0].getBoundingClientRect().left;
+  });
+
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
   const polyrhythm = cycleDrawer(page).getByRole("button", { name: "Polyrhythm" });
   await polyrhythm.click();
 
   await expect(page.getByRole("button", { name: "Edit 4/4", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit 3:4", exact: true })).toBeVisible();
+
+  const onsetRows = await page.evaluate(() =>
+    [...document.querySelectorAll(".steps")].map((steps) =>
+      [...steps.querySelectorAll(".beat")].map(
+        (beat) => (beat.querySelector(".step") as HTMLElement).getBoundingClientRect().left,
+      ),
+    ),
+  );
+  expect(onsetRows).toHaveLength(2);
+  expect(onsetRows[0]).toHaveLength(4);
+  expect(onsetRows[1]).toHaveLength(3);
+  const primarySpacing = onsetRows[0][1] - onsetRows[0][0];
+  const secondarySpacing = onsetRows[1][1] - onsetRows[1][0];
+  expect(primarySpacing).toBeCloseTo(baseSpacingBefore, 3);
+  expect(secondarySpacing / primarySpacing).toBeCloseTo(4 / 3, 3);
+
   await expect(second.getByRole("combobox", { name: "3:4 meter numerator" })).toBeVisible();
   await expect(second.getByRole("combobox", { name: /meter denominator/ })).toHaveCount(0);
   await second.getByRole("button", { name: "3:4 subdivision" }).click();
@@ -635,8 +657,12 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   );
   expect(new Set(playingDots.map(({ top }) => top)).size).toBe(1);
   expect(playingDots).toHaveLength(8);
-  expect(playingDots.every(({ width }) => width >= 24)).toBe(true);
-  expect(playingDots.every(({ width }) => width < 29)).toBe(true);
+  expect(playingDots.every(({ width }) => width === 29)).toBe(true);
+  const playingLefts = await page
+    .locator(".repeat-dot")
+    .evaluateAll((dots) => dots.map((dot) => Math.round(dot.getBoundingClientRect().left)));
+  const playingGaps = playingLefts.slice(1).map((left, index) => left - playingLefts[index]);
+  expect(new Set(playingGaps).size).toBe(1);
 });
 
 /**

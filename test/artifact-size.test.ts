@@ -65,7 +65,10 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * bytes. The one before that carried that refusal past the unchanged-edit
    * short circuit, so a denominator a ratio layer already stores is refused by
    * name rather than reported as an ordinary no-op, measuring 294,471 bytes
-   * after rebase. The raise
+   * after rebase. The Polyrhythm shared-span layout adds the intentional visual
+   * geometry; the base row remains on ordinary spacing while later rows expand
+   * against it, measuring 270,605 bytes after this rebase. The responsive
+   * scrolling guard for those rows leaves the stylesheet at 31,200 bytes.
    * before it refused a denominator edit against a layer whose notation
    * carries no denominator, measuring 293,965 bytes after rebase. The one
    * before that added the matched Polymeter and Polyrhythm Presets,
@@ -82,14 +85,14 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 268_000 },
+  "dist/polynome.html": { raw: 271_000 },
   /**
    * The bundled script alone, which is the half that grows from source, and the
    * one figure the redline in ADR-0024 is about. Measured 174,711 raw and 42,537
    * gzipped after rebase — the same figures the tempo band raise took, because
    * the site build emits the faces as files and the font cut never touched this.
    */
-  "site/app-local.js": { raw: 174_750, gzip: 42_600 },
+  "site/app-local.js": { raw: 177_500, gzip: 43_300 },
   /**
    * The stylesheet, which the tempo band change left 23 bytes smaller than it
    * found it — one rule for the band elements says what a pseudo-element and
@@ -97,7 +100,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * re-taken on a fall: this is a ceiling, and lowering one is a decision of its
    * own rather than the tail of somebody else's.
    */
-  "site/styles-local.css": { raw: 30_900 },
+  "site/styles-local.css": { raw: 31_300 },
 });
 
 /**

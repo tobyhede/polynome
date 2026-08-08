@@ -1268,6 +1268,7 @@ h1.is-glitching {
      the gap inside a beat have to hold the same value, and two literals that
      have to agree are two literals that can drift apart. */
   --step-gap: 10px;
+  --steps-inline-padding: 16px;
 
   /* Grid and flex items are min-content wide by default, which would let a wide
      beat push the card past the shell and hand layoutSteps() a width the screen
@@ -1289,7 +1290,26 @@ h1.is-glitching {
   gap: 22px var(--step-gap);
   align-items: center;
   justify-content: start;
-  padding: 14px 16px 34px;
+  padding: 14px var(--steps-inline-padding) 34px;
+}
+
+/* Later Polyrhythm controls use the Cycle's shared temporal span rather than
+   their own independent signature-unit spacing. The first Rhythm keeps this
+   row's ordinary layout; the later row expands against its onset pitch. The
+   column count is the least common multiple of the pattern lengths, so every
+   later onset lands on an exact column: a 4:3 pair uses 12 columns, placing
+   the later layer at columns 1, 5, and 9. */
+.steps.is-polyrhythm {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  grid-template-columns: repeat(var(--temporal-columns), minmax(0, 1fr));
+  column-gap: 0;
+  width: calc(
+    var(--temporal-content-width) +
+    var(--steps-inline-padding) +
+    var(--steps-inline-padding)
+  );
 }
 
 /* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
@@ -1315,6 +1335,10 @@ h1.is-glitching {
   position: relative;
   display: flex;
   gap: var(--step-gap);
+}
+
+.steps.is-polyrhythm .beat {
+  min-width: max-content;
 }
 
 /* A dot under the step the beat starts on: the quietest mark that still says
@@ -1368,6 +1392,10 @@ h1.is-glitching {
     border-color 90ms ease,
     box-shadow 90ms ease,
     background 120ms ease;
+}
+
+.steps.is-polyrhythm .step {
+  flex: 0 0 var(--step-size);
 }
 
 .step-primary {
@@ -1981,12 +2009,11 @@ h1.is-glitching {
   display: none;
 }
 
-/* Editing groups repetitions in fours on a narrow screen. Listening needs the
-   whole Cycle at a glance, so the dots shrink and use the row's full width to
-   keep all eight positions on one line. Their wide spacing preserves distinct
-   touch targets even though the visible circles are smaller. */
+/* Editing groups repetitions in fours on a narrow screen. Listening keeps the
+   repetition controls as a compact row of equal circles: their spacing is
+   deliberate, rather than stretching to fill whatever width the card has. */
 .app-shell.is-play-mode .repeat-row {
-  padding-inline: clamp(12px, 4vw, 20px);
+  padding-inline: 12px;
 }
 
 .app-shell.is-play-mode .rhythm-identity:disabled {
@@ -1995,16 +2022,14 @@ h1.is-glitching {
 }
 
 .app-shell.is-play-mode .repeat-dots {
-  display: grid;
-  grid-template-columns: repeat(8, max-content);
-  gap: 0;
-  justify-content: space-between;
-  width: 100%;
+  display: flex;
+  gap: 8px;
+  width: auto;
 }
 
 .app-shell.is-play-mode .repeat-dot {
-  width: clamp(24px, 5vw, 29px);
-  height: clamp(24px, 5vw, 29px);
+  width: 29px;
+  height: 29px;
 }
 
 /* Manual recovery must stay reachable while the physical output may be silent,
