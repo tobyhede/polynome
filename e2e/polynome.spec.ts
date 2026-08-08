@@ -527,6 +527,21 @@ test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ 
 
   await expect(page.getByRole("button", { name: "Edit 4/4", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit 3:4", exact: true })).toBeVisible();
+
+  const onsetRows = await page.evaluate(() =>
+    [...document.querySelectorAll(".steps.is-polyrhythm")].map((steps) =>
+      [...steps.querySelectorAll(".beat")].map(
+        (beat) => (beat.querySelector(".step") as HTMLElement).getBoundingClientRect().left,
+      ),
+    ),
+  );
+  expect(onsetRows).toHaveLength(2);
+  expect(onsetRows[0]).toHaveLength(4);
+  expect(onsetRows[1]).toHaveLength(3);
+  const primarySpacing = onsetRows[0][1] - onsetRows[0][0];
+  const secondarySpacing = onsetRows[1][1] - onsetRows[1][0];
+  expect(secondarySpacing / primarySpacing).toBeCloseTo(4 / 3, 3);
+
   await expect(second.getByRole("combobox", { name: "3:4 meter numerator" })).toBeVisible();
   await expect(second.getByRole("combobox", { name: /meter denominator/ })).toHaveCount(0);
   await second.getByRole("button", { name: "3:4 subdivision" }).click();

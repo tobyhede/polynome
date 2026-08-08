@@ -5,9 +5,11 @@ import {
   canonicalPattern,
   controlCounts,
   controlIndexAt,
+  controlPlacement,
   controls,
   DISPLAY_MODES,
   repairPattern,
+  temporalGridColumns,
 } from "../grid.ts";
 
 /**
@@ -156,6 +158,41 @@ test("the row counts follow the run length rather than the mode", () => {
     signatureUnits: 7,
     controlsPerSignatureUnit: 4,
   });
+});
+
+test("Polyrhythm placement uses one shared temporal coordinate system", () => {
+  const four = layer({ count: 4 });
+  const three = layer({ count: 3 });
+  const columns = temporalGridColumns([four, three]);
+
+  assert.equal(columns, 12);
+  assert.deepEqual(
+    controls(four).map((control) => controlPlacement(four, control, columns)),
+    [
+      { start: 1, span: 3 },
+      { start: 4, span: 3 },
+      { start: 7, span: 3 },
+      { start: 10, span: 3 },
+    ],
+  );
+  assert.deepEqual(
+    controls(three).map((control) => controlPlacement(three, control, columns)),
+    [
+      { start: 1, span: 4 },
+      { start: 5, span: 4 },
+      { start: 9, span: 4 },
+    ],
+  );
+});
+
+test("shared placement includes subdivisions without changing control grouping", () => {
+  const four = layer({ count: 4, subdivision: 2 });
+  const three = layer({ count: 3, subdivision: 3 });
+  const columns = temporalGridColumns([four, three]);
+
+  assert.equal(columns, 72);
+  assert.deepEqual(controlPlacement(four, controls(four)[1], columns), { start: 19, span: 18 });
+  assert.deepEqual(controlPlacement(three, controls(three)[1], columns), { start: 25, span: 24 });
 });
 
 /**

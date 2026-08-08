@@ -1232,6 +1232,16 @@ h1.is-glitching {
   padding: 14px 16px 34px;
 }
 
+/* Polyrhythm controls use the Cycle's shared temporal span rather than each
+   layer's independent signature-unit spacing. The column count is the least
+   common multiple of the layers' pattern lengths, so every onset lands on an
+   exact column: a 4:3 pair occupies 12 columns, placing the second layer at
+   columns 1, 5, and 9 against the first at 1, 4, 7, and 10. */
+.steps.is-polyrhythm {
+  grid-template-columns: repeat(var(--temporal-columns), minmax(0, 1fr));
+  column-gap: 0;
+}
+
 /* The narrowest screen cannot fit a beat of five, and a beat cannot be split, so
    that one case scrolls. Sequencer apps do the same rather than resize a step. */
 .steps.is-scrolling {
@@ -1255,6 +1265,10 @@ h1.is-glitching {
   position: relative;
   display: flex;
   gap: var(--step-gap);
+}
+
+.steps.is-polyrhythm .beat {
+  min-width: 0;
 }
 
 /* A dot under the step the beat starts on: the quietest mark that still says

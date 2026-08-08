@@ -100,3 +100,35 @@ export function controlCounts(rhythm) {
     controlsPerSignatureUnit: rhythm.subdivision / runLength(rhythm),
   };
 }
+
+function greatestCommonDivisor(left, right) {
+  let a = Math.abs(left);
+  let b = Math.abs(right);
+  while (b) [a, b] = [b, a % b];
+  return a || 1;
+}
+
+function leastCommonMultiple(left, right) {
+  return Math.abs(left * right) / greatestCommonDivisor(left, right);
+}
+
+/**
+ * The smallest integer coordinate system that can place every pattern
+ * position in a set of rhythm layers. Polyrhythm uses this as its shared
+ * horizontal time axis; ordinary grid layout has no need for it.
+ */
+export function temporalGridColumns(rhythms) {
+  return rhythms.map(({ steps }) => steps.length).reduce(leastCommonMultiple, 1);
+}
+
+/**
+ * A control's start and width in the shared temporal coordinate system. The
+ * values are integers because the column count is a common multiple of every
+ * layer's pattern length.
+ */
+export function controlPlacement(rhythm, control, columns) {
+  return {
+    start: (control.positions[0] * columns) / rhythm.steps.length + 1,
+    span: (control.positions.length * columns) / rhythm.steps.length,
+  };
+}

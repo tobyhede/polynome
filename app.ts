@@ -23,7 +23,13 @@ import {
   TEMPO_TICK_INTERVAL,
   TIMING_MODE,
 } from "./model.ts";
-import { controlCounts, controlIndexAt, controls } from "./grid.ts";
+import {
+  controlCounts,
+  controlIndexAt,
+  controlPlacement,
+  controls,
+  temporalGridColumns,
+} from "./grid.ts";
 import { createPersistence, readStoredValue } from "./persistence.ts";
 import {
   createShareConfigurationUrl,
@@ -998,6 +1004,7 @@ function layoutSteps() {
   // in, since none of them is measured against another's freshly applied rows.
   const plans = [];
   for (const steps of elements.cycles.querySelectorAll(".steps") as NodeListOf<HTMLElement>) {
+    if (steps.classList.contains("is-polyrhythm")) continue;
     const signatureUnit = steps.querySelector(".beat");
     const style = getComputedStyle(steps);
     const available =
@@ -1330,6 +1337,8 @@ function RhythmCard({ rhythm, rhythmDescription, cycle, playing }) {
   const open = openRhythms.has(rhythm.id);
   const effectivelyOpen = open && !playing;
   const counts = controlCounts(rhythm);
+  const polyrhythm = cycle.timingMode === TIMING_MODE.POLYRHYTHM && cycle.rhythms.length > 1;
+  const temporalColumns = polyrhythm ? temporalGridColumns(cycle.rhythms) : null;
   const removable = description.availability.cycles[cycle.id].rhythms[rhythm.id].remove.available;
   return html`
     <article class="rhythm-card${rhythm.muted ? " is-muted" : ""}" data-layer-id=${rhythm.id}>
@@ -1389,14 +1398,16 @@ function RhythmCard({ rhythm, rhythmDescription, cycle, playing }) {
            gap is now the same one the controls inside a unit use, so nothing in
            the stylesheet asks for it any more. -->
       <div
-        class="steps"
+        class=${`steps${polyrhythm ? " is-polyrhythm" : ""}`}
         role="group"
         aria-label=${`${label} ${controlNoun(rhythm).toLowerCase()} voices`}
         data-signature-units=${counts.signatureUnits}
         data-controls-per-signature-unit=${counts.controlsPerSignatureUnit}
         data-display-mode=${rhythm.displayMode}
+        style=${polyrhythm ? `--temporal-columns: ${temporalColumns};` : null}
+        data-temporal-columns=${temporalColumns}
       >
-        <${SignatureUnits} rhythm=${rhythm} />
+        <${SignatureUnits} rhythm=${rhythm} temporalColumns=${temporalColumns} />
       </div>
     </article>
   `;
@@ -1564,16 +1575,36 @@ function RhythmSettings({ rhythm, rhythmDescription }) {
 // dimmest circle in the row. A pseudo-element keeps the mark out of the
 // accessibility tree without an `aria-hidden` element to carry it, which is
 // what a purely decorative mark inside a named group should be.
-function SignatureUnits({ rhythm }) {
+function SignatureUnits({ rhythm, temporalColumns }) {
   const noun = controlNoun(rhythm);
+  const rhythmControls = controls(rhythm);
   const signatureUnits = [];
-  for (const [control, { voice, signatureUnit }] of controls(rhythm).entries()) {
+  for (const [control, { voice, signatureUnit }] of rhythmControls.entries()) {
     if (!signatureUnits[signatureUnit]) signatureUnits[signatureUnit] = [];
-    signatureUnits[signatureUnit].push(
-      html`<${GridControl} voice=${voice} control=${control} noun=${noun} />`,
-    );
+    signatureUnits[signatureUnit].push(html`
+      <${GridControl} voice=${voice} control=${control} noun=${noun} />
+    `);
   }
-  return html`${signatureUnits.map((group) => html`<div class="beat">${group}</div>`)}`;
+  return html`${signatureUnits.map(
+    (group, signatureUnit) => html`
+      <div
+        class="beat"
+        style=${
+          temporalColumns
+            ? (
+                () => {
+                  const positions = rhythmControls
+                    .filter((control) => control.signatureUnit === signatureUnit)
+                    .flatMap((control) => control.positions);
+                  const placement = controlPlacement(rhythm, { positions }, temporalColumns);
+                  return `grid-column: ${placement.start} / span ${placement.span};`;
+                }
+              )()
+            : null
+        }
+      >${group}</div>
+    `,
+  )}`;
 }
 
 /**
