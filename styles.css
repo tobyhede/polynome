@@ -1,3 +1,57 @@
+/* Both faces are cut from upstream rather than from a Google Fonts slice, so the
+   glyph set is a decision this repository took and can restate. Each was
+   produced once, by hand, with fontTools 4.63.0 through
+   `uvx --from "fonttools[woff]"`: nothing in this tree subsets fonts and nothing
+   should start to, because the smaller `.woff2` is the deliverable rather than a
+   build step.
+
+   JetBrains Mono 2.304, `fonts/variable/JetBrainsMono[wght].ttf` from
+   https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304 —
+
+     fonttools varLib.instancer 'JetBrainsMono[wght].ttf' wght=400:800 -o wght-400-800.ttf
+     pyftsubset wght-400-800.ttf --flavor=woff2 --output-file=jetbrains-mono-latin.woff2 \
+       --unicodes="U+0020-007E,U+00B7,U+00D7,U+2013,U+2191,U+2192,U+2193,U+2212,U+25A0,U+25B6,U+25BC"
+
+   Major Mono Display 2.000, `ofl/majormonodisplay/MajorMonoDisplay-Regular.ttf`
+   from https://github.com/google/fonts —
+
+     pyftsubset MajorMonoDisplay-Regular.ttf --unicodes="U+0020-007E,U+2192" \
+       --no-hinting --flavor=woff2 --output-file=major-mono-display-latin.woff2
+
+   Printable ASCII is the floor in both, because the body face renders Preset
+   names, which the listener types: a glyph set derived from this interface's own
+   strings would show tofu the moment somebody named a Preset in their own
+   language. Above the floor sit the characters the interface draws that ASCII
+   has no room for, each one named by where it is drawn —
+
+     U+00B7 ·  the accent caption, the balance axis, a Subdivision description
+     U+00D7 ×  every close and delete button, and a Preset's repetition count
+     U+2013 –  the range in the Repetitions help
+     U+2191 ↑  a rising Cycle's notation on a Preset card
+     U+2192 →  the help text, `.preset-sequence-arrow`, `.envelope-tempo output`
+     U+2193 ↓  a falling Cycle's notation on a Preset card
+     U+2212 −  the tempo decrement, and a negative envelope amount
+     U+25A0 ■  the stop mark
+     U+25B6 ▶  the play mark
+     U+25BC ▼  the Subdivision picker's disclosure mark
+
+   Only the arrow reaches the display stack, at `.envelope-tempo output`, and it
+   is the one of these Major Mono Display carries upstream. Four of them — the
+   arrow, the two marks on the play button and the disclosure mark — are outside
+   any Latin slice, which is why the cut is from upstream: subsetting only ever
+   removes, so a slice that never carried them could not be made to.
+
+   The `wght` axis is held at 400–800 rather than restored to upstream's
+   100–800: widening it costs 6,956 bytes and this stylesheet asks for 400, 600,
+   620, 640, 700, 760 and 800. So the `font-weight: 100 800` below overstates the
+   file — a request under the axis minimum clamps, and that 100 has never done
+   anything. `--no-hinting` is on the display face alone, where `fpgm`, `prep`
+   and `cvt ` were about 7 KB before a single glyph was removed; the body face
+   carries no hinting program to drop.
+
+   `e2e/fonts.spec.ts` holds the glyph set to what the interface actually draws,
+   and `docs/research/detecting-font-fallback-in-browser-tests.md` carries the
+   measurements every figure above came from. */
 @font-face {
   font-family: "JetBrains Mono";
   font-style: normal;
@@ -884,26 +938,32 @@ h1.is-glitching {
   opacity: 0.9;
 }
 
-/* A travelled range is a stretch, so it is drawn as one. Marking it on the scale
-   itself drew it at the tick interval and nothing finer: a ramp from 157 to 174
-   reached the two marks at 160 and 170 with nothing between them, and a range
-   falling between two marks — 152 to 158 — reached none at all and left the band
-   invisible at exactly the sizes a reader most needs told about it. The band is
-   its own object, placed from the two tempos, so a short ramp is a short band
-   rather than a rounding of one and the scale underneath is left alone.
+/* A travelled stretch is a stretch, so it is drawn as one. Marking it on the
+   scale itself drew it at the tick interval and nothing finer: a ramp from 157
+   to 174 reached the two marks at 160 and 170 with nothing between them, and a
+   stretch falling between two marks — 152 to 158 — reached none at all and left
+   the band invisible at exactly the sizes a reader most needs told about it. A
+   band is its own object, placed from the two tempos, so a short ramp is a short
+   band rather than a rounding of one and the scale underneath is left alone.
+
+   One element per stretch, and that is why they are elements: a Flat between two
+   ramps travels two stretches with the tempos it stepped over left unplayed
+   between them, and a pseudo-element has one start and one end to say that with.
+   Absolutely positioned, so the row's marks go on distributing themselves across
+   it as though the bands were not there. `app.ts` writes each one's two tempos
+   as shares of the range.
 
    Three background layers rather than a bordered box. The ends are the piece
-   that has to be read — they are the tempos the range stops at, so they take the
-   labelled marks' height and twice the scale's weight — and the line joining
+   that has to be read — they are the tempos the stretch stops at, so they take
+   the labelled marks' height and twice the scale's weight — and the line joining
    them runs at their midline. As borders they would have had to come out of the
    element's own width, which at the floor below is narrower than the two of them
    put together.
 
-   `max()` holds that floor: a range of a beat or two is a fraction of a percent
-   of the 270bpm the control offers, and a band thinner than its own ends would
-   trade one invisible indication for another. */
-.bpm-ticks.is-banded::before {
-  content: "";
+   `max()` holds that floor: a stretch of a beat or two is a fraction of a
+   percent of the 270bpm the control offers, and a band thinner than its own ends
+   would trade one invisible indication for another. */
+.bpm-ticks .bpm-band {
   position: absolute;
   /* The marks hang from this edge, so an element of a labelled mark's height
      starts here and the two agree without either restating the other's size. */
