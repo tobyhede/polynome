@@ -1,0 +1,22 @@
+# `test/line-endings.test.ts` detects a carriage return that has already been
+# committed. This is what stops one arriving: `text=auto` normalises on the way
+# into the object store, and `eol=lf` checks every text file out with LF on
+# every platform, so a clone on Windows cannot reintroduce what the test would
+# then have to catch. A guard that only reports is a guard that reports the same
+# thing every time somebody clones.
+* text=auto eol=lf
+
+# Both OFL texts are redistributed byte-for-byte as their upstreams publish
+# them, verified against the JetBrains Mono v2.304 release and against
+# `ofl/majormonodisplay/OFL.txt` in google/fonts. The latter is published with
+# CRLF terminators, so `-text` tells git to convert neither file in either
+# direction — the alternative is a licence this repository did not write being
+# silently rewritten to suit a house style. The line-ending test reads this same
+# attribute rather than keeping its own list, so exempting a file here is the
+# only place the exemption has to be stated.
+fonts/*-OFL.txt -text
+
+# The two subset faces are compressed binary. Naming them saves git sniffing
+# content to reach the same conclusion, and keeps a diff from ever being
+# attempted against bytes no reader can use.
+*.woff2 binary
