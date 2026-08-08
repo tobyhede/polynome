@@ -110,8 +110,12 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
  * Raw bytes carry the budget wherever only one is stated. They are the portable
  * number, and for the single-file distribution they are also the honest one:
  * roughly 38 KB of it is base64-encoded woff2 — 65 KB before the faces were
- * re-cut from upstream — which compresses to nothing and would mask real script
- * growth behind a flattering total.
+ * re-cut from upstream — and woff2 is already Brotli-compressed, so gzip takes
+ * back base64's expansion and nothing beyond it. Those 37,916 characters cost
+ * 29,520 bytes of the 83,398-byte gzipped artifact, against the 28,436 the two
+ * faces weigh on disk. A gzip budget would therefore carry 35% of itself as a
+ * floor no source change can move, and script growth measured against so
+ * diluted a total reads smaller than it is. The last test below holds that.
  */
 const GZIP_LEVEL = 9;
 
@@ -177,4 +181,84 @@ test("the build is byte-reproducible, which is what makes a budget an assertion"
   const second = await artifactContents("dist/polynome.html", outputRoot);
 
   assert.deepEqual(first, second);
+});
+
+/**
+ * The base64 body of a woff2 data URL, matched without its `data:` prefix so
+ * that excising it leaves the rest of the declaration standing and the
+ * difference measures the payload and nothing around it. The class is base64's
+ * own alphabet, which is what stops the match at the `)` closing the `url()`.
+ */
+const FONT_PAYLOAD = /(?<=data:font\/woff2;base64,)[A-Za-z0-9+/=]+/g;
+
+/**
+ * What the difference is allowed to run over the woff2 bytes themselves. It
+ * measures 1,084: 120 of that is deflate's own overhead on input it cannot
+ * improve, and the remaining 964 is the other 229,207 bytes coding better once
+ * 37,916 characters of high-entropy base64 leave the window. The larger term is
+ * a property of the document around the faces rather than of the faces, so this
+ * is stated in bytes rather than as a ratio of them.
+ */
+const INCOMPRESSIBLE_SLACK = 1_500;
+
+/** Below this share of the gzipped total, the dilution argument stops holding. */
+const FLOOR_SHARE = 0.3;
+
+/**
+ * The figures the comment on `GZIP_LEVEL` rests on, taken from the artifact
+ * rather than asserted about it, because that comment once said the opposite of
+ * what the build does and nothing here caught it.
+ *
+ * The contribution is measured as a difference — gzip the artifact, gzip it
+ * again with the two payloads excised, subtract — because that is the number a
+ * gzip budget would carry. Compressing the payloads on their own answers a
+ * narrower question and gives 28,556; gzip's window spans the whole file, so
+ * what the faces cost in place is not what they cost alone.
+ */
+test("the embedded faces are a floor under the gzipped artifact that gzip cannot lift", async (t) => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "polynome-font-payload-"));
+  t.after(() => rm(outputRoot, { recursive: true, force: true }));
+  await buildDistribution({ target: "single-file", projectRoot, outputRoot });
+
+  const artifact = await artifactContents("dist/polynome.html", outputRoot);
+  const html = artifact.toString("utf8");
+  const payloads = html.match(FONT_PAYLOAD) ?? [];
+  // A pattern that matched nothing would report a contribution of zero, which
+  // satisfies both bounds on it and leaves only the share to fail, reported as
+  // growth in the script rather than as the broken pattern it is.
+  assert.equal(
+    payloads.length,
+    2,
+    `dist/polynome.html carries ${payloads.length} base64 woff2 payloads, not the two @font-face rules styles.css declares. If the faces stopped being inlined, the raw-only budget on this artifact is no longer justified by anything here.`,
+  );
+
+  const decoded = payloads.reduce((total, p) => total + Buffer.from(p, "base64").byteLength, 0);
+  const gzipped = gzipSync(artifact, { level: GZIP_LEVEL }).byteLength;
+  const withoutPayloads = gzipSync(Buffer.from(html.replace(FONT_PAYLOAD, ""), "utf8"), {
+    level: GZIP_LEVEL,
+  }).byteLength;
+  const contribution = gzipped - withoutPayloads;
+  const share = contribution / gzipped;
+
+  // woff2 is Brotli-compressed and base64 is a 4:3 expansion of it, so gzip
+  // takes the expansion back and stops there, landing within slack of what the
+  // faces weigh on disk. Both edges are held: the lower one is the claim, and
+  // the upper one is what keeps the claim from being satisfied by an accident
+  // that inflated the difference.
+  assert.ok(
+    contribution >= decoded,
+    `The ${decoded} bytes of woff2 in dist/polynome.html cost only ${contribution} bytes of the ${gzipped}-byte gzipped artifact, so gzip found compression in a Brotli-compressed payload. Something upstream is no longer emitting woff2. Re-take the figures on GZIP_LEVEL before that comment is trusted again.`,
+  );
+  assert.ok(
+    contribution <= decoded + INCOMPRESSIBLE_SLACK,
+    `The base64 faces cost ${contribution - decoded} bytes more gzipped than the ${decoded} they weigh on disk, over the ${INCOMPRESSIBLE_SLACK} this allows. The difference is measured by excising the payloads, so anything else that moved with them is being counted as font. Check FONT_PAYLOAD still matches only the two data URLs.`,
+  );
+  assert.ok(
+    share >= FLOOR_SHARE,
+    `The faces are ${(share * 100).toFixed(1)}% of the ${gzipped}-byte gzipped artifact, under the ${FLOOR_SHARE * 100}% that makes them a floor worth budgeting around. Measured 35.4%. Everything but the faces has to grow for this to fall, so read dist/polynome.html against its raw budget before relaxing this.`,
+  );
+
+  console.log(
+    `dist/polynome.html: ${contribution} of ${gzipped} gzip-${GZIP_LEVEL} bytes are ${decoded} bytes of woff2 (${(share * 100).toFixed(1)}%)`,
+  );
 });
