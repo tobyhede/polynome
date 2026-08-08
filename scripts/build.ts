@@ -1,6 +1,6 @@
 import { build, formatMessages } from "esbuild";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -345,6 +345,33 @@ export function distributionVersion(requestedVersion, environmentRevision) {
   return version;
 }
 
+/**
+ * The licence texts that have to travel with the faces.
+ *
+ * Both faces are subset, which OFL 1.1 counts as a Modified Version, and its
+ * second clause asks that every copy carry the copyright notice *and* the
+ * licence. The notice rides inside the woff2 — `pyftsubset` keeps name ID 0, so
+ * `Copyright 2020 The JetBrains Mono Project Authors` is in the shipped bytes —
+ * but the licence has nowhere to ride: the site emits each face as its own file,
+ * and no document here quotes a word of it. Copying the texts beside them is the
+ * first of the three forms the clause names, and the plainest.
+ *
+ * Discovered rather than listed, so a third face ships its licence by having one
+ * put in `fonts/`. Unversioned, because nothing references these and a
+ * cache-busting name on a licence serves no one.
+ *
+ * A missing `fonts/` is not an error: the build fixtures in `test/site.test.ts`
+ * are a document, a module and a stylesheet with no faces at all, and a build of
+ * something that ships no font owes no font licence.
+ */
+async function fontLicences(root: string): Promise<string[]> {
+  const entries = await readdir(join(root, "fonts")).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  return entries.filter((entry) => entry.endsWith("-OFL.txt"));
+}
+
 async function buildSite(
   root,
   outputRoot,
@@ -409,12 +436,14 @@ async function buildSite(
     style: ["'self'"],
     font: ["'self'"],
   });
+  const licences = await fontLicences(root);
   await mkdir(output, { recursive: true });
   await Promise.all([
     ...result.outputFiles.map(async (file) => {
       await mkdir(dirname(file.path), { recursive: true });
       await writeFile(file.path, file.contents);
     }),
+    ...licences.map((licence) => copyFile(join(root, "fonts", licence), join(output, licence))),
     writeFile(join(output, "index.html"), siteHtml),
     writeFile(join(output, ".nojekyll"), ""),
   ]);
