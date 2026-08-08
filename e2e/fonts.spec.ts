@@ -99,10 +99,15 @@ async function valueShapedBy(
   const { fonts } = await session.send("CSS.getPlatformFontsForNode", { nodeId });
   if (fonts.length > 0) return shapedFrom(fonts);
 
-  const host = await editingHost(session, nodeId);
-  if (host === undefined) return [];
-  const { fonts: drawn } = await session.send("CSS.getPlatformFontsForNode", { nodeId: host });
-  expect(drawn, `${selector} drew text its editing host did not report`).not.toHaveLength(0);
+  const hosts = await editingHosts(session, nodeId);
+  if (hosts.length === 0) return [];
+
+  const drawn: Parameters<typeof shapedFrom>[0] = [];
+  for (const host of hosts) {
+    const { fonts: reported } = await session.send("CSS.getPlatformFontsForNode", { nodeId: host });
+    drawn.push(...reported);
+  }
+  expect(drawn, `${selector} drew text its editing hosts did not report`).not.toHaveLength(0);
   return shapedFrom(drawn);
 }
 
@@ -119,8 +124,8 @@ type PiercedNode = {
 };
 
 /**
- * The element Chromium drew a control's value in: the closest one holding every
- * text node in the control's shadow tree, or `undefined` when that tree holds no
+ * The elements Chromium drew a control's value in: every one directly holding
+ * text in the control's shadow tree, and none at all when that tree holds no
  * text and nothing was drawn.
  *
  * Only the shadow tree is walked. A control's light children are not what it
@@ -129,39 +134,42 @@ type PiercedNode = {
  * of, so both report nothing and both would pull the answer away from the
  * element that did the drawing.
  *
- * The closest common ancestor rather than the first text node found, because a
- * control that draws its value in parts — a date, in segments with separators
- * between them — has several, and the report descends two levels from wherever
- * it is pointed. One node holding all of them is one report covering all of them.
+ * Each such element is returned and read on its own, rather than one ancestor
+ * covering them all. A control draws in parts more often than it looks: a date
+ * in segments with separators between them, or any field showing its placeholder
+ * beside its value, which Chromium puts in a sibling of the element holding the
+ * value. The closest element above both is then the shadow root, which is not an
+ * element and cannot be asked what it shaped — so asking for one host turns an
+ * ordinary control into a failure that blames the tree. Pointing at the element
+ * that holds the text also spends none of the report's two-level descent on
+ * getting down to it.
  *
  * `DOM.describeNode` hands back shadow nodes with a `nodeId` of 0, because the
  * DOM agent has not pushed them and only pushed nodes can be addressed;
- * `DOM.pushNodesByBackendIdsToFrontend` is what turns the backend id it does
- * carry into one the report accepts.
+ * `DOM.pushNodesByBackendIdsToFrontend` is what turns the backend ids they do
+ * carry into ones the report accepts.
  */
-async function editingHost(session: CDPSession, nodeId: number): Promise<number | undefined> {
+async function editingHosts(session: CDPSession, nodeId: number): Promise<number[]> {
   const { node } = await session.send("DOM.describeNode", { nodeId, depth: -1, pierce: true });
-  const trails: PiercedNode[][] = [];
-  const descend = (parent: PiercedNode, trail: PiercedNode[]) => {
+  const holders = new Set<number>();
+  const descend = (parent: PiercedNode, holder: PiercedNode | undefined) => {
     for (const child of parent.children ?? []) {
-      if (child.nodeType === TEXT_NODE) {
-        if (child.nodeValue.trim() !== "") trails.push(trail);
-      } else descend(child, [...trail, child]);
+      if (child.nodeType !== TEXT_NODE) descend(child, child);
+      else if (child.nodeValue.trim() !== "") {
+        // A shadow root is not an element, and no font report can be pointed at
+        // one, so text lying directly in it is text this cannot account for.
+        expect(holder, "a control drew text directly inside its shadow root").toBeDefined();
+        holders.add(holder.backendNodeId);
+      }
     }
   };
-  for (const shadow of (node as PiercedNode).shadowRoots ?? []) descend(shadow, []);
-  if (trails.length === 0) return undefined;
+  for (const shadow of (node as PiercedNode).shadowRoots ?? []) descend(shadow, undefined);
+  if (holders.size === 0) return [];
 
-  const shared = trails.reduce((held, trail) => {
-    const parts = held.findIndex((ancestor, depth) => trail[depth] !== ancestor);
-    return parts === -1 ? held : held.slice(0, parts);
-  });
-  const host = shared.at(-1);
-  expect(host, "a control drew text no element in its shadow tree holds").toBeDefined();
   const { nodeIds } = await session.send("DOM.pushNodesByBackendIdsToFrontend", {
-    backendNodeIds: [host.backendNodeId],
+    backendNodeIds: [...holders],
   });
-  return nodeIds[0];
+  return nodeIds;
 }
 
 /**
@@ -517,6 +525,38 @@ test("the tempo and envelope amounts are swept, though neither is a text child",
   const labels = (await tagTextBearingElements(page)).map(({ label }) => label);
   expect(labels).toContain('#bpm-input "120"');
   expect(labels).toContain('input[data-field="envelope-amount"] "20"');
+
+  const session = await fontSession(page, context);
+  expect(await valueShapedBy(session, "#bpm-input")).toEqual([
+    { family: "Major Mono Display", embedded: true, glyphs: 3 },
+  ]);
+  expect(await valueShapedBy(session, 'input[data-field="envelope-amount"]')).toEqual([
+    { family: "JetBrains Mono", embedded: true, glyphs: 2 },
+  ]);
+});
+
+/**
+ * A placeholder is a second thing a control draws, and Chromium puts it in a
+ * sibling of the element holding the value rather than anywhere inside it — two
+ * subtrees whose closest common ancestor is the shadow root itself, which is not
+ * an element and cannot be asked what it shaped. A sweep looking for the one
+ * element holding every text node finds none and says so, blaming the tree for
+ * an assumption it made itself.
+ *
+ * `#bpm-input` is the control the value route exists for, and one attribute puts
+ * it in that shape with nothing visible changing while the field holds a value:
+ * Chromium keeps the placeholder's text node and hides the element around it. So
+ * each element that drew text is read on its own rather than one above them all,
+ * and the hidden placeholder contributes nothing, having painted nothing —
+ * `display: none` producing no layout object and no shaping result, which is the
+ * same reason `probeFonts` positions its probe away rather than hiding it.
+ */
+test("a control drawing a placeholder beside its value is still swept", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.locator("#bpm-input").evaluate((field) => field.setAttribute("placeholder", "tempo"));
 
   const session = await fontSession(page, context);
   expect(await valueShapedBy(session, "#bpm-input")).toEqual([
