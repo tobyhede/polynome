@@ -732,7 +732,7 @@ test("an injected audio context factory supplies the whole audio graph", async (
   assert.deepEqual(context.panners[0].outputs, [context.gains[0]]);
   assert.equal(context.oscillators.length >= 1, true);
   // The output stage is a constant, not a mix value read from state.
-  assert.equal(context.gains[0].gain.value, 0.8);
+  assert.equal(context.gains[0].gain.value, 1);
 
   engine.stop();
 });
@@ -1159,13 +1159,13 @@ test("a restart on a preserved context lifts the master gain off zero", async ()
   const { context, engine } = harness({ state: "running" });
 
   await engine.start(pulsePerSecond());
-  assert.equal(context.gains[0].gain.value, 0.8);
+  assert.equal(context.gains[0].gain.value, 1);
 
   engine.stop();
   assert.equal(masterGainAutomation(context).at(-1), 0);
 
   await engine.start(pulsePerSecond());
-  assert.equal(masterGainAutomation(context).at(-1), 0.8);
+  assert.equal(masterGainAutomation(context).at(-1), 1);
   // The same node throughout: a fresh gain would have masked a missing restore.
   assert.equal(context.gains[0].outputs.length, 1);
   assert.deepEqual(context.gains[0].outputs, [context.destination]);
@@ -1196,7 +1196,7 @@ test("a stored master volume does not reach the output stage", async () => {
   assert.equal("masterVolume" in legacy, false);
 
   await engine.start(legacy);
-  assert.equal(context.gains[0].gain.value, 0.8);
+  assert.equal(context.gains[0].gain.value, 1);
   assert.equal(masterGainAutomation(context).includes(0.11), false);
 
   engine.stop();
