@@ -550,6 +550,12 @@ test("the tempo and envelope amounts are swept, though neither is a text child",
  * and the hidden placeholder contributes nothing, having painted nothing —
  * `display: none` producing no layout object and no shaping result, which is the
  * same reason `probeFonts` positions its probe away rather than hiding it.
+ *
+ * That last part is why the count is asserted and not only the families. What a
+ * hidden placeholder contributes is nothing, so a sweep that never found its
+ * subtree at all reports the same families as one that found it and read it —
+ * and both are what a sweep that had gone back to looking for a single element
+ * would report too. Two hosts is the claim; the shaping result cannot make it.
  */
 test("a control drawing a placeholder beside its value is still swept", async ({
   page,
@@ -559,6 +565,9 @@ test("a control drawing a placeholder beside its value is still swept", async ({
   await page.locator("#bpm-input").evaluate((field) => field.setAttribute("placeholder", "tempo"));
 
   const session = await fontSession(page, context);
+  const hosts = await editingHosts(session, await nodeFor(session, "#bpm-input"));
+
+  expect(hosts, "the placeholder and the value were not seen as two drawn things").toHaveLength(2);
   expect(await valueShapedBy(session, "#bpm-input")).toEqual([
     { family: "Major Mono Display", embedded: true, glyphs: 3 },
   ]);
