@@ -338,7 +338,14 @@ async function probeFonts(page, session, text, stack) {
 
 const PRINTABLE_ASCII = Array.from({ length: 95 }, (_, i) => String.fromCodePoint(0x20 + i)).join("");
 
+// `playwright.config.ts` sets a `baseURL` and declares no auto-navigating
+// fixture, so a test that omits this navigates nowhere and probes `about:blank`,
+// where neither the `@font-face` rules nor `--body-font` exist. Measured, the
+// probe then shapes in Times and reports `isCustomFont: false`, which fails both
+// assertions below and passes the fallback control for the wrong reason — the
+// one arrangement in this file where a green run means nothing was checked.
 test("the body face carries every printable ASCII character", async ({ page, context }) => {
+  await page.goto("/");
   const session = await fontSession(page, context);
   expect(await probeFonts(page, session, PRINTABLE_ASCII, "var(--body-font)")).toEqual([
     { family: "JetBrains Mono", embedded: true, glyphs: 95 },
@@ -346,6 +353,7 @@ test("the body face carries every printable ASCII character", async ({ page, con
 });
 
 test("the display face carries every printable ASCII character", async ({ page, context }) => {
+  await page.goto("/");
   const session = await fontSession(page, context);
   expect(await probeFonts(page, session, PRINTABLE_ASCII, "var(--display-font)")).toEqual([
     { family: "Major Mono Display", embedded: true, glyphs: 95 },
@@ -361,6 +369,7 @@ test("the display face carries every printable ASCII character", async ({ page, 
  * it, and the tests above would go on passing silently.
  */
 test("a name outside the subset falls back, and is seen to", async ({ page, context }) => {
+  await page.goto("/");
   const session = await fontSession(page, context);
   const shaped = await probeFonts(page, session, "Привет", "var(--body-font)");
   expect(shaped).toHaveLength(1);
