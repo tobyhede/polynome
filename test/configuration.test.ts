@@ -1901,6 +1901,99 @@ test("the described travelled stretches are the ones a ramp passes through", () 
   );
 });
 
+/**
+ * Two ramps whose tempos overlap, with an active Flat between them: the case
+ * that looks like the one above and is its opposite.
+ *
+ * The run climbs 100 to 160, steps back to 120 sounding nothing on the way, and
+ * climbs 120 to 140 from there. The step is a real discontinuity — the tempo
+ * moves without travelling — but it moves *into* tempos the first ramp already
+ * sounded, so it clears none that are not banded anyway. `[100,160]` and
+ * `[120,140]` overlap, their union is `[100,160]`, and that is one band.
+ *
+ * Merging over-claims nothing, and the union is the proof: two stretches that
+ * touch or overlap have no hole between them, so every tempo in the merged
+ * interval lies in one of the two and was played. The ends hold for the same
+ * reason — a merged stretch's minimum and maximum are each some ramp's own
+ * endpoint, never a tempo the merge invented.
+ *
+ * Which is why the split this looks like it wants is the worse drawing. Keeping
+ * `[120,140]` as a band of its own stands a stretch's end-marks at 120 and 140
+ * in the middle of a band the run sweeps straight through, saying two tempos
+ * are boundaries when neither is one. That is a notation for the step rather
+ * than a reading of the tempos, and the Sequence-loop reset — ADR-0016's other
+ * intentional discontinuity — goes undrawn on the same grounds: it returns
+ * within tempos already travelled, so there is nothing for it to claim.
+ *
+ * What decides this is where the step lands, never that a Flat was written
+ * between them, which is what the last case here holds down.
+ */
+test("overlapping stretches merge across a Flat, because their union is travelled too", () => {
+  const stretches = (bpm, cycles) =>
+    describeConfiguration(
+      createConfiguration({
+        bpm,
+        sequence: {
+          cycles: cycles.map((envelope) => ({ envelope, repetitions: 1, rhythms: [{}] })),
+        },
+      }),
+    ).travelledStretches;
+
+  // 100 to 160, a step back to 120, then 120 to 140. The second ramp lies
+  // wholly inside the first, so the union is the first and one band says it.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 60 },
+      { shape: "flat", amount: -40 },
+      { shape: "up", amount: 20 },
+    ]),
+    [{ minimum: 100, maximum: 160 }],
+  );
+
+  // Partly overlapping rather than contained: 100 to 140, a step back to 120,
+  // then 120 to 160. Neither stretch holds the other, the union is still one
+  // interval, and both ends of the band are ends a ramp actually reached.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 40 },
+      { shape: "flat", amount: -20 },
+      { shape: "up", amount: 40 },
+    ]),
+    [{ minimum: 100, maximum: 160 }],
+  );
+
+  // Touching across a Flat rather than overlapping, which is the same question
+  // at the edge: a Peak out to 140 and back to 100, a step down to 80, then 80
+  // back up to 100. The two stretches share the tempo 100 and nothing lies
+  // between them, so the union is unbroken and the band runs 80 to 140. Held
+  // apart they would be drawn end to end, and two bands meeting at a tempo look
+  // like two transitions with nothing in the tempos to say they are not.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "peak", amount: 40 },
+      { shape: "flat", amount: -20 },
+      { shape: "up", amount: 20 },
+    ]),
+    [{ minimum: 80, maximum: 140 }],
+  );
+
+  // The same three shapes with a Flat that clears the first ramp instead of
+  // landing inside it: 100 to 160, a step to 280, then 280 to 300. The gap is
+  // real now and it is two bands again — so it is where the step lands that
+  // decides this, and never the Flat between them.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 60 },
+      { shape: "flat", amount: 120 },
+      { shape: "up", amount: 20 },
+    ]),
+    [
+      { minimum: 100, maximum: 160 },
+      { minimum: 280, maximum: 300 },
+    ],
+  );
+});
+
 test("an inactive Cycle passes its tempo through and keeps its envelope", () => {
   const configuration = createConfiguration({
     bpm: 100,
