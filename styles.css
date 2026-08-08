@@ -884,26 +884,32 @@ h1.is-glitching {
   opacity: 0.9;
 }
 
-/* A travelled range is a stretch, so it is drawn as one. Marking it on the scale
-   itself drew it at the tick interval and nothing finer: a ramp from 157 to 174
-   reached the two marks at 160 and 170 with nothing between them, and a range
-   falling between two marks — 152 to 158 — reached none at all and left the band
-   invisible at exactly the sizes a reader most needs told about it. The band is
-   its own object, placed from the two tempos, so a short ramp is a short band
-   rather than a rounding of one and the scale underneath is left alone.
+/* A travelled stretch is a stretch, so it is drawn as one. Marking it on the
+   scale itself drew it at the tick interval and nothing finer: a ramp from 157
+   to 174 reached the two marks at 160 and 170 with nothing between them, and a
+   stretch falling between two marks — 152 to 158 — reached none at all and left
+   the band invisible at exactly the sizes a reader most needs told about it. A
+   band is its own object, placed from the two tempos, so a short ramp is a short
+   band rather than a rounding of one and the scale underneath is left alone.
+
+   One element per stretch, and that is why they are elements: a Flat between two
+   ramps travels two stretches with the tempos it stepped over left unplayed
+   between them, and a pseudo-element has one start and one end to say that with.
+   Absolutely positioned, so the row's marks go on distributing themselves across
+   it as though the bands were not there. `app.ts` writes each one's two tempos
+   as shares of the range.
 
    Three background layers rather than a bordered box. The ends are the piece
-   that has to be read — they are the tempos the range stops at, so they take the
-   labelled marks' height and twice the scale's weight — and the line joining
+   that has to be read — they are the tempos the stretch stops at, so they take
+   the labelled marks' height and twice the scale's weight — and the line joining
    them runs at their midline. As borders they would have had to come out of the
    element's own width, which at the floor below is narrower than the two of them
    put together.
 
-   `max()` holds that floor: a range of a beat or two is a fraction of a percent
-   of the 270bpm the control offers, and a band thinner than its own ends would
-   trade one invisible indication for another. */
-.bpm-ticks.is-banded::before {
-  content: "";
+   `max()` holds that floor: a stretch of a beat or two is a fraction of a
+   percent of the 270bpm the control offers, and a band thinner than its own ends
+   would trade one invisible indication for another. */
+.bpm-ticks .bpm-band {
   position: absolute;
   /* The marks hang from this edge, so an element of a labelled mark's height
      starts here and the two agree without either restating the other's size. */

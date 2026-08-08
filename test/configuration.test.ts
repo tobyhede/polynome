@@ -1765,9 +1765,9 @@ test("the described tempo range spans every tempo a traversal visits", () => {
 });
 
 /**
- * The band the transport draws is not that range. `tempoRange` is every tempo a
- * traversal visits; the band is the stretch it travels *through*, which is a
- * narrower thing and the only one a bar can honestly claim.
+ * The bands the transport draws are not that range. `tempoRange` is every tempo
+ * a traversal visits; the bands are the stretches it travels *through*, which
+ * are narrower and the only ones a bar can honestly claim.
  *
  * Two cases separate them. A Flat jumps from one tempo to the next and sounds
  * neither of the ones between, so the gap it clears is visited at its ends and
@@ -1776,9 +1776,14 @@ test("the described tempo range spans every tempo a traversal visits", () => {
  * constant tempo. Reading the amount rather than the endpoints drew a band for
  * it — a short one, because the bar has a minimum width, but a band all the same
  * where there was nothing to band.
+ *
+ * Why a list rather than one span: a Flat between two ramps leaves two stretches
+ * that do not touch, and one span across the pair is a claim on the tempos the
+ * step cleared. Ramps that do meet are merged back, so how a single transition
+ * happens to be spelled across Cycles cannot break it into pieces.
  */
-test("the described travelled range is the stretch a ramp passes through", () => {
-  const travelled = (configuration) => describeConfiguration(configuration).travelledRange;
+test("the described travelled stretches are the ones a ramp passes through", () => {
+  const stretches = (configuration) => describeConfiguration(configuration).travelledStretches;
   const withCycles = (bpm, cycles) =>
     createConfiguration({
       bpm,
@@ -1786,14 +1791,24 @@ test("the described travelled range is the stretch a ramp passes through", () =>
     });
 
   // A ramp on its own travels the two tempos it joins.
-  assert.deepEqual(travelled(withCycles(100, [{ shape: "up", amount: 40 }])), {
-    minimum: 100,
-    maximum: 140,
-  });
+  assert.deepEqual(stretches(withCycles(100, [{ shape: "up", amount: 40 }])), [
+    { minimum: 100, maximum: 140 },
+  ]);
 
-  // A Flat travels nothing, whatever it steps by.
-  assert.equal(travelled(withCycles(100, [{ shape: "flat", amount: 60 }])), null);
-  assert.equal(travelled(withCycles(100, [{ shape: "flat", amount: 0 }])), null);
+  // A Flat travels nothing, whatever it steps by, so a Sequence of nothing but
+  // Flats reports no stretch at all. That empty list is the state that leaves
+  // the tick row unbanded.
+  assert.deepEqual(stretches(withCycles(100, [{ shape: "flat", amount: 60 }])), []);
+  assert.deepEqual(stretches(withCycles(100, [{ shape: "flat", amount: 0 }])), []);
+  assert.deepEqual(
+    stretches(
+      withCycles(100, [
+        { shape: "flat", amount: 60 },
+        { shape: "flat", amount: -40 },
+      ]),
+    ),
+    [],
+  );
 
   // The reported case: the Flat's step is visited but never travelled, so the
   // band is the ramp that follows it rather than the whole climb from 120.
@@ -1802,23 +1817,75 @@ test("the described travelled range is the stretch a ramp passes through", () =>
     { shape: "up", amount: 20 },
   ]);
   assert.deepEqual(describeConfiguration(afterAStep).tempoRange, { minimum: 120, maximum: 200 });
-  assert.deepEqual(travelled(afterAStep), { minimum: 180, maximum: 200 });
+  assert.deepEqual(stretches(afterAStep), [{ minimum: 180, maximum: 200 }]);
+
+  // Ramps chain: ADR-0016 has adjacent continuous envelopes meet at the audible
+  // endpoint, so a run of them travels one unbroken stretch however it happens
+  // to be spelled across Cycles. Climbing 60 to 80 and falling back to 50 sounds
+  // every tempo between 50 and 80, and that is one band rather than two.
+  assert.deepEqual(
+    stretches(
+      withCycles(60, [
+        { shape: "up", amount: 20 },
+        { shape: "down", amount: 30 },
+      ]),
+    ),
+    [{ minimum: 50, maximum: 80 }],
+  );
+
+  // A Flat *between* two ramps leaves two stretches that do not touch: the run
+  // travels 60 to 80, steps to 180 sounding none of the tempos between, and
+  // travels 180 to 200 from there. One span across the pair would claim the
+  // hundred BPM the step cleared.
+  assert.deepEqual(
+    stretches(
+      withCycles(60, [
+        { shape: "up", amount: 20 },
+        { shape: "flat", amount: 100 },
+        { shape: "up", amount: 20 },
+      ]),
+    ),
+    [
+      { minimum: 60, maximum: 80 },
+      { minimum: 180, maximum: 200 },
+    ],
+  );
+
+  // An inactive Cycle does not break a stretch the way an active Flat does. It
+  // passes its incoming tempo through untouched, however large the step it is
+  // still holding, so the ramps either side meet at 80 exactly and stay one
+  // band. Meeting is not overlapping, and it has to count as touching or every
+  // chained pair of ramps would come back in pieces.
+  assert.deepEqual(
+    describeConfiguration(
+      createConfiguration({
+        bpm: 60,
+        sequence: {
+          cycles: [
+            { envelope: { shape: "up", amount: 20 }, repetitions: 1, rhythms: [{}] },
+            { envelope: { shape: "flat", amount: 100 }, repetitions: 0, rhythms: [{}] },
+            { envelope: { shape: "up", amount: 20 }, repetitions: 1, rhythms: [{}] },
+          ],
+        },
+      }),
+    ).travelledStretches,
+    [{ minimum: 60, maximum: 100 }],
+  );
 
   // A ramp with nowhere left to go: the amount is stored, both endpoints are on
   // the limit, and the run holds one tempo throughout.
-  assert.equal(travelled(withCycles(300, [{ shape: "up", amount: 20 }])), null);
-  assert.equal(travelled(withCycles(30, [{ shape: "down", amount: 20 }])), null);
+  assert.deepEqual(stretches(withCycles(300, [{ shape: "up", amount: 20 }])), []);
+  assert.deepEqual(stretches(withCycles(30, [{ shape: "down", amount: 20 }])), []);
   // The same ramp with room to move is a band again, so it is the clamping that
   // silences it and not the shape.
-  assert.deepEqual(travelled(withCycles(280, [{ shape: "up", amount: 20 }])), {
-    minimum: 280,
-    maximum: 300,
-  });
+  assert.deepEqual(stretches(withCycles(280, [{ shape: "up", amount: 20 }])), [
+    { minimum: 280, maximum: 300 },
+  ]);
 
   // A switched-off Cycle keeps its envelope, passes its tempo on, and travels
   // nothing. It needs a Cycle beside it to be switched off at all: a lone Cycle
   // repairs to one repetition rather than none.
-  assert.equal(
+  assert.deepEqual(
     describeConfiguration(
       createConfiguration({
         bpm: 96,
@@ -1829,8 +1896,101 @@ test("the described travelled range is the stretch a ramp passes through", () =>
           ],
         },
       }),
-    ).travelledRange,
-    null,
+    ).travelledStretches,
+    [],
+  );
+});
+
+/**
+ * Two ramps whose tempos overlap, with an active Flat between them: the case
+ * that looks like the one above and is its opposite.
+ *
+ * The run climbs 100 to 160, steps back to 120 sounding nothing on the way, and
+ * climbs 120 to 140 from there. The step is a real discontinuity — the tempo
+ * moves without travelling — but it moves *into* tempos the first ramp already
+ * sounded, so it clears none that are not banded anyway. `[100,160]` and
+ * `[120,140]` overlap, their union is `[100,160]`, and that is one band.
+ *
+ * Merging over-claims nothing, and the union is the proof: two stretches that
+ * touch or overlap have no hole between them, so every tempo in the merged
+ * interval lies in one of the two and was played. The ends hold for the same
+ * reason — a merged stretch's minimum and maximum are each some ramp's own
+ * endpoint, never a tempo the merge invented.
+ *
+ * Which is why the split this looks like it wants is the worse drawing. Keeping
+ * `[120,140]` as a band of its own stands a stretch's end-marks at 120 and 140
+ * in the middle of a band the run sweeps straight through, saying two tempos
+ * are boundaries when neither is one. That is a notation for the step rather
+ * than a reading of the tempos, and the Sequence-loop reset — ADR-0016's other
+ * intentional discontinuity — goes undrawn on the same grounds: it returns
+ * within tempos already travelled, so there is nothing for it to claim.
+ *
+ * What decides this is where the step lands, never that a Flat was written
+ * between them, which is what the last case here holds down.
+ */
+test("overlapping stretches merge across a Flat, because their union is travelled too", () => {
+  const stretches = (bpm, cycles) =>
+    describeConfiguration(
+      createConfiguration({
+        bpm,
+        sequence: {
+          cycles: cycles.map((envelope) => ({ envelope, repetitions: 1, rhythms: [{}] })),
+        },
+      }),
+    ).travelledStretches;
+
+  // 100 to 160, a step back to 120, then 120 to 140. The second ramp lies
+  // wholly inside the first, so the union is the first and one band says it.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 60 },
+      { shape: "flat", amount: -40 },
+      { shape: "up", amount: 20 },
+    ]),
+    [{ minimum: 100, maximum: 160 }],
+  );
+
+  // Partly overlapping rather than contained: 100 to 140, a step back to 120,
+  // then 120 to 160. Neither stretch holds the other, the union is still one
+  // interval, and both ends of the band are ends a ramp actually reached.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 40 },
+      { shape: "flat", amount: -20 },
+      { shape: "up", amount: 40 },
+    ]),
+    [{ minimum: 100, maximum: 160 }],
+  );
+
+  // Touching across a Flat rather than overlapping, which is the same question
+  // at the edge: a Peak out to 140 and back to 100, a step down to 80, then 80
+  // back up to 100. The two stretches share the tempo 100 and nothing lies
+  // between them, so the union is unbroken and the band runs 80 to 140. Held
+  // apart they would be drawn end to end, and two bands meeting at a tempo look
+  // like two transitions with nothing in the tempos to say they are not.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "peak", amount: 40 },
+      { shape: "flat", amount: -20 },
+      { shape: "up", amount: 20 },
+    ]),
+    [{ minimum: 80, maximum: 140 }],
+  );
+
+  // The same three shapes with a Flat that clears the first ramp instead of
+  // landing inside it: 100 to 160, a step to 280, then 280 to 300. The gap is
+  // real now and it is two bands again — so it is where the step lands that
+  // decides this, and never the Flat between them.
+  assert.deepEqual(
+    stretches(100, [
+      { shape: "up", amount: 60 },
+      { shape: "flat", amount: 120 },
+      { shape: "up", amount: 20 },
+    ]),
+    [
+      { minimum: 100, maximum: 160 },
+      { minimum: 280, maximum: 300 },
+    ],
   );
 });
 

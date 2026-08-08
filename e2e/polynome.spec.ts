@@ -1000,23 +1000,22 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
         Number(mark.dataset.bpm),
       ),
     );
-  // The band is placed in percentages of the tempo range, so reading it back as
-  // a pair of tempos is what the assertions below are actually about.
-  const band = () =>
+  // A band is placed in percentages of the tempo range, so reading each one back
+  // as the pair of tempos it stands on is what the assertions below are actually
+  // about. A run with nothing to band draws none, so an empty row is an empty
+  // list rather than a band of nowhere.
+  const bands = () =>
     page.evaluate(async () => {
       const { TEMPO_LIMIT } = await import("/model.ts");
-      const row = document.querySelector<HTMLElement>("#bpm-ticks");
       const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
-      const bpm = (property) => {
-        const percentage = row.style.getPropertyValue(property);
-        if (!percentage) return null;
-        // A tempo that went out as a share of the range and came back divided by
-        // it lands a few parts in 10^15 off the whole number it left as.
-        return (
-          Math.round((TEMPO_LIMIT.minimum + (parseFloat(percentage) / 100) * span) * 1e4) / 1e4
-        );
-      };
-      return [bpm("--band-start"), bpm("--band-end")];
+      // A tempo that went out as a share of the range and came back divided by
+      // it lands a few parts in 10^15 off the whole number it left as.
+      const bpm = (percentage) =>
+        Math.round((TEMPO_LIMIT.minimum + (parseFloat(percentage) / 100) * span) * 1e4) / 1e4;
+      return [...document.querySelectorAll<HTMLElement>("#bpm-ticks .bpm-band")].map((band) => [
+        bpm(band.style.getPropertyValue("--band-start")),
+        bpm(band.style.getPropertyValue("--band-end")),
+      ]);
     });
 
   await slider.fill("120");
@@ -1031,23 +1030,23 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   await envelopeAmount(page).blur();
   // Still counting up: the span is only marked once it is being travelled.
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
-  expect(await band()).toEqual([null, null]);
+  expect(await bands()).toEqual([]);
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).toHaveClass(/\bis-banded\b/);
   // The two tempos themselves, not the marks at 120 and 170 that bracket them.
-  expect(await band()).toEqual([120, 174]);
+  expect(await bands()).toEqual([[120, 174]]);
   // And the scale it is drawn over is left alone: the band says this, once.
   expect(await lit()).toEqual([]);
 
   // The tempo climbs and the band does not follow it.
   await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(120);
-  expect(await band()).toEqual([120, 174]);
+  expect(await bands()).toEqual([[120, 174]]);
   expect(await lit()).toEqual([]);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
-  expect(await band()).toEqual([null, null]);
+  expect(await bands()).toEqual([]);
 });
 
 /**
@@ -1114,23 +1113,29 @@ test("a Flat envelope moves the tempo without marking a range", async ({ page })
  * its amount, reaches its limit at both ends, and holds one tempo throughout.
  * Reading the amount rather than the endpoints banded that run too, and the
  * band's own minimum width made it a visible mark for a tempo that never moved.
+ *
+ * A Flat *between* two ramps is the case one band cannot state at all. Both
+ * stretches are travelled and the tempos between them are not, so what the row
+ * carries is a band each and a gap where the step was.
  */
 test("the band is the stretch travelled, not the tempos a Flat or a limit leaves standing", async ({
   page,
 }) => {
   const ticks = page.locator("#bpm-ticks");
   const slider = page.getByLabel("Tempo in beats per minute", { exact: true });
-  const band = () =>
+  // One band per stretch travelled, each read back as the two tempos it stands
+  // on. The row carries as many as the run has stretches, so the count is part
+  // of the reading rather than something asserted beside it.
+  const bands = () =>
     page.evaluate(async () => {
       const { TEMPO_LIMIT } = await import("/model.ts");
-      const row = document.querySelector<HTMLElement>("#bpm-ticks");
       const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
-      const bpm = (property) => {
-        const percentage = row.style.getPropertyValue(property);
-        if (!percentage) return null;
-        return Math.round(TEMPO_LIMIT.minimum + (Number.parseFloat(percentage) / 100) * span);
-      };
-      return [bpm("--band-start"), bpm("--band-end")];
+      const bpm = (percentage) =>
+        Math.round(TEMPO_LIMIT.minimum + (Number.parseFloat(percentage) / 100) * span);
+      return [...document.querySelectorAll<HTMLElement>("#bpm-ticks .bpm-band")].map((band) => [
+        bpm(band.style.getPropertyValue("--band-start")),
+        bpm(band.style.getPropertyValue("--band-end")),
+      ]);
     });
 
   // A Flat +60 from 120, then a ramp of 20 over the 180 it hands on.
@@ -1149,7 +1154,7 @@ test("the band is the stretch travelled, not the tempos a Flat or a limit leaves
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).toHaveClass(/\bis-banded\b/);
-  expect(await band()).toEqual([180, 200]);
+  expect(await bands()).toEqual([[180, 200]]);
   await page.getByRole("button", { name: "Stop metronome" }).click();
 
   // The same ramp with nothing left to give: at the top of the range its two
@@ -1158,7 +1163,7 @@ test("the band is the stretch travelled, not the tempos a Flat or a limit leaves
   await slider.fill("300");
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).not.toHaveClass(/\bis-banded\b/);
-  expect(await band()).toEqual([null, null]);
+  expect(await bands()).toEqual([]);
 
   // And with room to move again it is a band once more, so it is the limit that
   // silences it rather than the shape.
@@ -1166,7 +1171,78 @@ test("the band is the stretch travelled, not the tempos a Flat or a limit leaves
   await slider.fill("280");
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(ticks).toHaveClass(/\bis-banded\b/);
-  expect(await band()).toEqual([280, 300]);
+  expect(await bands()).toEqual([[280, 300]]);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+
+  // Two ramps with a Flat between them. The surviving Cycle is the Up 20 the
+  // limit case left open, climbing 60 to 80 from the new starting tempo; the
+  // Flat steps to 180 without sounding anything on the way; the third travels
+  // 180 to 200. Two bands, and the hundred BPM the step cleared left unbanded.
+  await slider.fill("60");
+  await add.click();
+  await add.click();
+  for (const index of [1, 2]) {
+    await page.getByRole("button", { name: `Edit Cycle ${index + 1} envelope` }).click();
+  }
+  await envelopeAmount(page, "Cycle 1").fill("20");
+  await envelopeAmount(page, "Cycle 1").blur();
+  await envelopeAmount(page, "Cycle 2").fill("100");
+  await envelopeAmount(page, "Cycle 2").blur();
+  await cycleDrawer(page, 2).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page, "Cycle 3").fill("20");
+  await envelopeAmount(page, "Cycle 3").blur();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(ticks).toHaveClass(/\bis-banded\b/);
+  expect(await bands()).toEqual([
+    [60, 80],
+    [180, 200],
+  ]);
+  await page.getByRole("button", { name: "Stop metronome" }).click();
+});
+
+/**
+ * The other half of drawing a band per stretch: ramps that meet are one stretch
+ * and must stay one band. ADR-0016 has adjacent continuous envelopes meet at the
+ * audible endpoint, so a climb to 80 followed by a fall to 50 sounds every tempo
+ * between 50 and 80 without a break, and how the transition happens to be split
+ * across Cycles is not something the row should report.
+ *
+ * Counted here rather than only in the description, because the count is what a
+ * listener sees: two bands meeting end to end look like two transitions, and
+ * nothing about the tempos they carry would say otherwise.
+ */
+test("consecutive ramps draw one band rather than one for each Cycle", async ({ page }) => {
+  const ticks = page.locator("#bpm-ticks");
+  const bands = () =>
+    page.evaluate(async () => {
+      const { TEMPO_LIMIT } = await import("/model.ts");
+      const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
+      const bpm = (percentage) =>
+        Math.round(TEMPO_LIMIT.minimum + (Number.parseFloat(percentage) / 100) * span);
+      return [...document.querySelectorAll<HTMLElement>("#bpm-ticks .bpm-band")].map((band) => [
+        bpm(band.style.getPropertyValue("--band-start")),
+        bpm(band.style.getPropertyValue("--band-end")),
+      ]);
+    });
+
+  await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
+  for (const index of [0, 1]) {
+    await page.getByRole("button", { name: `Edit Cycle ${index + 1} envelope` }).click();
+  }
+  // 60 up to 80, then 80 down to 50: two Cycles, one unbroken stretch.
+  await cycleDrawer(page, 0).getByRole("button", { name: "Up" }).click();
+  await envelopeAmount(page, "Cycle 1").fill("20");
+  await envelopeAmount(page, "Cycle 1").blur();
+  await cycleDrawer(page, 1).getByRole("button", { name: "Down" }).click();
+  await envelopeAmount(page, "Cycle 2").fill("30");
+  await envelopeAmount(page, "Cycle 2").blur();
+
+  await page.getByRole("button", { name: "Play metronome" }).click();
+  await expect(ticks).toHaveClass(/\bis-banded\b/);
+  await expect(ticks.locator(".bpm-band")).toHaveCount(1);
+  expect(await bands()).toEqual([[50, 80]]);
   await page.getByRole("button", { name: "Stop metronome" }).click();
 });
 
@@ -1231,17 +1307,19 @@ test("the readout holds its size and its marks while an envelope moves the tempo
 
   // The custom properties are written straight onto the elements, so the inline
   // declarations are the whole of what the readout has been told about its size
-  // and the row about its band. They are compared as they were written rather
-  // than as tempos: an unchanged string is the strongest form of "did not move".
+  // and each band about where it stands. They are compared as they were written
+  // rather than as tempos: an unchanged string is the strongest form of "did not
+  // move". The bands are read as a list, so a band that appeared or went between
+  // two frames is as visible here as one that slid.
   const reading = () =>
     page.evaluate(() => {
       const row = document.querySelector<HTMLElement>("#bpm-ticks");
       return {
         bpm: Number(document.querySelector<HTMLInputElement>("#bpm-input").value),
-        band: [
-          row.style.getPropertyValue("--band-start"),
-          row.style.getPropertyValue("--band-end"),
-        ],
+        bands: [...row.querySelectorAll<HTMLElement>(".bpm-band")].map((band) => [
+          band.style.getPropertyValue("--band-start"),
+          band.style.getPropertyValue("--band-end"),
+        ]),
         lit: row.querySelectorAll("span.is-passed").length,
         size: document
           .querySelector<HTMLElement>("#bpm-readout")
@@ -1269,10 +1347,12 @@ test("the readout holds its size and its marks while an envelope moves the tempo
 
   // The number moved and the readout around it did not.
   expect(climbing.size).toBe(start.size);
-  expect(climbing.band).toEqual(start.band);
-  // The band stands on the run's whole span rather than on the tempo of the
-  // moment: 60 through 180, as shares of the 30-to-300 the control offers.
-  const [from, to] = start.band.map(Number.parseFloat);
+  expect(climbing.bands).toEqual(start.bands);
+  // One ramp travels one stretch, and its band stands on the run's whole span
+  // rather than on the tempo of the moment: 60 through 180, as shares of the
+  // 30-to-300 the control offers.
+  expect(start.bands).toHaveLength(1);
+  const [from, to] = start.bands[0].map(Number.parseFloat);
   expect(30 + (from / 100) * 270).toBeCloseTo(60, 6);
   expect(30 + (to / 100) * 270).toBeCloseTo(180, 6);
   // And the scale underneath is untouched while it is drawn over.
