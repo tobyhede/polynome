@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, lstat, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -65,6 +66,91 @@ async function trackedFiles() {
 }
 
 /**
+ * What Biome opens when the tracked regular files reach it by a route that is
+ * not `scripts/lint.ts`: enumerated here, handed over here, and reported by
+ * Biome under the same configuration from the same directory.
+ *
+ * This is the lower bound the assertions below did not have. Naming files —
+ * `app.ts`, `styles.css`, `index.html` — bounds the examined set at three, and
+ * an enumeration quietly shrunk to fifteen of fifty-three files, losing `e2e/`,
+ * `test/`, `scripts/` and `types/` entire and `scripts/lint.ts` with them,
+ * satisfies every one of them. A count computed here would be no better, since
+ * it would agree with a broken enumeration about a wrong answer. Two
+ * enumerations obliged to arrive at the same set is the check with no such
+ * blind spot: to agree wrongly they must both break in the same way, and this
+ * one is deliberately not the one under test.
+ *
+ * Which files Biome has a language for is left to Biome on both sides rather
+ * than restated here. It skips what it cannot read — 53 of 191 tracked paths
+ * are examined, the rest being Markdown, YAML, the lock files, the fonts, and
+ * the `.claude/skills` symlinks the mode filter drops — so a list of extensions
+ * in this file would go stale the day Biome learns another, exactly as one in
+ * `scripts/lint.ts` would.
+ */
+async function independentlyProcessedFiles(cwd: string) {
+  const { stdout } = await run("git", ["ls-files", "-z", "--stage"], {
+    cwd,
+    maxBuffer: 1024 * 1024 * 8,
+  });
+
+  const paths = stdout
+    .split("\0")
+    .filter((entry) => entry !== "")
+    .map((entry) => {
+      // Split at the first tab only, for the reason `scripts/lint.ts` gives.
+      // Copying its former bug here would leave both sides agreeing about a
+      // truncated pathname, which is the one way this comparison is fooled.
+      const separator = entry.indexOf("\t");
+      const mode = entry.slice(0, separator).split(" ")[0];
+      return { mode, path: entry.slice(separator + 1) };
+    })
+    .filter(({ mode }) => mode === "100644" || mode === "100755")
+    .map(({ path }) => path);
+
+  const biome = createRequire(import.meta.url).resolve("@biomejs/biome/bin/biome");
+  const { output } = await status(
+    process.execPath,
+    [biome, "check", "--verbose", "--", ...paths],
+    cwd,
+  );
+
+  return processedFiles(output);
+}
+
+/**
+ * Holds the two accounts of what was examined against each other. Both are
+ * sorted first, because Biome reports the files in the order it finished with
+ * them rather than the order it was handed them.
+ */
+function assertSameFiles(examined: string[], independent: string[], where: string, output: string) {
+  const unexamined = independent.filter((name) => !examined.includes(name));
+  const unexpected = examined.filter((name) => !independent.includes(name));
+
+  assert.deepEqual(
+    [...examined].sort(),
+    [...independent].sort(),
+    `the lint entry point examined a different set of files ${where} than enumerating the ` +
+      `tracked files independently produced.\n\nTracked but not examined:\n${
+        unexamined.join("\n") || "(none)"
+      }\n\nExamined but not tracked:\n${unexpected.join("\n") || "(none)"}\n\n${output}`,
+  );
+}
+
+/**
+ * A tracked pathname carrying a tab of its own, which is the one input that
+ * separates reading `git ls-files -z --stage` from reading it nearly right. The
+ * format puts a tab between the metadata and the path, and `-z` is precisely
+ * what stops git escaping a tab inside the path, so such an entry arrives with
+ * two of them and code that splits on every tab hands Biome a truncated name.
+ *
+ * It lives in the fixture rather than in this repository because the name is
+ * worth exercising and not worth shipping. Its content is a formatted, lintable
+ * module, so anything Biome says about it is about the enumeration and not
+ * about the file.
+ */
+const awkwardName = "fixture\tnamed with a tab.ts";
+
+/**
  * A checkout of the working tree at a path under `.claude/worktrees/`, which is
  * where agent worktrees of this repository live and the one place the lint
  * entry point was broken. It is built by copying rather than by
@@ -105,6 +191,8 @@ async function checkoutUnderWorktrees() {
     await copyFile(source, destination);
   }
 
+  await writeFile(join(fixture, awkwardName), "export const awkward = 1;\n");
+
   await run("git", ["init", "--quiet"], { cwd: fixture });
   await run("git", ["add", "--all"], { cwd: fixture });
   await symlink(join(root, "node_modules"), join(fixture, "node_modules"), "dir");
@@ -136,12 +224,24 @@ test("the lint entry point checks the tracked files from a checkout under .claud
     fixture,
   );
   const files = processedFiles(output);
+  const independent = await independentlyProcessedFiles(fixture);
 
   assert.ok(files.length > 0, `the lint entry point examined no files at all:\n\n${output}`);
+  assert.ok(
+    independent.length > 0,
+    "enumerating the fixture's tracked files independently produced nothing, so the comparison " +
+      "below would hold over two empty sets and mean nothing.",
+  );
   assert.ok(
     files.includes("app.ts"),
     `app.ts is tracked but was not examined, so the lint set is wrong: ${files.join(", ")}`,
   );
+  assert.ok(
+    files.includes(awkwardName),
+    `${JSON.stringify(awkwardName)} is tracked but was not examined, so a tab in a pathname is ` +
+      `being read as the separator that ends it: ${files.join(", ")}`,
+  );
+  assertSameFiles(files, independent, "from a checkout under .claude/worktrees", output);
   assert.equal(code, 0, `the lint entry point failed from a worktree checkout:\n\n${output}`);
 });
 
@@ -167,14 +267,22 @@ test("the lint entry point checks the repository's own tracked files and nothing
   );
   const files = processedFiles(output);
   const tracked = await trackedFiles();
+  const independent = await independentlyProcessedFiles(root);
 
   assert.ok(files.length > 0, `the lint entry point examined no files at all:\n\n${output}`);
+  assert.ok(
+    independent.length > 0,
+    "enumerating this repository's tracked files independently produced nothing, so the " +
+      "comparison below would hold over two empty sets and mean nothing.",
+  );
   for (const name of ["app.ts", "styles.css", "index.html"]) {
     assert.ok(
       files.includes(name),
       `${name} is tracked but was not examined, so the lint set is wrong: ${files.join(", ")}`,
     );
   }
+
+  assertSameFiles(files, independent, "from the repository root", output);
 
   const untracked = files.filter((name) => !tracked.has(name));
 

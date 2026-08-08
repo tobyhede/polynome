@@ -47,8 +47,18 @@ async function trackedFiles() {
     .split("\0")
     .filter((entry) => entry !== "")
     .map((entry) => {
-      const [meta, path] = entry.split("\t");
-      return { mode: meta.split(" ")[0], path };
+      // The first tab is the separator and any tab after it belongs to the
+      // pathname, so this splits there and nowhere else. `-z` is what makes
+      // that distinction necessary: it turns off the quoting that would
+      // otherwise render an interior tab as `\t`, so such a path arrives raw
+      // and splitting on every tab truncates it. The truncated name is then a
+      // path that does not exist, which Biome reports and does not fail on —
+      // the file goes unread and the run still exits zero — or, if the prefix
+      // happens to name a directory, one Biome scans, which is the directory
+      // scan this entry point exists to stop.
+      const separator = entry.indexOf("\t");
+      const mode = entry.slice(0, separator).split(" ")[0];
+      return { mode, path: entry.slice(separator + 1) };
     })
     .filter(({ mode }) => mode === "100644" || mode === "100755")
     .map(({ path }) => path);
