@@ -42,7 +42,8 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * The last raise carried that refusal past the unchanged-edit short circuit,
    * so a denominator a ratio layer already stores is refused by name rather
    * than reported as an ordinary no-op, measuring 294,471 bytes after rebase.
-   * The raise
+   * The Polyrhythm shared-span layout adds the intentional visual geometry,
+   * measuring 296,203 bytes after rebase. The raise
    * before it refused a denominator edit against a layer whose notation
    * carries no denominator, measuring 293,965 bytes after rebase. The one
    * before that added the matched Polymeter and Polyrhythm Presets,
@@ -59,10 +60,10 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 294_500 },
+  "dist/polynome.html": { raw: 296_500 },
   /** The bundled script alone, which is the half that grows from source. */
-  "site/app-local.js": { raw: 174_250, gzip: 42_400 },
-  "site/styles-local.css": { raw: 30_900 },
+  "site/app-local.js": { raw: 176_000, gzip: 43_000 },
+  "site/styles-local.css": { raw: 31_500 },
 });
 
 /**
