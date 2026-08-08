@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node server.ts",
     "dev": "node server.ts --reload",
-    "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint": "node scripts/lint.ts",
+    "format": "node scripts/lint.ts --write",
     "types": "tsc -p tsconfig.json",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='e2e/**' --test-coverage-lines=95 --test-coverage-branches=87 --test-coverage-functions=94",
