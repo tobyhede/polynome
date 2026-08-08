@@ -122,6 +122,54 @@ test("every reference the real site emits resolves to an emitted file", async ()
   }
 });
 
+/**
+ * OFL 1.1 §2 lets a Modified Version be redistributed provided each copy carries
+ * the copyright notice and the licence, and both faces are Modified Versions
+ * because subsetting is modification — the SIL FAQ says so at 2.6. The notice is
+ * in the woff2 itself at name ID 0. The licence is only here if something puts
+ * it here, and for a year nothing did: the two texts sat in `fonts/` looking
+ * like they discharged the obligation while no build read them.
+ *
+ * Asserted against the source bytes rather than against a length or a first
+ * line, because a licence truncated in transit is worse than one absent — it
+ * looks discharged. `major-mono-display-OFL.txt` is published by google/fonts
+ * with CRLF terminators and is exempt from the LF rule in `.gitattributes` for
+ * that reason, so a comparison that normalised newlines would pass over exactly
+ * the corruption worth catching.
+ */
+test("the site ships a licence beside every face it emits", async () => {
+  await buildDistribution({ target: "site", projectRoot });
+  const emitted = await readdir(output);
+
+  const faces = emitted.filter((name) => name.endsWith(".woff2"));
+  assert.ok(
+    faces.length > 0,
+    "the site build emitted no woff2, so this proved nothing about the licences beside them",
+  );
+
+  const licences = await readdir(new URL("fonts/", projectRoot));
+  const texts = licences.filter((name) => name.endsWith("-OFL.txt"));
+  assert.equal(
+    texts.length,
+    faces.length,
+    `the site emits ${faces.length} faces (${faces.join(", ")}) but fonts/ holds ${texts.length} licence texts (${texts.join(", ")}). Every face redistributed here needs one.`,
+  );
+
+  for (const text of texts) {
+    const source = await readFile(new URL(`fonts/${text}`, projectRoot));
+    const shipped = await readFile(new URL(text, output)).catch(() => null);
+    assert.ok(
+      shipped !== null,
+      `site/${text} was not emitted, so the site redistributes a subset face with no licence accompanying it. OFL 1.1 §2 asks for one.`,
+    );
+    assert.deepEqual(
+      shipped,
+      source,
+      `site/${text} differs from fonts/${text}. The licence is redistributed verbatim or not at all.`,
+    );
+  }
+});
+
 test("site distribution versions transitive chunks without manual rewrites", async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), "polynome-site-"));
   t.after(() => rm(fixture, { recursive: true, force: true }));
