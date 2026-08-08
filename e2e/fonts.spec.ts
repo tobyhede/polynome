@@ -158,6 +158,39 @@ test("the display face carries every printable ASCII character", async ({ page, 
 });
 
 /**
+ * A Preset saved the way the listener saves one: named through the panel and
+ * read back from the confirmation the interface writes.
+ *
+ * The `aria-disabled` gate is a wait rather than a decoration. `+ Save` is
+ * offered only while the Configuration differs from the Preset it came from, and
+ * it is marked unavailable rather than `disabled`, so that it keeps its place in
+ * the tab order and declines the click in its own handler. Playwright's
+ * actionability checks know `disabled` and not `aria-disabled`, so a click that
+ * lands before the render flipping the attribute is delivered, swallowed, and
+ * leaves the panel shut — and the failure then surfaces a line later, on a name
+ * field that was never on screen.
+ *
+ * The submit is matched on the whole of its accessible name and on both of the
+ * names it takes: saving under a name already stored replaces that Preset, and
+ * the control says `Replace` rather than `Save` from the moment the typed name
+ * makes that true.
+ *
+ * The confirmation is read from `#status` by id rather than by role: the open
+ * envelope drawers put two `<output>` elements in the document, and an
+ * `<output>` is a status too.
+ */
+async function savePresetNamed(page: Page, name: string) {
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  const openSave = page.getByRole("button", { name: "+ Save" });
+  await expect(openSave).toHaveAttribute("aria-disabled", "false");
+  await openSave.click();
+  const savePanel = page.getByRole("region", { name: "Save preset" });
+  await savePanel.getByRole("textbox", { name: "Preset name" }).fill(name);
+  await savePanel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
+  await expect(page.locator("#status")).toHaveText(`${name} preset saved`);
+}
+
+/**
  * The control that proves the two assertions above can fail, and the only thing
  * in this file that says the detector detects anything at all. Everything else
  * here asserts that text was drawn in an embedded face, so a `shapedBy` that had
@@ -175,14 +208,7 @@ test("a Preset named outside the subset is seen to fall back", async ({ page, co
   // + Save is offered only while the Configuration differs from the Preset it
   // came from, so something has to change before there is anything to save.
   await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
-  await page.getByRole("button", { name: "Presets", exact: true }).click();
-  const openSave = page.getByRole("button", { name: "+ Save" });
-  await expect(openSave).toHaveAttribute("aria-disabled", "false");
-  await openSave.click();
-  const savePanel = page.getByRole("region", { name: "Save preset" });
-  await savePanel.getByRole("textbox", { name: "Preset name" }).fill("Привет");
-  await savePanel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
-  await expect(page.locator("#status")).toHaveText("Привет preset saved");
+  await savePresetNamed(page, "Привет");
 
   // Tagged rather than addressed by position: which card the new Preset lands on
   // is not this test's claim.
@@ -361,16 +387,7 @@ const INTERFACE_STATES: ReadonlyArray<{ name: string; reach: (page: Page) => Pro
       await page.getByRole("button", { name: "+ Cycle", exact: true }).click();
       await page.getByRole("button", { name: "Edit Cycle 2 envelope" }).click();
       await page.locator(".cycle-settings").nth(1).getByRole("button", { name: "Down" }).click();
-      await page.getByRole("button", { name: "Presets", exact: true }).click();
-      const openSave = page.getByRole("button", { name: "+ Save" });
-      await expect(openSave).toHaveAttribute("aria-disabled", "false");
-      await openSave.click();
-      const savePanel = page.getByRole("region", { name: "Save preset" });
-      await savePanel.getByRole("textbox", { name: "Preset name" }).fill("Two Cycles");
-      await savePanel.getByRole("button", { name: /^(?:Save|Replace)$/ }).click();
-      // `#status` by id rather than by role: the open envelope drawers put two
-      // `<output>` elements in the document, and an `<output>` is a status too.
-      await expect(page.locator("#status")).toHaveText("Two Cycles preset saved");
+      await savePresetNamed(page, "Two Cycles");
       await expect(page.locator(".preset-sequence-arrow").first()).toBeVisible();
       await expect(page.locator(".preset-envelope")).toHaveCount(2);
     },
