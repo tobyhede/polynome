@@ -117,17 +117,21 @@ async function applyStoredPreset(page, name) {
 test("playback toggles from the button and Space key", async ({ page }) => {
   const playButton = page.getByRole("button", { name: "Play metronome" });
   const status = page.getByRole("status");
+  const transport = page.locator(".transport");
 
   await expect(playButton).toHaveAttribute("aria-pressed", "false");
+  await expect(transport).not.toHaveClass(/\bis-current\b/);
   await playButton.click();
   await expect(page.getByRole("button", { name: "Stop metronome" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await expect(status).toHaveText("Playing");
+  await expect(transport).toHaveClass(/\bis-current\b/);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(status).toHaveText("Stopped");
+  await expect(transport).not.toHaveClass(/\bis-current\b/);
 
   await page.getByRole("heading", { name: "Polynome" }).click();
   await page.keyboard.press("Space");
@@ -4096,15 +4100,65 @@ test("saving keeps focus on a control rather than dropping it", async ({ page })
   await expect(presetButton(page, "Watched")).toBeFocused();
 });
 
-test("Help explains what Polymeter and Polyrhythm count", async ({ page }) => {
+test("Help walks through the first four tasks with inert examples", async ({ page }) => {
   await page.getByRole("button", { name: "Help" }).click();
 
-  const entries = page.getByRole("region", { name: "Help" }).locator(".help-grid > p");
-  await expect(entries).toHaveCount(9);
-  await expect(entries.nth(8).locator("strong")).toHaveText("Polymeter and polyrhythm");
-  await expect(entries.nth(8).locator("span")).toHaveText(
-    "Polymeter gives every Rhythm layer the same Primary-beat rate, while their Meter spans may differ. Polyrhythm fits every layer into one Meter of the first Rhythm layer. BPM continues to count that first layer's Primary beats, so it is the pulse to count.",
-  );
+  const panel = page.getByRole("region", { name: "Help" });
+  await expect(panel.locator(".help-number")).toHaveText(["1", "2", "3", "4"]);
+  await expect(panel.locator(".help-copy strong")).toHaveText([
+    "Play",
+    "Set the tempo",
+    "Change the rhythm",
+    "Sequence it",
+  ]);
+  await expect(panel.locator(".help-copy p")).toHaveText([
+    "Press play or the space bar.",
+    "Set the tempo in beats per minute.",
+    "Set the time signature. Toggle steps to control the accent or switch the beat off.",
+    "Add cycles to sequence rhythms. Each cycle plays in turn, looping up to 8 times.",
+  ]);
+  await expect(panel.locator(".help-artifact")).toHaveCount(3);
+  await expect(panel.locator(".help-rhythm-card .step")).toHaveClass([
+    /step-primary/,
+    /step-secondary/,
+    /step-tertiary/,
+    /step-off/,
+  ]);
+  await expect(panel.locator(".help-cycle-card .repeat-dot.is-set")).toHaveCount(2);
+  await expect(panel.getByRole("button")).toHaveCount(0);
+
+  const desktop = await panel.evaluate((element) => ({
+    artifacts: [...element.querySelectorAll(".help-artifact")].map((artifact) => {
+      const { left, width } = artifact.getBoundingClientRect();
+      return { left, width };
+    }),
+  }));
+  expect(desktop.artifacts.map(({ left }) => left)).toEqual([
+    desktop.artifacts[0].left,
+    desktop.artifacts[0].left,
+    desktop.artifacts[0].left,
+  ]);
+  expect(desktop.artifacts.map(({ width }) => width)).toEqual([296, 296, 296]);
+
+  await page.setViewportSize({ width: 320, height: 900 });
+  const narrow = await panel.evaluate((element) => {
+    const task = (copySelector, artifactSelector) => {
+      const copy = element.querySelector(copySelector).getBoundingClientRect();
+      const artifact = element.querySelector(artifactSelector).getBoundingClientRect();
+      return { copyBottom: copy.bottom, artifactTop: artifact.top };
+    };
+    return {
+      page: {
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      },
+      rhythm: task(".help-copy-3", ".help-rhythm"),
+      cycle: task(".help-copy-4", ".help-cycle"),
+    };
+  });
+  expect(narrow.page.scrollWidth).toBe(narrow.page.clientWidth);
+  expect(narrow.rhythm.artifactTop).toBeGreaterThanOrEqual(narrow.rhythm.copyBottom);
+  expect(narrow.cycle.artifactTop).toBeGreaterThanOrEqual(narrow.cycle.copyBottom);
 });
 
 /**

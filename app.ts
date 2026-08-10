@@ -105,6 +105,7 @@ const elements = {
   shareConfiguration: document.querySelector("#share-configuration") as HTMLButtonElement,
   helpToggle: document.querySelector("#help-toggle") as HTMLButtonElement,
   helpPanel: document.querySelector("#help-panel") as HTMLElement,
+  helpWalkthrough: document.querySelector("#help-walkthrough") as HTMLDivElement,
   accentToggle: document.querySelector("#accent-toggle") as HTMLButtonElement,
   accentPanel: document.querySelector("#accent-panel") as HTMLElement,
   accentSwatches: document.querySelector("#accent-swatches") as HTMLElement,
@@ -1754,6 +1755,115 @@ function NoteIcon({ subdivision, height }) {
   `;
 }
 
+/**
+ * The first four minutes of the application, shown with the same controls the
+ * listener will use below it. The subtree is inert because these are examples,
+ * not a second transport or a second editor; aria-hidden keeps their duplicated
+ * control names out of the accessibility tree as well.
+ */
+function HelpWalkthrough() {
+  const ticks = Array.from({ length: tempoMarks }, (_, index) => {
+    const bpm = TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL;
+    const major = index % LABELLED_EVERY === 0;
+    return html`<span
+      data-bpm=${bpm}
+      data-label=${major ? bpm : ""}
+      class=${`${major ? "is-major" : ""}${bpm <= 120 ? " is-passed" : ""}`}
+    ></span>`;
+  });
+  const voices = ["primary", "secondary", "tertiary", "off"];
+
+  return html`
+    <div class="help-grid">
+      <span class="help-number help-number-1">1</span>
+      <div class="help-copy help-copy-1">
+        <strong>Play</strong>
+        <p>Press play or the space bar.</p>
+      </div>
+
+      <span class="help-number help-number-2">2</span>
+      <div class="help-copy help-copy-2">
+        <strong>Set the tempo</strong>
+        <p>Set the tempo in beats per minute.</p>
+      </div>
+
+      <div class="help-artifact help-transport" aria-hidden="true" inert>
+        <section class="transport help-transport-card">
+          <div class="tempo">
+            <div class="bpm-row">
+              <button class="bpm-step" type="button">−</button>
+              <div class="bpm-track">
+                <div
+                  class="bpm-readout"
+                  style="--bpm-size: min(2.8rem, 8.96cqw); --bpm-width: calc(var(--bpm-size) * 0.86 * 3); --bpm-label-margin: max(-7.21px, -1.44cqw);"
+                >
+                  <label>BPM</label>
+                  <input type="number" value="120" readonly />
+                </div>
+              </div>
+              <button class="bpm-step" type="button">+</button>
+            </div>
+            <input class="tempo-slider" type="range" min="30" max="300" step="5" value="120" />
+            <div class="bpm-ticks">${ticks}</div>
+          </div>
+          <button class="play-button" type="button"><span>▶</span></button>
+        </section>
+      </div>
+
+      <div class="help-rule help-rule-2"></div>
+
+      <span class="help-number help-number-3">3</span>
+      <div class="help-copy help-copy-3">
+        <strong>Change the rhythm</strong>
+        <p>Set the time signature. Toggle steps to control the accent or switch the beat off.</p>
+      </div>
+      <div class="help-artifact help-rhythm" aria-hidden="true" inert>
+        <article class="rhythm-card help-rhythm-card">
+          <div class="card-heading rhythm-heading">
+            <button type="button" class="rhythm-identity">
+              <strong>4/4</strong><span aria-hidden="true">/</span><${NoteIcon} subdivision=${1} height=${21} />
+            </button>
+          </div>
+          <div class="steps" style="--beats-per-row: 4">
+            ${voices.map(
+              (voice, index) =>
+                html`<div class="beat"><${GridControl} voice=${voice} control=${index} noun="Beat" /></div>`,
+            )}
+          </div>
+        </article>
+      </div>
+
+      <div class="help-rule help-rule-3"></div>
+
+      <span class="help-number help-number-4">4</span>
+      <div class="help-copy help-copy-4">
+        <strong>Sequence it</strong>
+        <p>Add cycles to sequence rhythms. Each cycle plays in turn, looping up to 8 times.</p>
+      </div>
+      <div class="help-artifact help-cycle" aria-hidden="true" inert>
+        <article class="cycle-card help-cycle-card">
+          <div class="card-heading cycle-heading">
+            <h2>Cycle<span class="cycle-divider">/</span><span class="heading-count">2</span></h2>
+          </div>
+          <div class="repeat-row">
+            <div class="repeat-dots help-repeat-dots">
+              ${Array.from(
+                { length: 8 },
+                (_, index) =>
+                  html`<button type="button" class=${`repeat-dot${index < 2 ? " is-set" : ""}`}></button>`,
+              )}
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  `;
+}
+
+function renderHelp() {
+  render(html`<${HelpWalkthrough} />`, elements.helpWalkthrough);
+}
+
 function PencilIcon() {
   return html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
 }
@@ -1772,6 +1882,7 @@ function updatePlayButton() {
   }
   playMode = playing;
   elements.appShell.classList.toggle("is-play-mode", playing);
+  elements.transport.classList.toggle("is-current", playing);
   elements.play.classList.toggle("is-playing", playing);
   elements.play.setAttribute("aria-pressed", String(playing));
   elements.play.setAttribute("aria-label", playing ? "Stop metronome" : "Play metronome");
@@ -2850,6 +2961,7 @@ elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
   const major = index % LABELLED_EVERY === 0;
   return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
 }).join("");
+renderHelp();
 /**
  * A Configuration restored from storage may already be one of the stored
  * Presets exactly, and on that reading there is nothing to save. Deriving it

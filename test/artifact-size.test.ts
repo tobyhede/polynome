@@ -55,6 +55,14 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * [ADR-0024](../docs/adr/0024-set-a-redline-the-artifact-ratchet-cannot-raise.md),
    * which names this subset as the reserve its redline is drawn against.
    *
+   * Rebuilding Help as a four-step walkthrough with the real Transport, Rhythm,
+   * and Cycle artifacts, plus marking the Transport current during Play,
+   * measures 274,889 bytes. The markup is static and ships
+   * in the script rather than being repeated in the document, but a walkthrough
+   * made out of the application's controls still has more structure than the
+   * nine prose rows it replaces; that visible teaching surface is the cost of
+   * this raise.
+   *
    * The last raise before this fall drew the tempo band as one element per
    * stretch travelled rather than as a single pseudo-element across all of
    * them, which is what a Flat between two ramps needs to be stated at all,
@@ -85,22 +93,28 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 271_000 },
+  "dist/polynome.html": { raw: 278_000 },
   /**
    * The bundled script alone, which is the half that grows from source, and the
    * one figure the redline in ADR-0024 is about. Measured 174,711 raw and 42,537
    * gzipped after rebase — the same figures the tempo band raise took, because
    * the site build emits the faces as files and the font cut never touched this.
+   * The Help walkthrough's fixed component tree and the Transport's Play mark
+   * raise the script to 181,142 raw and 44,098 gzipped; unlike the old prose in index.html, its reused
+   * control markup is rendered by Preact and therefore belongs to this half of
+   * the artifact.
    */
-  "site/app-local.js": { raw: 177_500, gzip: 43_300 },
+  "site/app-local.js": { raw: 184_000, gzip: 45_000 },
   /**
    * The stylesheet, which the tempo band change left 23 bytes smaller than it
    * found it — one rule for the band elements says what a pseudo-element and
    * its `content` did — and which the font cut left alone at 30,867. Not
    * re-taken on a fall: this is a ceiling, and lowering one is a decision of its
-   * own rather than the tail of somebody else's.
+   * own rather than the tail of somebody else's. The Help walkthrough's grid,
+   * native-size artifact column, responsive stacking, and shared current-panel
+   * selector raise it to 33,292.
    */
-  "site/styles-local.css": { raw: 31_300 },
+  "site/styles-local.css": { raw: 34_000 },
 });
 
 /**
