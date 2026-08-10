@@ -117,17 +117,21 @@ async function applyStoredPreset(page, name) {
 test("playback toggles from the button and Space key", async ({ page }) => {
   const playButton = page.getByRole("button", { name: "Play metronome" });
   const status = page.getByRole("status");
+  const transport = page.getByRole("region", { name: "Transport and tempo" });
 
   await expect(playButton).toHaveAttribute("aria-pressed", "false");
+  await expect(transport).not.toHaveClass(/\bis-current\b/);
   await playButton.click();
   await expect(page.getByRole("button", { name: "Stop metronome" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await expect(status).toHaveText("Playing");
+  await expect(transport).toHaveClass(/\bis-current\b/);
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(status).toHaveText("Stopped");
+  await expect(transport).not.toHaveClass(/\bis-current\b/);
 
   await page.getByRole("heading", { name: "Polynome" }).click();
   await page.keyboard.press("Space");
@@ -170,11 +174,13 @@ test("playback focuses the interface on the tempo and active Cycle", async ({ pa
 
   await expect
     .poll(() =>
-      page.locator(".transport").evaluate((element) => element.getBoundingClientRect().top),
+      page
+        .getByRole("region", { name: "Transport and tempo" })
+        .evaluate((element) => element.getBoundingClientRect().top),
     )
     .toBeCloseTo(0, 0);
   const transportTop = await page
-    .locator(".transport")
+    .getByRole("region", { name: "Transport and tempo" })
     .evaluate((element) => element.getBoundingClientRect().top);
   expect(Math.abs(transportTop)).toBeLessThanOrEqual(1);
 
@@ -268,7 +274,7 @@ test("an open Save panel is concealed during playback and restored with its draf
 test("a rhythm identity is display-only during playback and restores its drawer afterwards", async ({
   page,
 }) => {
-  const identity = page.locator(".rhythm-identity").first();
+  const identity = page.locator("#cycles .rhythm-identity").first();
   const edit = page.locator('.edit-button[aria-label="Edit 4/4"]');
   const drawer = page.locator(".rhythm-settings").first();
   await identity.click();
@@ -287,7 +293,7 @@ test("a rhythm identity is display-only during playback and restores its drawer 
   await identity.evaluate((button: HTMLButtonElement) => button.click());
   await expect(identity).toHaveAttribute("aria-expanded", "false");
   await page
-    .locator(".rhythm-card")
+    .locator("#cycles .rhythm-card")
     .first()
     .dblclick({ position: { x: 5, y: 5 } });
 
@@ -314,7 +320,7 @@ test("stopping before the Play layout frame cancels its deferred scroll", async 
       return frameId;
     };
     window.cancelAnimationFrame = (frameId) => callbacks.delete(frameId);
-    const transport = document.querySelector<HTMLElement>(".transport");
+    const transport = document.querySelector<HTMLElement>('[aria-label="Transport and tempo"]');
     const play = document.querySelector<HTMLButtonElement>("#play-button");
     const status = document.querySelector<HTMLElement>("#status");
     let scrolls = 0;
@@ -453,7 +459,7 @@ test("Restart Audio replaces playback from an accessible secondary control", asy
  * pressable — it offers the count it already holds.
  */
 test("the lone Cycle exposes repetitions and an accessible envelope drawer", async ({ page }) => {
-  const cycle = page.locator(".cycle-card").first();
+  const cycle = page.locator("#cycles .cycle-card").first();
   await expect(cycle).toBeVisible();
   const repetitions = page.getByRole("group", { name: "Cycle repetitions" });
   const firstDot = repetitions.getByRole("button").first();
@@ -464,7 +470,7 @@ test("the lone Cycle exposes repetitions and an accessible envelope drawer", asy
 
   await firstDot.click();
   await expect(firstDot).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".cycle-heading .heading-count")).toHaveText("1");
+  await expect(page.locator("#cycles .cycle-heading .heading-count")).toHaveText("1");
 
   const edit = page.getByRole("button", { name: "Edit Cycle envelope" });
   await expect(edit).toHaveAttribute("aria-expanded", "false");
@@ -516,13 +522,13 @@ test("every Cycle can switch between Polymeter and Polyrhythm", async ({ page })
 
 test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ page }) => {
   await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
-  const second = page.locator(".rhythm-card").nth(1);
+  const second = page.locator("#cycles .rhythm-card").nth(1);
   const originalCard = await second.elementHandle();
   await second.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("3");
   await second.getByRole("combobox", { name: "3/4 meter denominator" }).selectOption("8");
 
   const baseSpacingBefore = await page.evaluate(() => {
-    const steps = document.querySelectorAll(".steps")[0];
+    const steps = document.querySelectorAll("#cycles .steps")[0];
     const beats = steps.querySelectorAll(".beat");
     return beats[1].getBoundingClientRect().left - beats[0].getBoundingClientRect().left;
   });
@@ -535,7 +541,7 @@ test("Polyrhythm shows later Rhythms as ratios without a denominator", async ({ 
   await expect(page.getByRole("button", { name: "Edit 3:4", exact: true })).toBeVisible();
 
   const onsetRows = await page.evaluate(() =>
-    [...document.querySelectorAll(".steps")].map((steps) =>
+    [...document.querySelectorAll("#cycles .steps")].map((steps) =>
       [...steps.querySelectorAll(".beat")].map(
         (beat) => (beat.querySelector(".step") as HTMLElement).getBoundingClientRect().left,
       ),
@@ -591,7 +597,9 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
     const style = getComputedStyle(element);
     return [style.borderTopWidth, style.borderTopStyle, style.borderTopColor];
   };
-  expect(await mark.evaluate(border)).toEqual(await page.locator(".step").first().evaluate(border));
+  expect(await mark.evaluate(border)).toEqual(
+    await page.locator("#cycles .step").first().evaluate(border),
+  );
   // It carries no text, and it is not one of the repetition controls.
   await expect(mark).toHaveText("");
   await expect(
@@ -599,7 +607,7 @@ test("a closed Cycle shows its envelope shape after the repetition dots", async 
   ).toHaveCount(8);
 
   // It sits after the dots, at the right of the row.
-  const dots = page.locator(".repeat-dot").last();
+  const dots = page.locator("#cycles .repeat-dot").last();
   expect((await mark.boundingBox()).x).toBeGreaterThan((await dots.boundingBox()).x);
 
   // Opening the drawer removes the control that was pressed, so focus has to go
@@ -628,7 +636,7 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   await settleLayout(page);
 
   const tops = await page
-    .locator(".repeat-dot")
+    .locator("#cycles .repeat-dot")
     .evaluateAll((dots) => dots.map((dot) => Math.round(dot.getBoundingClientRect().top)));
   const rows = [...new Set(tops)].sort((left, right) => left - right);
   expect(rows).toHaveLength(2);
@@ -636,8 +644,8 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   expect(tops.filter((top) => top === rows[1])).toHaveLength(4);
 
   const mark = await page.locator(".envelope-mark").boundingBox();
-  const firstDot = await page.locator(".repeat-dot").first().boundingBox();
-  const lastDot = await page.locator(".repeat-dot").last().boundingBox();
+  const firstDot = await page.locator("#cycles .repeat-dot").first().boundingBox();
+  const lastDot = await page.locator("#cycles .repeat-dot").last().boundingBox();
   // On the first row, and to the right of every dot on it.
   expect(mark.y).toBeLessThan(lastDot.y);
   expect(mark.x).toBeGreaterThan(firstDot.x);
@@ -649,7 +657,7 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 
   await page.getByRole("button", { name: "Play metronome" }).click();
-  const playingDots = await page.locator(".repeat-dot").evaluateAll((dots) =>
+  const playingDots = await page.locator("#cycles .repeat-dot").evaluateAll((dots) =>
     dots.map((dot) => {
       const rect = dot.getBoundingClientRect();
       return { top: Math.round(rect.top), width: Math.round(rect.width) };
@@ -659,7 +667,7 @@ test("repetition dots use two editing rows and one compact playing row on a narr
   expect(playingDots).toHaveLength(8);
   expect(playingDots.every(({ width }) => width === 29)).toBe(true);
   const playingLefts = await page
-    .locator(".repeat-dot")
+    .locator("#cycles .repeat-dot")
     .evaluateAll((dots) => dots.map((dot) => Math.round(dot.getBoundingClientRect().left)));
   const playingGaps = playingLefts.slice(1).map((left, index) => left - playingLefts[index]);
   expect(new Set(playingGaps).size).toBe(1);
@@ -707,7 +715,7 @@ test("a lone Cycle accepts all eight repetitions", async ({ page }) => {
     "aria-pressed",
     "true",
   );
-  await expect(page.locator(".cycle-heading .heading-count")).toHaveText("8");
+  await expect(page.locator("#cycles .cycle-heading .heading-count")).toHaveText("8");
 });
 
 test("a newly added Cycle starts at Flat zero with its drawer closed", async ({ page }) => {
@@ -933,7 +941,7 @@ test("Preset notation describes Polyrhythm ratios and subdivisions truthfully", 
   page,
 }) => {
   await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
-  const second = page.locator(".rhythm-card").nth(1);
+  const second = page.locator("#cycles .rhythm-card").nth(1);
   await second.getByRole("combobox", { name: "4/4 meter numerator" }).selectOption("3");
   await second.getByRole("button", { name: "Edit 3/4", exact: true }).click();
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
@@ -980,10 +988,10 @@ test("playback shows live rounded BPM without changing the saved Configuration",
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   const live = page.getByLabel("Current tempo in beats per minute");
-  await expect(live).toHaveAttribute("readonly", "");
-  await expect(slider).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Increase tempo" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Decrease tempo" })).toBeDisabled();
+  await expect(live).not.toHaveAttribute("readonly", "");
+  await expect(slider).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Increase tempo" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Decrease tempo" })).toBeEnabled();
   // This run has an envelope, so the slot gives its word up to the tempo the
   // run started from — the accent, and nothing else about the slot, changing.
   await expect(label).toHaveText("120");
@@ -1059,6 +1067,7 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   expect(await bands()).toEqual([]);
 
   await page.getByRole("button", { name: "Play metronome" }).click();
+  const live = page.getByLabel("Current tempo in beats per minute");
   await expect(ticks).toHaveClass(/\bis-banded\b/);
   // The two tempos themselves, not the marks at 120 and 170 that bracket them.
   expect(await bands()).toEqual([[120, 174]]);
@@ -1066,7 +1075,7 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
   expect(await lit()).toEqual([]);
 
   // The tempo climbs and the band does not follow it.
-  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(120);
+  await expect.poll(async () => Number(await live.inputValue())).toBeGreaterThan(120);
   expect(await bands()).toEqual([[120, 174]]);
   expect(await lit()).toEqual([]);
 
@@ -1079,8 +1088,7 @@ test("the tick row marks the range a ramp travels rather than the tempo of the m
  * The tempo slider is the browser's own control and stays that way. A band
  * across its track is the one thing `accent-color` cannot express, and buying it
  * would mean drawing the track and the thumb by hand in every engine — for a
- * control that is disabled the whole time the band would be on it, and that sits
- * beside two mix sliders which would go on being native.
+ * control that sits beside two mix sliders which would go on being native.
  */
 test("the tempo slider is left to the browser to draw", async ({ page }) => {
   const painted = await page
@@ -1283,7 +1291,7 @@ test("a run with no envelope keeps its BPM label through playback", async ({ pag
   await page.getByRole("button", { name: "Edit Cycle envelope" }).click();
 
   await page.getByRole("button", { name: "Play metronome" }).click();
-  await expect(page.getByLabel("Current tempo in beats per minute")).toHaveAttribute(
+  await expect(page.getByLabel("Current tempo in beats per minute")).not.toHaveAttribute(
     "readonly",
     "",
   );
@@ -1800,17 +1808,17 @@ for (const [name, accessibleName] of [
  * only right while both hold.
  */
 test("a double-click opens rhythm settings from the card but not its name", async ({ page }) => {
-  const identity = page.locator(".rhythm-identity").first();
+  const identity = page.locator("#cycles .rhythm-identity").first();
   await expect(identity).toHaveAttribute("aria-expanded", "false");
 
   await page
-    .locator(".rhythm-card")
+    .locator("#cycles .rhythm-card")
     .first()
     .dblclick({ position: { x: 5, y: 5 } });
   await expect(identity).toHaveAttribute("aria-expanded", "true");
 
   await page
-    .locator(".rhythm-card")
+    .locator("#cycles .rhythm-card")
     .first()
     .dblclick({ position: { x: 5, y: 5 } });
   await expect(identity).toHaveAttribute("aria-expanded", "false");
@@ -1825,7 +1833,7 @@ test("a newly added rhythm opens its settings", async ({ page }) => {
 
   await addRhythm.click();
 
-  const rhythms = page.locator(".rhythm-card");
+  const rhythms = page.locator("#cycles .rhythm-card");
   await expect(rhythms).toHaveCount(2);
   await expect(rhythms.nth(1).locator(".rhythm-identity")).toHaveAttribute("aria-expanded", "true");
   await expect(rhythms.nth(1).locator(".rhythm-settings")).toBeVisible();
@@ -2133,8 +2141,8 @@ test("each Rhythm layer chooses Beat or Subdivision steps from its settings", as
   await page.getByRole("button", { name: "+ Rhythm", exact: true }).click();
   await setSubdivision(page, 3);
 
-  const card = page.locator(".rhythm-card").first();
-  const otherCard = page.locator(".rhythm-card").nth(1);
+  const card = page.locator("#cycles .rhythm-card").first();
+  const otherCard = page.locator("#cycles .rhythm-card").nth(1);
   const mode = card.getByRole("group", { name: "Steps" });
   const beat = mode.getByRole("button", { name: "Beat", exact: true });
   const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
@@ -2163,7 +2171,7 @@ test("each Rhythm layer chooses Beat or Subdivision steps from its settings", as
 
 test("changing Steps mode resets edited voices in either direction", async ({ page }) => {
   await setSubdivision(page, 3);
-  const card = page.locator(".rhythm-card").first();
+  const card = page.locator("#cycles .rhythm-card").first();
   const mode = card.getByRole("group", { name: "Steps" });
   const beat = mode.getByRole("button", { name: "Beat", exact: true });
   const subdivision = mode.getByRole("button", { name: "Subdivision", exact: true });
@@ -2201,7 +2209,7 @@ test("a Beat control visibly pulses at every Subdivision onset", async ({ page }
 test("each run follows the display mode chosen while editing", async ({ page }) => {
   await setSubdivision(page, 2);
   await showSubdivisionMode(page);
-  const card = page.locator(".rhythm-card").first();
+  const card = page.locator("#cycles .rhythm-card").first();
 
   await page.getByRole("button", { name: "Play metronome" }).click();
   await expect(
@@ -2231,7 +2239,7 @@ for (const [mode, control] of [
   test(`editing the current control in ${mode} keeps the playhead on it`, async ({ page }) => {
     await page.getByLabel("Tempo in beats per minute", { exact: true }).fill("30");
     if (mode === "Subdivision Mode") await showSubdivisionMode(page);
-    const card = page.locator(".rhythm-card").first();
+    const card = page.locator("#cycles .rhythm-card").first();
 
     await page.getByRole("button", { name: "Play metronome" }).click();
 
@@ -2241,7 +2249,7 @@ for (const [mode, control] of [
     // moves to the second control, and the first is not current again for eight
     // seconds.
     await page.waitForFunction(
-      () => document.querySelector(".rhythm-card .step")?.classList.contains("is-current"),
+      () => document.querySelector("#cycles .rhythm-card .step")?.classList.contains("is-current"),
       null,
       { polling: "raf" },
     );
@@ -2836,7 +2844,7 @@ test("the delete glyph stays readable on a selected preset", async ({ page }) =>
 test("both heading counts are set in tabular figures", async ({ page }) => {
   await page.getByRole("button", { name: "Presets", exact: true }).click();
   const presetCount = page.locator("#preset-count");
-  const repetitions = page.locator(".cycle-heading h2 span").last();
+  const repetitions = page.locator("#cycles .cycle-heading h2 span").last();
 
   await expect(presetCount).toHaveText("4");
   await expect(presetCount).toHaveCSS("font-variant-numeric", "tabular-nums");
@@ -2849,10 +2857,10 @@ test("beats wrap into equal rows at every width", async ({ page }) => {
   await page.locator('[data-action="toggle-subdivision-menu"]').first().click();
   await page.locator('.subdivision-option[data-subdivision="4"]').click();
   await showSubdivisionMode(page);
-  await expect(page.locator(".rhythm-card .step")).toHaveCount(16);
+  await expect(page.locator("#cycles .rhythm-card .step")).toHaveCount(16);
   // Sixteen steps alone do not pin the grouping this test measures: eight beats
   // of two would satisfy that count and still wrap evenly.
-  await expect(page.locator(".rhythm-card .beat")).toHaveCount(4);
+  await expect(page.locator("#cycles .rhythm-card .beat")).toHaveCount(4);
 
   // 3+1 is the shape this guards against: four beats have to wrap 4, 2, or 1 to
   // a row, and 768 is a width where packing by available space would not.
@@ -2892,7 +2900,7 @@ async function settledBeatsPerRow(page, width) {
 async function beatsPerRow(page) {
   return page.evaluate(() => {
     const perRow = new Map();
-    for (const beat of document.querySelectorAll(".rhythm-card .beat")) {
+    for (const beat of document.querySelectorAll("#cycles .rhythm-card .beat")) {
       const top = Math.round(beat.getBoundingClientRect().top);
       perRow.set(top, (perRow.get(top) ?? 0) + 1);
     }
@@ -2944,7 +2952,7 @@ async function showSubdivisionMode(page) {
  */
 test("a prime meter never splits into unequal rows", async ({ page }) => {
   await setSignature(page, 7);
-  await expect(page.locator(".rhythm-card .beat")).toHaveCount(7);
+  await expect(page.locator("#cycles .rhythm-card .beat")).toHaveCount(7);
 
   for (const width of [375, 540, 700, 768, 800, 1024]) {
     await page.setViewportSize({ width, height: 900 });
@@ -2974,7 +2982,7 @@ for (const { beats, subdivision, steps } of [
     await setSignature(page, beats);
     if (subdivision !== 1) await setSubdivision(page, subdivision);
     await showSubdivisionMode(page);
-    await expect(page.locator(".rhythm-card .step")).toHaveCount(steps);
+    await expect(page.locator("#cycles .rhythm-card .step")).toHaveCount(steps);
 
     for (const width of [1600, 1024, 540]) {
       await page.setViewportSize({ width, height: 900 });
@@ -3002,7 +3010,7 @@ test("a beat wider than the row scrolls instead of shrinking", async ({ page }) 
   await showSubdivisionMode(page);
   await page.setViewportSize({ width: 320, height: 900 });
 
-  const steps = page.locator(".rhythm-card .steps");
+  const steps = page.locator("#cycles .rhythm-card .steps");
   await expect(steps).toHaveClass(/is-scrolling/);
 
   const overflow = await steps.evaluate((element) => ({
@@ -3043,11 +3051,11 @@ for (const subdivision of [1, 2, 3, 4, 5]) {
     await page.setViewportSize({ width: 1600, height: 900 });
     if (subdivision !== 1) await setSubdivision(page, subdivision);
     await showSubdivisionMode(page);
-    await expect(page.locator(".rhythm-card .step")).toHaveCount(4 * subdivision);
+    await expect(page.locator("#cycles .rhythm-card .step")).toHaveCount(4 * subdivision);
     await settleLayout(page);
 
     const deltas = await page.evaluate(() => {
-      const centres = [...document.querySelectorAll(".rhythm-card .step")].map((step) => {
+      const centres = [...document.querySelectorAll("#cycles .rhythm-card .step")].map((step) => {
         const { left, right, top } = step.getBoundingClientRect();
         return { centre: (left + right) / 2, row: Math.round(top) };
       });
@@ -3094,14 +3102,14 @@ test("a dot marks each beat, clear of the row below even when it pulses", async 
   // never pulsed and fails only under load.
   const measureLit = async (beat) => {
     await page.evaluate((index) => {
-      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      const steps = [...document.querySelectorAll("#cycles .rhythm-card .step")];
       steps.forEach((step, position) => {
         step.classList.toggle("is-current", position === index * 4);
       });
     }, beat);
     await page.waitForTimeout(150);
     return page.evaluate((index) => {
-      const element = document.querySelectorAll(".rhythm-card .beat")[index];
+      const element = document.querySelectorAll("#cycles .rhythm-card .beat")[index];
       const dot = getComputedStyle(element, "::after");
       const size = parseFloat(dot.height);
       const scale = Number(dot.transform.match(/matrix\(([\d.]+)/)?.[1] ?? 1);
@@ -3122,7 +3130,7 @@ test("a dot marks each beat, clear of the row below even when it pulses", async 
   for (const beat of [0, 1, 2, 3]) dots.push(await measureLit(beat));
 
   const frame = await page.evaluate(() => {
-    const card = document.querySelector(".rhythm-card");
+    const card = document.querySelector("#cycles .rhythm-card");
     for (const step of card.querySelectorAll(".step")) step.classList.remove("is-current");
     const steps = [...card.querySelectorAll(".step")];
     return {
@@ -3183,14 +3191,14 @@ for (const motion of ["no-preference", "reduce"] as const) {
 
     const dotsAt = async (step) => {
       await page.evaluate((current) => {
-        const steps = [...document.querySelectorAll(".rhythm-card .step")];
+        const steps = [...document.querySelectorAll("#cycles .rhythm-card .step")];
         steps.forEach((element, index) => {
           element.classList.toggle("is-current", index === current);
         });
       }, step);
       await page.waitForTimeout(150);
       return page.evaluate(() =>
-        [...document.querySelectorAll(".rhythm-card .beat")].map(
+        [...document.querySelectorAll("#cycles .rhythm-card .beat")].map(
           (beat) => getComputedStyle(beat, "::after").transform,
         ),
       );
@@ -3234,20 +3242,20 @@ test("the beat dot pulses on its own onset, not through the whole beat", async (
 
   const dotStyles = () =>
     page.evaluate(() =>
-      [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+      [...document.querySelectorAll("#cycles .rhythm-card .beat")].map((beat) => {
         const dot = getComputedStyle(beat, "::after");
         return `${dot.backgroundColor} ${dot.transform}`;
       }),
     );
   const dotsWhilePlaying = async (step) => {
     await page.evaluate((index) => {
-      const steps = [...document.querySelectorAll(".rhythm-card .step")];
+      const steps = [...document.querySelectorAll("#cycles .rhythm-card .step")];
       for (const element of steps) element.classList.remove("is-current");
       if (index !== null) steps[index].classList.add("is-current");
     }, step);
     await page.waitForFunction(
       (index) => {
-        const styles = [...document.querySelectorAll(".rhythm-card .beat")].map((beat) => {
+        const styles = [...document.querySelectorAll("#cycles .rhythm-card .beat")].map((beat) => {
           const dot = getComputedStyle(beat, "::after");
           return `${dot.backgroundColor} ${dot.transform}`;
         });
@@ -3420,13 +3428,13 @@ test("transport spacing follows the viewport and its contents follow the card", 
   await settleLayout(page);
 
   const measured = await page.evaluate(() => {
-    const card = document.querySelector(".transport");
+    const card = document.querySelector('[aria-label="Transport and tempo"]');
     const style = getComputedStyle(card);
     return {
       viewportWidth: window.innerWidth,
       cardWidth: card.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
       padding: parseFloat(style.paddingTop),
-      playHeight: parseFloat(getComputedStyle(document.querySelector(".play-button")).height),
+      playHeight: parseFloat(getComputedStyle(document.querySelector("#play-button")).height),
     };
   });
 
@@ -3465,9 +3473,9 @@ test("the tempo readout grows in place rather than travelling", async ({ page })
         };
         return {
           readout: box("#bpm-readout"),
-          track: box(".bpm-track"),
-          slider: box(".tempo-slider"),
-          card: box(".transport"),
+          track: box('[aria-label="Transport and tempo"] .bpm-track'),
+          slider: box("#bpm-slider"),
+          card: box('[aria-label="Transport and tempo"]'),
           scroll: document.documentElement.scrollWidth,
           client: document.documentElement.clientWidth,
         };
@@ -3696,12 +3704,12 @@ test("a non-primary button press does not start a tempo hold", async ({ page }) 
 });
 
 /**
- * Playing, the number is the live reading rather than an editor, so it is
- * `readonly` — present, focusable and at full strength — while the slider and
- * both keys are genuinely disabled. Neither pointer nor keyboard can move the
- * starting tempo, which is what stopping restores.
+ * Playback keeps every starting-BPM control available. A stepper gesture
+ * updates the stored starting tempo and restarts the audible run once when the
+ * gesture ends, so stopping returns to the edited value rather than the one the
+ * run began with.
  */
-test("starting-BPM controls are unavailable throughout playback", async ({ page }) => {
+test("starting-BPM controls remain editable throughout playback", async ({ page }) => {
   const readout = page.getByRole("spinbutton", { name: "Starting tempo in beats per minute" });
   const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
   const down = page.getByRole("button", { name: "Decrease tempo" });
@@ -3712,20 +3720,16 @@ test("starting-BPM controls are unavailable throughout playback", async ({ page 
   await page.getByRole("button", { name: "Play metronome" }).click();
 
   const live = page.getByRole("spinbutton", { name: "Current tempo in beats per minute" });
-  await expect(live).toHaveAttribute("readonly", "");
-  await expect(slider).toBeDisabled();
-  await expect(down).toBeDisabled();
-  await expect(up).toBeDisabled();
+  await expect(live).not.toHaveAttribute("readonly", "");
+  await expect(slider).toBeEnabled();
+  await expect(down).toBeEnabled();
+  await expect(up).toBeEnabled();
 
-  // Typing at the read-only number and pressing either key leave the starting
-  // tempo where it was, so stopping comes back to it.
-  await live.press("ArrowUp");
-  await down.click({ force: true });
-  await up.click({ force: true });
+  await up.click();
 
   await page.getByRole("button", { name: "Stop metronome" }).click();
   await expect(readout).not.toHaveAttribute("readonly", "");
-  await expect(readout).toHaveValue("240");
+  await expect(readout).toHaveValue("241");
 });
 
 /**
@@ -3742,7 +3746,7 @@ test("the tempo keys are the play bar's height and stay a tap target", async ({ 
         const { width, height } = document.querySelector(selector).getBoundingClientRect();
         return { width, height };
       };
-      return { down: size("#bpm-down"), up: size("#bpm-up"), play: size(".play-button") };
+      return { down: size("#bpm-down"), up: size("#bpm-up"), play: size("#play-button") };
     });
 
     for (const [name, key] of [
@@ -4096,15 +4100,65 @@ test("saving keeps focus on a control rather than dropping it", async ({ page })
   await expect(presetButton(page, "Watched")).toBeFocused();
 });
 
-test("Help explains what Polymeter and Polyrhythm count", async ({ page }) => {
+test("Help walks through the first four tasks with inert examples", async ({ page }) => {
   await page.getByRole("button", { name: "Help" }).click();
 
-  const entries = page.getByRole("region", { name: "Help" }).locator(".help-grid > p");
-  await expect(entries).toHaveCount(9);
-  await expect(entries.nth(8).locator("strong")).toHaveText("Polymeter and polyrhythm");
-  await expect(entries.nth(8).locator("span")).toHaveText(
-    "Polymeter gives every Rhythm layer the same Primary-beat rate, while their Meter spans may differ. Polyrhythm fits every layer into one Meter of the first Rhythm layer. BPM continues to count that first layer's Primary beats, so it is the pulse to count.",
-  );
+  const panel = page.getByRole("region", { name: "Help" });
+  await expect(panel.locator(".help-number")).toHaveText(["1", "2", "3", "4"]);
+  await expect(panel.locator(".help-copy strong")).toHaveText([
+    "Play",
+    "Set the tempo",
+    "Change the rhythm",
+    "Sequence it",
+  ]);
+  await expect(panel.locator(".help-copy p")).toHaveText([
+    "Press play or the space bar.",
+    "Set the tempo in beats per minute.",
+    "Set the time signature. Toggle steps to control the accent or switch the beat off.",
+    "Add cycles to sequence rhythms. Each cycle plays in turn, looping up to 8 times.",
+  ]);
+  await expect(panel.locator(".help-artifact")).toHaveCount(3);
+  await expect(panel.locator(".help-rhythm-card .step")).toHaveClass([
+    /step-primary/,
+    /step-secondary/,
+    /step-tertiary/,
+    /step-off/,
+  ]);
+  await expect(panel.locator(".help-cycle-card .repeat-dot.is-set")).toHaveCount(2);
+  await expect(panel.getByRole("button")).toHaveCount(0);
+
+  const desktop = await panel.evaluate((element) => ({
+    artifacts: [...element.querySelectorAll(".help-artifact")].map((artifact) => {
+      const { left, width } = artifact.getBoundingClientRect();
+      return { left, width };
+    }),
+  }));
+  expect(desktop.artifacts.map(({ left }) => left)).toEqual([
+    desktop.artifacts[0].left,
+    desktop.artifacts[0].left,
+    desktop.artifacts[0].left,
+  ]);
+  expect(desktop.artifacts.map(({ width }) => width)).toEqual([296, 296, 296]);
+
+  await page.setViewportSize({ width: 320, height: 900 });
+  const narrow = await panel.evaluate((element) => {
+    const task = (copySelector, artifactSelector) => {
+      const copy = element.querySelector(copySelector).getBoundingClientRect();
+      const artifact = element.querySelector(artifactSelector).getBoundingClientRect();
+      return { copyBottom: copy.bottom, artifactTop: artifact.top };
+    };
+    return {
+      page: {
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      },
+      rhythm: task(".help-copy-3", ".help-rhythm"),
+      cycle: task(".help-copy-4", ".help-cycle"),
+    };
+  });
+  expect(narrow.page.scrollWidth).toBe(narrow.page.clientWidth);
+  expect(narrow.rhythm.artifactTop).toBeGreaterThanOrEqual(narrow.rhythm.copyBottom);
+  expect(narrow.cycle.artifactTop).toBeGreaterThanOrEqual(narrow.cycle.copyBottom);
 });
 
 /**

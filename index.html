@@ -54,7 +54,6 @@
       drifted would leave the shell painting the default.
     -->
     <script>
-      {
         try {
           const stored = localStorage.getItem("polynome-accent-v1");
           if (/^[a-z]+$/.test(stored ?? "")) {
@@ -66,7 +65,6 @@
         } catch {
           // Resolving the browser's storage property can itself be forbidden.
         }
-      }
     </script>
   </head>
   <body>
@@ -112,17 +110,7 @@
         <div class="card-heading panel-heading">
           <h2 id="help-heading">Help</h2>
         </div>
-        <div class="help-grid">
-          <p><strong>Rhythms</strong><span>A rhythm defines a time signature and a repeating click pattern. Rhythms in the same cycle play together.</span></p>
-          <p><strong>Cycles</strong><span>Cycles play in sequence. Each cycle loops the specified number of times before the next active cycle begins. After the last cycle, the sequence starts again.</span></p>
-          <p><strong>Step voices</strong><span>Select a step to cycle through primary → secondary → tertiary → off. Each audible voice is four semitones below the one above it; off is silent.</span></p>
-          <p><strong>Beats and subdivisions</strong><span>Use the Steps control in a rhythm's settings to show one control per beat or one per subdivision pulse. A beat control sets the voice of the pulse its beat starts on and returns the rest of that beat to tertiary; off silences the whole beat. Switching resets that rhythm's steps to the default voices for its grid, and there is no undo.</span></p>
-          <p><strong>Repetitions</strong><span>Use the dots to set 0–8 repetitions. Zero skips a cycle; at least one cycle must remain active.</span></p>
-          <p><strong>Rhythm settings</strong><span>Select a rhythm's name, double-click its card, or use its pencil to edit the time signature, subdivision, sound, level, and stereo balance.</span></p>
-          <p><strong>Playback</strong><span>Use the play button or press Space to start and stop the metronome.</span></p>
-          <p><strong>Presets and sharing</strong><span>Open the panel to recall a complete setup, or save the current one to keep it in this browser. Share creates a link to the current configuration. It remains unnamed until you save it as a preset.</span></p>
-          <p><strong>Polymeter and polyrhythm</strong><span>Polymeter gives every Rhythm layer the same Primary-beat rate, while their Meter spans may differ. Polyrhythm fits every layer into one Meter of the first Rhythm layer. BPM continues to count that first layer's Primary beats, so it is the pulse to count.</span></p>
-        </div>
+        <div id="help-walkthrough"></div>
       </section>
 
       <section id="save-panel" class="top-panel" aria-labelledby="save-heading" hidden>

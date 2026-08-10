@@ -48,6 +48,26 @@ const PRESET_STORAGE_KEY = "polynome-presets-v4";
 // third key for that reason rather than a field — see ADR-0017.
 const ACCENT_STORAGE_KEY = "polynome-accent-v1";
 const PERSIST_DELAY_MS = 400;
+// Major ticks carry their own number, so the tick row is the tempo scale: it is
+// how a reader knows what the thumb above it is sitting on without reading the
+// number. The marks are `TEMPO_TICK_INTERVAL`'s, spanning `TEMPO_LIMIT`, rather
+// than a tenth restated here — the interval is a tempo the slider steps to, and
+// a scale drawn at some other spacing would put its numbers between the values
+// the control can hold rather than on them. Every ninth mark is labelled, which
+// is as close as the numbers sit before they collide at the narrowest width.
+const LABELLED_EVERY = 9;
+const tempoTicks = Object.freeze(
+  Array.from(
+    {
+      length: (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_TICK_INTERVAL + 1,
+    },
+    (_, index) =>
+      Object.freeze({
+        bpm: TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL,
+        major: index % LABELLED_EVERY === 0,
+      }),
+  ),
+);
 // The meter domain narrowed in v2. Values from earlier releases are retired
 // instead of repaired into different rhythms without the listener's consent.
 const RETIRED_STORAGE_KEYS = [
@@ -105,6 +125,7 @@ const elements = {
   shareConfiguration: document.querySelector("#share-configuration") as HTMLButtonElement,
   helpToggle: document.querySelector("#help-toggle") as HTMLButtonElement,
   helpPanel: document.querySelector("#help-panel") as HTMLElement,
+  helpWalkthrough: document.querySelector("#help-walkthrough") as HTMLDivElement,
   accentToggle: document.querySelector("#accent-toggle") as HTMLButtonElement,
   accentPanel: document.querySelector("#accent-panel") as HTMLElement,
   accentSwatches: document.querySelector("#accent-swatches") as HTMLElement,
@@ -619,13 +640,11 @@ function renderPanels() {
  * displays and edits the Preset's starting tempo, playing it displays the tempo
  * the envelopes are producing right now.
  *
- * The live number stays at full strength — it is the playback indicator, and
- * dimming the one thing a listener is watching would be backwards. What has to
- * be unmistakable is that it cannot be typed into, so the number is `readonly`
- * while the slider and both keys are genuinely `disabled`, which is the
- * treatment `button:disabled` already carries. The setters refuse as well, so
- * an event arriving from somewhere none of that covers still cannot edit the
- * starting tempo out from under a run.
+ * The live number stays at full strength as the playback indicator. Focusing
+ * it swaps that reading for the editable starting BPM; leaving it resumes the
+ * live reading. The slider and keys always edit that same starting BPM. A
+ * number-field commit restarts immediately; slider drags and held keys defer
+ * that restart until the gesture ends so a run can outlive the input gesture.
  *
  * The starting tempo has nowhere to be shown once the number is live, so the
  * label slot carries it: `BPM` becomes a badge reading `BPM 100`. No
@@ -634,13 +653,15 @@ function renderPanels() {
  */
 function renderTransport() {
   const playing = engine.playing;
-  const displayedBpm = playing ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
+  const editingNumber = playing && document.activeElement === elements.bpm;
+  const displayedBpm =
+    playing && !editingNumber ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
   elements.bpm.value = String(displayedBpm);
-  elements.bpmSlider.value = String(displayedBpm);
-  elements.bpm.readOnly = playing;
+  elements.bpmSlider.value = String(state.bpm);
+  elements.bpm.readOnly = false;
   elements.bpm.setAttribute(
     "aria-label",
-    `${playing ? "Current" : "Starting"} tempo in beats per minute`,
+    `${playing && !editingNumber ? "Current" : "Starting"} tempo in beats per minute`,
   );
   /*
    * Two different questions, and they used to be one.
@@ -674,9 +695,9 @@ function renderTransport() {
   elements.bpmTicks.classList.toggle("is-banded", travelled.length > 0);
   tempoStretches = travelled;
   renderTempoBands();
-  elements.bpmSlider.disabled = playing;
-  elements.bpmDown.disabled = playing;
-  elements.bpmUp.disabled = playing;
+  elements.bpmSlider.disabled = false;
+  elements.bpmDown.disabled = false;
+  elements.bpmUp.disabled = false;
   // A key at the end of the range says so rather than being left live and
   // silent — but marked unavailable rather than `disabled`, for the reason the
   // save chip is: `disabled` leaves the tab order. This key disables itself
@@ -688,11 +709,8 @@ function renderTransport() {
   // Marking states and does not enforce. Nothing extra declines the press,
   // because the hold already does: `stepTempo` reports a tempo that did not
   // move, which is what the edit returns at either bound.
-  elements.bpmDown.setAttribute(
-    "aria-disabled",
-    String(playing || state.bpm <= TEMPO_LIMIT.minimum),
-  );
-  elements.bpmUp.setAttribute("aria-disabled", String(playing || state.bpm >= TEMPO_LIMIT.maximum));
+  elements.bpmDown.setAttribute("aria-disabled", String(state.bpm <= TEMPO_LIMIT.minimum));
+  elements.bpmUp.setAttribute("aria-disabled", String(state.bpm >= TEMPO_LIMIT.maximum));
   renderDisplayedTempo(displayedBpm);
   updatePlayButton();
 }
@@ -878,9 +896,9 @@ function renderPresetCount() {
  * see. That decision is about not doing the work at all, which is the one thing
  * no renderer can take over.
  *
- * The tempo drag used to be the other half of this, and is no longer: the
- * starting tempo cannot be moved while a run is playing, so that gesture never
- * meets the scheduler at all. A mix drag still can, which is what this is for.
+ * Tempo and mix drags can both reach this while a run is playing. Neither
+ * should pay to describe every stored Preset when the panel is closed, which is
+ * what this early return keeps off the scheduler's thread.
  */
 function renderPresetPanel() {
   if (!presetsOpen) return;
@@ -1754,6 +1772,113 @@ function NoteIcon({ subdivision, height }) {
   `;
 }
 
+/**
+ * The first four minutes of the application, shown with the same controls the
+ * listener will use below it. The subtree is inert because these are examples,
+ * not a second transport or a second editor; aria-hidden keeps their duplicated
+ * control names out of the accessibility tree as well.
+ */
+function HelpWalkthrough() {
+  const ticks = tempoTicks.map(
+    ({ bpm, major }) => html`<span
+      data-bpm=${bpm}
+      data-label=${major ? bpm : ""}
+      class=${`${major ? "is-major" : ""}${bpm <= 120 ? " is-passed" : ""}`}
+    ></span>`,
+  );
+  const voices = ["primary", "secondary", "tertiary", "off"];
+
+  return html`
+    <div class="help-grid">
+      <span class="help-number help-number-1">1</span>
+      <div class="help-copy help-copy-1">
+        <strong>Play</strong>
+        <p>Press play or the space bar.</p>
+      </div>
+
+      <span class="help-number help-number-2">2</span>
+      <div class="help-copy help-copy-2">
+        <strong>Set the tempo</strong>
+        <p>Set the tempo in beats per minute.</p>
+      </div>
+
+      <div class="help-artifact help-transport" aria-hidden="true" inert>
+        <section class="transport help-transport-card">
+          <div class="tempo">
+            <div class="bpm-row">
+              <button class="bpm-step" type="button">−</button>
+              <div class="bpm-track">
+                <div
+                  class="bpm-readout"
+                  style="--bpm-size: min(2.8rem, 8.96cqw); --bpm-width: calc(var(--bpm-size) * 0.86 * 3); --bpm-label-margin: max(-7.21px, -1.44cqw);"
+                >
+                  <label>BPM</label>
+                  <input type="number" value="120" readonly />
+                </div>
+              </div>
+              <button class="bpm-step" type="button">+</button>
+            </div>
+            <input class="tempo-slider" type="range" min="30" max="300" step="5" value="120" />
+            <div class="bpm-ticks">${ticks}</div>
+          </div>
+          <button class="play-button" type="button"><span>▶</span></button>
+        </section>
+      </div>
+
+      <div class="help-rule help-rule-2"></div>
+
+      <span class="help-number help-number-3">3</span>
+      <div class="help-copy help-copy-3">
+        <strong>Change the rhythm</strong>
+        <p>Set the time signature. Toggle steps to control the accent or switch the beat off.</p>
+      </div>
+      <div class="help-artifact help-rhythm" aria-hidden="true" inert>
+        <article class="rhythm-card help-rhythm-card">
+          <div class="card-heading rhythm-heading">
+            <button type="button" class="rhythm-identity">
+              <strong>4/4</strong><span aria-hidden="true">/</span><${NoteIcon} subdivision=${1} height=${21} />
+            </button>
+          </div>
+          <div class="steps" style="--beats-per-row: 4">
+            ${voices.map(
+              (voice, index) =>
+                html`<div class="beat"><${GridControl} voice=${voice} control=${index} noun="Beat" /></div>`,
+            )}
+          </div>
+        </article>
+      </div>
+
+      <div class="help-rule help-rule-3"></div>
+
+      <span class="help-number help-number-4">4</span>
+      <div class="help-copy help-copy-4">
+        <strong>Sequence it</strong>
+        <p>Add cycles to sequence rhythms. Each cycle plays in turn, looping up to 8 times.</p>
+      </div>
+      <div class="help-artifact help-cycle" aria-hidden="true" inert>
+        <article class="cycle-card help-cycle-card">
+          <div class="card-heading cycle-heading">
+            <h2>Cycle<span class="cycle-divider">/</span><span class="heading-count">2</span></h2>
+          </div>
+          <div class="repeat-row">
+            <div class="repeat-dots help-repeat-dots">
+              ${Array.from(
+                { length: 8 },
+                (_, index) =>
+                  html`<button type="button" class=${`repeat-dot${index < 2 ? " is-set" : ""}`}></button>`,
+              )}
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  `;
+}
+
+function renderHelp() {
+  render(html`<${HelpWalkthrough} />`, elements.helpWalkthrough);
+}
+
 function PencilIcon() {
   return html`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"></path><path d="M14.5 6.5 17.5 9.5"></path></svg>`;
 }
@@ -1772,6 +1897,7 @@ function updatePlayButton() {
   }
   playMode = playing;
   elements.appShell.classList.toggle("is-play-mode", playing);
+  elements.transport.classList.toggle("is-current", playing);
   elements.play.classList.toggle("is-playing", playing);
   elements.play.setAttribute("aria-pressed", String(playing));
   elements.play.setAttribute("aria-label", playing ? "Stop metronome" : "Play metronome");
@@ -1802,9 +1928,8 @@ function updateActiveSteps() {
   }
 
   const liveBpm = String(Math.round(engine.activeBpm() ?? state.bpm));
-  if (elements.bpm.value !== liveBpm) {
+  if (document.activeElement !== elements.bpm && elements.bpm.value !== liveBpm) {
     elements.bpm.value = liveBpm;
-    elements.bpmSlider.value = liveBpm;
     renderDisplayedTempo(Number(liveBpm));
   }
 
@@ -1897,7 +2022,6 @@ async function restartAudio() {
 }
 
 function changeTempo(nextBpm) {
-  if (engine.playing) return;
   applyEdit({ type: "set-tempo", bpm: nextBpm });
 }
 
@@ -2012,6 +2136,8 @@ elements.helpToggle.addEventListener("click", () => {
 elements.bpm.addEventListener("change", (event) =>
   changeTempo((event.target as HTMLInputElement).value),
 );
+elements.bpm.addEventListener("focus", renderTransport);
+elements.bpm.addEventListener("blur", renderTransport);
 /**
  * The slider reports whatever tempo the pointer is over and the Configuration
  * takes it as it comes. Nothing here rounds it toward the tempos the tick row
@@ -2022,10 +2148,6 @@ elements.bpm.addEventListener("change", (event) =>
  * is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
-  // While playing the slider tracks the live tempo rather than setting one, so
-  // an input event here is the render's own write coming back, or a gesture the
-  // `disabled` attribute did not catch. Either way it is not an edit.
-  if (engine.playing) return;
   const dragged = (event.target as HTMLInputElement).value;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
@@ -2074,7 +2196,6 @@ let tempoHolding = false;
  * the end of the range, which the edit declines rather than clamps.
  */
 function stepTempo(delta) {
-  if (engine.playing) return false;
   const result = applyEdit(
     { type: "set-tempo", bpm: state.bpm + delta },
     { deferConsequence: true, render: false },
@@ -2836,20 +2957,13 @@ window.addEventListener("pageshow", checkAudioAfterForeground);
 document.addEventListener("resume", checkAudioAfterForeground);
 window.addEventListener("focus", checkAudioAfterForeground);
 
-// Major ticks carry their own number, so the tick row is the tempo scale: it is
-// how a reader knows what the thumb above it is sitting on without reading the
-// number. The marks are `TEMPO_TICK_INTERVAL`'s, spanning `TEMPO_LIMIT`, rather
-// than a tenth restated here — the interval is a tempo the slider steps to, and
-// a scale drawn at some other spacing would put its numbers between the values
-// the control can hold rather than on them. Every ninth mark is labelled, which
-// is as close as the numbers sit before they collide at the narrowest width.
-const LABELLED_EVERY = 9;
-const tempoMarks = (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_TICK_INTERVAL + 1;
-elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
-  const bpm = TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL;
-  const major = index % LABELLED_EVERY === 0;
-  return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
-}).join("");
+elements.bpmTicks.innerHTML = tempoTicks
+  .map(
+    ({ bpm, major }) =>
+      `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`,
+  )
+  .join("");
+renderHelp();
 /**
  * A Configuration restored from storage may already be one of the stored
  * Presets exactly, and on that reading there is nothing to save. Deriving it

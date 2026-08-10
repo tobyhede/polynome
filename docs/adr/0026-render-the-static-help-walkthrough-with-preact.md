@@ -1,0 +1,3 @@
+# Render the static Help walkthrough with Preact
+
+The static Help walkthrough joins Cycles and Presets as a Preact-rendered region, extending [ADR-0009](0009-adopt-preact-as-the-renderer.md). It reuses the application's component markup and CSS for inert Transport, Rhythm, and Cycle illustrations, and rendering it once from fixed values keeps those examples beside the components they depict without introducing component state, persistence, or another rendering dependency. The rest of the interface remains imperative, and the existing rules for direct writes inside rendered regions remain unchanged.

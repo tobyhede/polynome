@@ -580,13 +580,11 @@ test("cancelling native sharing is silent", async ({ page }) => {
   await expect(page.locator("#feedback")).toBeHidden();
 });
 
-test("Help explains that a Share link remains unnamed until saved", async ({ page }) => {
+test("Help keeps sharing outside its first-use walkthrough", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Help" }).click();
 
-  await expect(page.getByRole("region", { name: "Help" })).toContainText(
-    "Share creates a link to the current configuration. It remains unnamed until you save it as a preset.",
-  );
+  await expect(page.getByRole("region", { name: "Help" })).not.toContainText("Share");
 });
 
 test("an invalid Share link preserves the stored workspace and reports the failure", async ({

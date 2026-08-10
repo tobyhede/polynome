@@ -13,7 +13,8 @@ independent clock per Cycle or Rhythm layer. It supersedes
 record requires a lone Cycle to have exactly one repetition and permits tempo
 editing during playback. A lone Cycle now supports one through eight
 repetitions, and starting-BPM controls are unavailable while the derived live
-BPM is displayed.
+BPM is displayed. The latter restriction is superseded by
+[ADR-0025](0025-keep-starting-bpm-editable-during-playback.md).
 
 ## Consequences
 
@@ -37,7 +38,9 @@ BPM is displayed.
   discontinuities. Adjacent continuous envelopes meet at the audible endpoint.
 - The transport BPM display is transient derived state while playing. It is
   rounded for display without changing scheduler precision, Configuration,
-  persistence, Preset selection, or Save availability.
+  persistence, Preset selection, or Save availability. Amended by
+  [ADR-0025](0025-keep-starting-bpm-editable-during-playback.md): focusing the
+  number temporarily displays the editable Starting BPM instead.
 - A Cycle-envelope edit has the `restart-transport-run` consequence. Existing
   Step-voice, sound, mix, and denominator consequences remain narrow.
 - Missing or unrecognised stored envelope data repairs to Flat zero, and an
