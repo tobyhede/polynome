@@ -620,13 +620,11 @@ function renderPanels() {
  * displays and edits the Preset's starting tempo, playing it displays the tempo
  * the envelopes are producing right now.
  *
- * The live number stays at full strength — it is the playback indicator, and
- * dimming the one thing a listener is watching would be backwards. What has to
- * be unmistakable is that it cannot be typed into, so the number is `readonly`
- * while the slider and both keys are genuinely `disabled`, which is the
- * treatment `button:disabled` already carries. The setters refuse as well, so
- * an event arriving from somewhere none of that covers still cannot edit the
- * starting tempo out from under a run.
+ * The live number stays at full strength as the playback indicator. Focusing
+ * it swaps that reading for the editable starting BPM; leaving it resumes the
+ * live reading. The slider and keys always edit that same starting BPM. A
+ * number-field commit restarts immediately; slider drags and held keys defer
+ * that restart until the gesture ends so a run can outlive the input gesture.
  *
  * The starting tempo has nowhere to be shown once the number is live, so the
  * label slot carries it: `BPM` becomes a badge reading `BPM 100`. No
@@ -635,13 +633,15 @@ function renderPanels() {
  */
 function renderTransport() {
   const playing = engine.playing;
-  const displayedBpm = playing ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
+  const editingNumber = playing && document.activeElement === elements.bpm;
+  const displayedBpm =
+    playing && !editingNumber ? Math.round(engine.activeBpm() ?? state.bpm) : state.bpm;
   elements.bpm.value = String(displayedBpm);
-  elements.bpmSlider.value = String(displayedBpm);
-  elements.bpm.readOnly = playing;
+  elements.bpmSlider.value = String(state.bpm);
+  elements.bpm.readOnly = false;
   elements.bpm.setAttribute(
     "aria-label",
-    `${playing ? "Current" : "Starting"} tempo in beats per minute`,
+    `${playing && !editingNumber ? "Current" : "Starting"} tempo in beats per minute`,
   );
   /*
    * Two different questions, and they used to be one.
@@ -675,9 +675,9 @@ function renderTransport() {
   elements.bpmTicks.classList.toggle("is-banded", travelled.length > 0);
   tempoStretches = travelled;
   renderTempoBands();
-  elements.bpmSlider.disabled = playing;
-  elements.bpmDown.disabled = playing;
-  elements.bpmUp.disabled = playing;
+  elements.bpmSlider.disabled = false;
+  elements.bpmDown.disabled = false;
+  elements.bpmUp.disabled = false;
   // A key at the end of the range says so rather than being left live and
   // silent — but marked unavailable rather than `disabled`, for the reason the
   // save chip is: `disabled` leaves the tab order. This key disables itself
@@ -689,11 +689,8 @@ function renderTransport() {
   // Marking states and does not enforce. Nothing extra declines the press,
   // because the hold already does: `stepTempo` reports a tempo that did not
   // move, which is what the edit returns at either bound.
-  elements.bpmDown.setAttribute(
-    "aria-disabled",
-    String(playing || state.bpm <= TEMPO_LIMIT.minimum),
-  );
-  elements.bpmUp.setAttribute("aria-disabled", String(playing || state.bpm >= TEMPO_LIMIT.maximum));
+  elements.bpmDown.setAttribute("aria-disabled", String(state.bpm <= TEMPO_LIMIT.minimum));
+  elements.bpmUp.setAttribute("aria-disabled", String(state.bpm >= TEMPO_LIMIT.maximum));
   renderDisplayedTempo(displayedBpm);
   updatePlayButton();
 }
@@ -879,9 +876,9 @@ function renderPresetCount() {
  * see. That decision is about not doing the work at all, which is the one thing
  * no renderer can take over.
  *
- * The tempo drag used to be the other half of this, and is no longer: the
- * starting tempo cannot be moved while a run is playing, so that gesture never
- * meets the scheduler at all. A mix drag still can, which is what this is for.
+ * Tempo and mix drags can both reach this while a run is playing. Neither
+ * should pay to describe every stored Preset when the panel is closed, which is
+ * what this early return keeps off the scheduler's thread.
  */
 function renderPresetPanel() {
   if (!presetsOpen) return;
@@ -1913,9 +1910,8 @@ function updateActiveSteps() {
   }
 
   const liveBpm = String(Math.round(engine.activeBpm() ?? state.bpm));
-  if (elements.bpm.value !== liveBpm) {
+  if (document.activeElement !== elements.bpm && elements.bpm.value !== liveBpm) {
     elements.bpm.value = liveBpm;
-    elements.bpmSlider.value = liveBpm;
     renderDisplayedTempo(Number(liveBpm));
   }
 
@@ -2008,7 +2004,6 @@ async function restartAudio() {
 }
 
 function changeTempo(nextBpm) {
-  if (engine.playing) return;
   applyEdit({ type: "set-tempo", bpm: nextBpm });
 }
 
@@ -2123,6 +2118,8 @@ elements.helpToggle.addEventListener("click", () => {
 elements.bpm.addEventListener("change", (event) =>
   changeTempo((event.target as HTMLInputElement).value),
 );
+elements.bpm.addEventListener("focus", renderTransport);
+elements.bpm.addEventListener("blur", renderTransport);
 /**
  * The slider reports whatever tempo the pointer is over and the Configuration
  * takes it as it comes. Nothing here rounds it toward the tempos the tick row
@@ -2133,10 +2130,6 @@ elements.bpm.addEventListener("change", (event) =>
  * is a scale rather than a set of stops.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
-  // While playing the slider tracks the live tempo rather than setting one, so
-  // an input event here is the render's own write coming back, or a gesture the
-  // `disabled` attribute did not catch. Either way it is not an edit.
-  if (engine.playing) return;
   const dragged = (event.target as HTMLInputElement).value;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
@@ -2185,7 +2178,6 @@ let tempoHolding = false;
  * the end of the range, which the edit declines rather than clamps.
  */
 function stepTempo(delta) {
-  if (engine.playing) return false;
   const result = applyEdit(
     { type: "set-tempo", bpm: state.bpm + delta },
     { deferConsequence: true, render: false },

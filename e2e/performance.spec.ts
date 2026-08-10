@@ -204,7 +204,7 @@ test("a render measures every rhythm before it writes any", async ({ page }) => 
   await fillToMaximumRhythms(page);
 
   await page.evaluate(() => (window as unknown as PerformanceScratchWindow).__perf.start());
-  await page.locator(".step").first().click();
+  await page.locator("#cycles .step").first().click();
   const log = await page.evaluate(() =>
     (window as unknown as PerformanceScratchWindow).__perf.stop(),
   );
