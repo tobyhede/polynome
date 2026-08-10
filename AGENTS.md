@@ -36,13 +36,13 @@ The core promise is:
 
 ### Rendering
 
-`#cycles` and `#preset-list` are rendered by Preact through `htm` tagged templates, per ADR-0009. Everything else in `app.ts` still writes to the DOM directly, and three things do so deliberately inside a rendered region: the visual playhead toggles classes on live nodes every animation frame, `layoutSteps` measures what the renderer just produced and writes custom properties back onto it, and a level or balance drag writes its own readout rather than re-rendering the grid under the pointer. None belongs in a component.
+`#cycles`, `#preset-list`, and the static `#help-walkthrough` are rendered by Preact through `htm` tagged templates, per [ADR-0009](docs/adr/0009-adopt-preact-as-the-renderer.md) and [ADR-0026](docs/adr/0026-render-the-static-help-walkthrough-with-preact.md). Everything else in `app.ts` still writes to the DOM directly, and three things do so deliberately inside a rendered region: the visual playhead toggles classes on live nodes every animation frame, `layoutSteps` measures what the renderer just produced and writes custom properties back onto it, and a level or balance drag writes its own readout rather than re-rendering the grid under the pointer. None belongs in a component.
 
 The first two are safe because reconciliation restores what they write, or leaves it alone. The third is not, and it is the reason `writeReadout` changes a Text node's data instead of assigning `textContent`: assigning replaces the node, and the node it replaces is one Preact created and still holds, so every later render of that readout is written into a node no longer in the document. Anything that writes text into a rendered region has the same constraint. The e2e suite asserts the identity of the node both readouts keep.
 
 Interface state stays in module scope. Preact is here to reconcile, not to own state, so no component holds any — `openRhythms`, `presetsOpen` and the rest are read as props from the render functions that mount each region.
 
-`render` is Preact's. The application's own whole-interface render is `renderInterface`, and the per-region ones are `renderPanels`, `renderTransport`, `renderPresetPanel`, `renderCycles` and `renderFooter`.
+`render` is Preact's. The application's own whole-interface render is `renderInterface`, and the per-region ones are `renderPanels`, `renderTransport`, `renderPresetPanel`, `renderCycles`, `renderFooter`, and the one-time `renderHelp`.
 
 ### The Preset origin
 
@@ -50,7 +50,7 @@ Interface state stays in module scope. Preact is here to reconcile, not to own s
 
 It is a claim about what storage holds, so it stops being true when storage moves: deleting a Preset — here or in another tab — leaves it naming something no Preset carries any more, and a stale origin reads as nothing to save, which is exactly backwards. Every write to the stored Presets that this tab did not itself make goes through `adoptSavedPresets`, which reconciles the origin, redraws the list and repaints the header together. Saving is the one write that does not, because it knows the origin it just created. Add a fourth route to changing `savedPresets` and it goes through `adoptSavedPresets` too.
 
-Do not reintroduce `innerHTML` in either rendered region. Rebuilding markup destroys focus, which is what made `focusSelector`, `renderPresetSelection` and three `requestAnimationFrame` focus deferrals necessary; the e2e suite asserts those regions are not rebuilt and that focus survives a Preset being deleted from another tab.
+Do not reintroduce `innerHTML` in either mutable rendered region, `#cycles` or `#preset-list`. Rebuilding markup destroys focus, which is what made `focusSelector`, `renderPresetSelection` and three `requestAnimationFrame` focus deferrals necessary; the e2e suite asserts those regions are not rebuilt and that focus survives a Preset being deleted from another tab. The Help walkthrough renders once from fixed values and has no update path.
 
 `model.ts` holds the shared musical vocabulary (`STEP`, `METER_COUNT_LIMIT`, `METER_UNITS`, `SUBDIVISION_LIMIT`) and the increments its stepped controls move in (`TEMPO_STEP`, `MIX_STEP`). `configuration.ts` imports it rather than restating the literals, so a bound or a name is only ever changed in one place. A step belongs there for the same reason a bound does, and for one more: it decides which values a control can hold at all, so every default is held against it — see [ADR-0014](docs/adr/0014-snap-only-the-balance-and-hold-defaults-to-the-step.md).
 

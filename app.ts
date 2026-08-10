@@ -48,6 +48,26 @@ const PRESET_STORAGE_KEY = "polynome-presets-v4";
 // third key for that reason rather than a field — see ADR-0017.
 const ACCENT_STORAGE_KEY = "polynome-accent-v1";
 const PERSIST_DELAY_MS = 400;
+// Major ticks carry their own number, so the tick row is the tempo scale: it is
+// how a reader knows what the thumb above it is sitting on without reading the
+// number. The marks are `TEMPO_TICK_INTERVAL`'s, spanning `TEMPO_LIMIT`, rather
+// than a tenth restated here — the interval is a tempo the slider steps to, and
+// a scale drawn at some other spacing would put its numbers between the values
+// the control can hold rather than on them. Every ninth mark is labelled, which
+// is as close as the numbers sit before they collide at the narrowest width.
+const LABELLED_EVERY = 9;
+const tempoTicks = Object.freeze(
+  Array.from(
+    {
+      length: (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_TICK_INTERVAL + 1,
+    },
+    (_, index) =>
+      Object.freeze({
+        bpm: TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL,
+        major: index % LABELLED_EVERY === 0,
+      }),
+  ),
+);
 // The meter domain narrowed in v2. Values from earlier releases are retired
 // instead of repaired into different rhythms without the listener's consent.
 const RETIRED_STORAGE_KEYS = [
@@ -1759,15 +1779,13 @@ function NoteIcon({ subdivision, height }) {
  * control names out of the accessibility tree as well.
  */
 function HelpWalkthrough() {
-  const ticks = Array.from({ length: tempoMarks }, (_, index) => {
-    const bpm = TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL;
-    const major = index % LABELLED_EVERY === 0;
-    return html`<span
+  const ticks = tempoTicks.map(
+    ({ bpm, major }) => html`<span
       data-bpm=${bpm}
       data-label=${major ? bpm : ""}
       class=${`${major ? "is-major" : ""}${bpm <= 120 ? " is-passed" : ""}`}
-    ></span>`;
-  });
+    ></span>`,
+  );
   const voices = ["primary", "secondary", "tertiary", "off"];
 
   return html`
@@ -2939,20 +2957,12 @@ window.addEventListener("pageshow", checkAudioAfterForeground);
 document.addEventListener("resume", checkAudioAfterForeground);
 window.addEventListener("focus", checkAudioAfterForeground);
 
-// Major ticks carry their own number, so the tick row is the tempo scale: it is
-// how a reader knows what the thumb above it is sitting on without reading the
-// number. The marks are `TEMPO_TICK_INTERVAL`'s, spanning `TEMPO_LIMIT`, rather
-// than a tenth restated here — the interval is a tempo the slider steps to, and
-// a scale drawn at some other spacing would put its numbers between the values
-// the control can hold rather than on them. Every ninth mark is labelled, which
-// is as close as the numbers sit before they collide at the narrowest width.
-const LABELLED_EVERY = 9;
-const tempoMarks = (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum) / TEMPO_TICK_INTERVAL + 1;
-elements.bpmTicks.innerHTML = Array.from({ length: tempoMarks }, (_, index) => {
-  const bpm = TEMPO_LIMIT.minimum + index * TEMPO_TICK_INTERVAL;
-  const major = index % LABELLED_EVERY === 0;
-  return `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`;
-}).join("");
+elements.bpmTicks.innerHTML = tempoTicks
+  .map(
+    ({ bpm, major }) =>
+      `<span data-bpm="${bpm}" data-label="${major ? bpm : ""}" class="${major ? "is-major" : ""}"></span>`,
+  )
+  .join("");
 renderHelp();
 /**
  * A Configuration restored from storage may already be one of the stored

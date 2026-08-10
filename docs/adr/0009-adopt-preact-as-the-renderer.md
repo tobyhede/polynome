@@ -2,6 +2,10 @@
 
 Polynome will render the cycles and preset regions through Preact, written with `htm` tagged templates rather than JSX and served without a development build. Preact is adopted as a renderer only: interface state stays in module scope, and the visual playhead and the beat-grouping measurement keep their imperative access to the DOM. This supersedes ADR-0003 only where that decision rejected the design prototype's React runtime, and amends the zero-runtime-dependency position recorded in `AGENTS.md`; every other consequence in ADR-0003 remains in force. ADR-0004 and ADR-0006 each restate that position in passing while deciding something else, and both are left as written — they record what was true when they were taken, and this decision is where the change is read from.
 
+[ADR-0026](0026-render-the-static-help-walkthrough-with-preact.md) expands
+the renderer boundary to the static Help walkthrough; the state and imperative
+DOM constraints recorded here remain unchanged.
+
 The reason recorded below for rejecting JSX is amended by
 [ADR-0018](0018-strip-types-in-the-development-server.md), which is where that
 change is read from. `server.ts` — `server.mjs` when this was written — now

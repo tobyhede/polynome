@@ -1,0 +1,3 @@
+# Keep Starting BPM editable during playback
+
+Starting BPM remains editable while the Shared transport is playing, superseding [ADR-0016](0016-add-cycle-bpm-envelopes.md) only where it made those controls unavailable. The unfocused number may continue to display the derived Current BPM, but focusing it reveals the Starting BPM it edits; the slider and stepper keys always edit Starting BPM. Every accepted BPM change retains its `restart-transport-run` consequence: a number-field commit restarts immediately, while slider drags and held stepper gestures defer one restart until the gesture ends so continuous input cannot repeatedly replace a run before its look-ahead becomes audible.
