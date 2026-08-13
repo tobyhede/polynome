@@ -67,6 +67,10 @@ export const CLICK_ENVELOPE = Object.freeze({
   peakGain: 0.92,
   silenceGain: 0.0001,
   attackSeconds: 0.0015,
+  // Keep the transient at full strength long enough to remain distinct beside
+  // other audio. The former immediate exponential decay retained the same
+  // peak, but shed almost all of the click's energy in its first few frames.
+  holdSeconds: 0.006,
   releaseSeconds: 0.002,
 });
 
@@ -98,8 +102,9 @@ export function scheduleClickVoice(context, output, { sound, voice, when }) {
   if (!pitchRatio) return null;
 
   const profile = SOUND_PROFILES[sound] || SOUND_PROFILES[SOUND.HIGH];
-  const { peakGain, silenceGain, attackSeconds, releaseSeconds } = CLICK_ENVELOPE;
+  const { peakGain, silenceGain, attackSeconds, holdSeconds, releaseSeconds } = CLICK_ENVELOPE;
   const end = when + profile.durationSeconds;
+  const peak = when + attackSeconds;
 
   const oscillator = context.createOscillator();
   oscillator.type = profile.type;
@@ -111,7 +116,8 @@ export function scheduleClickVoice(context, output, { sound, voice, when }) {
   envelope.connect(output);
 
   envelope.gain.setValueAtTime(silenceGain, when);
-  envelope.gain.exponentialRampToValueAtTime(peakGain, when + attackSeconds);
+  envelope.gain.exponentialRampToValueAtTime(peakGain, peak);
+  envelope.gain.setValueAtTime(peakGain, peak + holdSeconds);
   envelope.gain.exponentialRampToValueAtTime(silenceGain, end);
 
   oscillator.start(when);

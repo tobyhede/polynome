@@ -566,7 +566,13 @@ test("every audible Step voice shares one gain envelope and its own pitch", () =
   for (const { context } of [tertiary, secondary]) {
     assert.deepEqual(context.gains[0].gain.automation, primary.context.gains[0].gain.automation);
   }
-  assert.equal(primary.context.gains[0].gain.automation[1].value, CLICK_ENVELOPE.peakGain);
+  const automation = primary.context.gains[0].gain.automation;
+  assert.equal(automation[1].value, CLICK_ENVELOPE.peakGain);
+  assert.deepEqual(
+    { method: automation[2].method, value: automation[2].value },
+    { method: "setValueAtTime", value: CLICK_ENVELOPE.peakGain },
+  );
+  assert.equal(roundSeconds(automation[2].when - automation[1].when), CLICK_ENVELOPE.holdSeconds);
 
   for (const [voice, { oscillator }] of [
     [STEP.TERTIARY, tertiary],
