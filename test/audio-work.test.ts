@@ -466,7 +466,9 @@ for (const workload of Object.values(WORKLOADS)) {
  */
 const AUTOMATION_BUDGETS = {
   default: { total: 8, setTargetAtTime: 0 },
-  maximum: { total: 725, setTargetAtTime: 0 },
+  // Holding the click at its peak adds one deliberate automation point per
+  // event: 240 more calls at the maximum workload, plus the existing margin.
+  maximum: { total: 965, setTargetAtTime: 0 },
 };
 
 for (const [key, workload] of Object.entries(WORKLOADS)) {

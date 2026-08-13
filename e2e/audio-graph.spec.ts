@@ -43,6 +43,44 @@ test("a high click renders inside its scheduled frame window", async ({ page }) 
   expect(rendered.last).toBeGreaterThan(rendered.stopFrame - 4);
 });
 
+/**
+ * Peak amplitude alone does not describe how readily a click cuts through
+ * other audio. The former immediate exponential decay rendered at 0.123 RMS:
+ * near the same peak, but with too little sustained energy. This floor holds
+ * the added audibility without inviting a gain above the clipping ceiling.
+ */
+test("a high click carries sustained energy without raising its peak", async ({ page }) => {
+  const rendered = await page.evaluate(
+    async ({ sampleRate, when }) => {
+      const { CLICK_ENVELOPE, SOUND_PROFILES, scheduleClickVoice } = await import("/metronome.ts");
+      const duration = SOUND_PROFILES.high.durationSeconds;
+      const context = new OfflineAudioContext(1, sampleRate / 10, sampleRate);
+
+      scheduleClickVoice(context, context.destination, {
+        sound: "high",
+        voice: "primary",
+        when,
+      });
+      const buffer = await context.startRendering();
+      const firstFrame = Math.round(when * sampleRate);
+      const lastFrame = Math.round((when + duration) * sampleRate);
+      const samples = buffer.getChannelData(0).slice(firstFrame, lastFrame);
+      const meanSquare =
+        samples.reduce((energy, sample) => energy + sample * sample, 0) / samples.length;
+
+      return {
+        peak: samples.reduce((maximum, sample) => Math.max(maximum, Math.abs(sample)), 0),
+        rms: Math.sqrt(meanSquare),
+        ceiling: CLICK_ENVELOPE.peakGain,
+      };
+    },
+    { sampleRate: SAMPLE_RATE, when: WHEN },
+  );
+
+  expect(rendered.peak).toBeLessThanOrEqual(rendered.ceiling);
+  expect(rendered.rms).toBeGreaterThan(0.2);
+});
+
 test("Step voices change pitch without changing gain and off stays silent", async ({ page }) => {
   const rendered = await page.evaluate(
     async ({ sampleRate, when }) => {
