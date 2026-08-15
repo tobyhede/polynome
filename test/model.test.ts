@@ -11,6 +11,7 @@ import {
   STEP,
   TEMPO_LIMIT,
   TEMPO_STEP,
+  TEMPO_STICK_RADIUS,
   TEMPO_TICK_INTERVAL,
   beatAtSeconds,
   convertedEnvelopeAmount,
@@ -24,6 +25,7 @@ import {
   panLabel,
   secondsAtBeat,
   snapBalance,
+  stickyTempo,
   subdivisionLabel,
   tempoAtBeat,
 } from "../model.ts";
@@ -597,11 +599,55 @@ test("every tempo the tick row draws is one the slider can hold", () => {
 });
 
 /**
- * The one snap left in the interface. It exists for the reading: `panLabel`
- * calls anything inside four percent of the middle "Centre", and before this a
- * drag could leave that word over a Balance that was audibly off to one side.
- * The slider carries its value as a string, so the string form is the one the
- * interface actually passes.
+ * `TEMPO_STICK_RADIUS` sits in the one band that makes it mean anything. At or
+ * under half a step it can never disagree with the step's own rounding — see
+ * the constant's own comment — and at or over a whole step it closes an
+ * off-mark tempo's reachable zone from both sides at once, the same failure
+ * the Balance quarter-marks made.
+ */
+test("the stick radius clears the step's own rounding and stays under a whole step", () => {
+  assert.ok(TEMPO_STICK_RADIUS > TEMPO_STEP / 2);
+  assert.ok(TEMPO_STICK_RADIUS < TEMPO_STEP);
+});
+
+/**
+ * A raw position the step's own rounding would already have assigned to the
+ * off-mark tempo between two marks is pulled onto whichever mark it is within
+ * `TEMPO_STICK_RADIUS` of instead — the divergence that proves `stickyTempo`
+ * is doing something the step's rounding alone does not.
+ */
+test("a drag close enough to a mark is pulled onto it, overriding the step's own rounding", () => {
+  // 37 rounds to 35 under the plain step (nearer to it than to 40), but sits
+  // inside the stick radius of 40.
+  assert.equal(stickyTempo(37, 35), 40);
+  // 33 rounds to 35 under the plain step (nearer to it than to 30), but sits
+  // inside the stick radius of 30.
+  assert.equal(stickyTempo(33, 35), 30);
+});
+
+test("a drag just outside the stick radius is left at the step's own rounding", () => {
+  assert.equal(stickyTempo(34.5, 35), 35);
+  assert.equal(stickyTempo(35.5, 35), 35);
+});
+
+/**
+ * Every tempo the slider steps to, marks and the tempos between them alike,
+ * is still reachable: a drag landing exactly on a tempo's own raw position is
+ * never pulled away from it, because the nearest mark to it is a whole
+ * `TEMPO_STEP` off and the radius stops short of that by design.
+ */
+test("a drag reaches every tempo the slider steps to at its own position", () => {
+  for (let bpm = TEMPO_LIMIT.minimum; bpm <= TEMPO_LIMIT.maximum; bpm += TEMPO_STEP) {
+    assert.equal(stickyTempo(bpm, bpm), bpm, `${bpm} was pulled away from its own position`);
+  }
+});
+
+/**
+ * The other snap in the interface, alongside `stickyTempo` above. It exists
+ * for the reading: `panLabel` calls anything inside four percent of the
+ * middle "Centre", and before this a drag could leave that word over a
+ * Balance that was audibly off to one side. The slider carries its value as a
+ * string, so the string form is the one the interface actually passes.
  */
 test("a dragged Balance inside the centre tolerance is centred exactly", () => {
   assert.equal(snapBalance("0.05"), 0);

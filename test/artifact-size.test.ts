@@ -39,6 +39,14 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
   /**
    * The whole application as one file: markup, styles, script, and base64 woff2.
    *
+   * The sticky pull toward ten-BPM marks and the mark-lit mix sliders raise
+   * this to 279,000, headroom over the 278,327 measured: a pointer-position
+   * calculation and its drag listeners on the tempo slider, visual marks on
+   * Level and Balance with the CSS positioning them against the same thumb
+   * inset that calculation reads, and the prose explaining why both exist —
+   * see
+   * [ADR-0027](../docs/adr/0027-pull-a-tempo-drag-toward-ten-bpm-marks-again.md).
+   *
    * This is the first figure here that has ever fallen, and it fell 27,348
    * bytes, from 295,311 to 267,963. Both embedded faces were re-cut from
    * upstream at the glyph set the interface draws — 48,944 bytes of woff2 became
@@ -93,7 +101,7 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * else will move it. See
    * [ADR-0022](../docs/adr/0022-compute-the-content-security-policy-at-build-time.md).
    */
-  "dist/polynome.html": { raw: 278_000 },
+  "dist/polynome.html": { raw: 279_000 },
   /**
    * The bundled script alone, which is the half that grows from source, and the
    * one figure the redline in ADR-0024 is about. Measured 174,711 raw and 42,537
@@ -103,8 +111,14 @@ const BUDGETS: Readonly<Record<string, Budget>> = Object.freeze({
    * raise the script to 181,142 raw and 44,098 gzipped; unlike the old prose in index.html, its reused
    * control markup is rendered by Preact and therefore belongs to this half of
    * the artifact.
+   *
+   * The sticky-tempo pointer maths and the mix-tick lighting raise the raw
+   * figure to 185,000, headroom over the 184,090 measured — see
+   * [ADR-0027](../docs/adr/0027-pull-a-tempo-drag-toward-ten-bpm-marks-again.md).
+   * Gzipped it measures 44,946, under the existing budget and nowhere near
+   * the 60 KB redline ADR-0024 sets for this artifact, so that figure holds.
    */
-  "site/app-local.js": { raw: 184_000, gzip: 45_000 },
+  "site/app-local.js": { raw: 185_000, gzip: 45_000 },
   /**
    * The stylesheet, which the tempo band change left 23 bytes smaller than it
    * found it — one rule for the band elements says what a pseudo-element and

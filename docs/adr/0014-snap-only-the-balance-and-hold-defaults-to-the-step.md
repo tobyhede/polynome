@@ -154,11 +154,15 @@ alive is arithmetic — which is the Node suite's, not the browser's.
   `TEMPO_TICK_INTERVAL` and reduced from a frozen table to the one number that
   still does anything, so the tolerance beside it cannot be read as live. What
   holds it to the slider now is arithmetic rather than a shared constant: the
-  step divides the interval, which the Node suite asserts.
+  step divides the interval, which the Node suite asserts. Superseded by
+  [ADR-0027](0027-pull-a-tempo-drag-toward-ten-bpm-marks-again.md): the tick
+  row is a snap's drawn form again, and the tolerance beside it is live.
 - The tempo slider loses its drag flag and the four listeners that maintained it.
   The mix flag survives for the Balance alone, and the `keydown` listener that
   lowers it is still what it always was — the thing that keeps the first arrow
-  key off centre from being pulled straight back onto it.
+  key off centre from being pulled straight back onto it. Superseded by
+  [ADR-0027](0027-pull-a-tempo-drag-toward-ten-bpm-marks-again.md): the tempo
+  slider carries a drag flag and listeners again.
 - `snapToMark` goes, replaced by a `snapBalance` that takes one argument and
   compares against one literal. Its generality is what made three snaps easy to
   add, and also what made two of them easy to leave broken: three frozen

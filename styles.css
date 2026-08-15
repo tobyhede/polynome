@@ -121,6 +121,17 @@
   --danger: #e07a5f;
   --display-font: "Major Mono Display", monospace;
   --body-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  /* Half the native range thumb's own width, unstyled by anything below and so
+     a browser default rather than a size chosen here — the same default for
+     every `<input type="range">` this stylesheet leaves unstyled, which is all
+     of them. Root-scoped rather than repeated per slider, because every
+     consumer has to agree on one figure: `.bpm-ticks` and the `.mix-tick`
+     marks both position themselves against where the thumb's centre can
+     actually reach, and `app.ts` reads the same custom property to map a
+     tempo drag's screen position onto the tempo range the same way. Two
+     copies of this number is how the marks and the thumb disagree the moment
+     one of them changes. */
+  --slider-thumb-inset: 9px;
 
   font-family: var(--body-font);
   font-synthesis: none;
@@ -1005,10 +1016,10 @@ h1.is-glitching {
   display: flex;
   height: auto;
   /* The thumb's centre stops half a thumb short of either end of the slider, so
-     the row is inset to match. Without it the last tick sits ~9px past the
-     thumb at 300bpm, which reads as a misalignment now that the row sits
-     directly beneath the track. */
-  margin-inline: 9px;
+     the row is inset to match. Without it the last tick sits past the thumb at
+     300bpm, which reads as a misalignment now that the row sits directly
+     beneath the track. */
+  margin-inline: var(--slider-thumb-inset);
   padding-bottom: 16px;
   align-items: flex-start;
   justify-content: space-between;
@@ -1795,6 +1806,17 @@ h1.is-glitching {
   justify-items: stretch;
 }
 
+/* `.mix-settings`'s own 14px gap already separates Level's row from
+   Balance's, but Balance's heading — carrying the "L · R" axis label — sits
+   right at the top of that gap, while the slider "L · R" actually names is a
+   further 9px below it, on the far side of `.control-label`'s own gap. The
+   extra margin here widens Balance's approach without touching Level's own
+   spacing or the gap generic to every row in this grid, so the heading reads
+   closer to the slider naming it than to the one above it. */
+.control-label--balance {
+  margin-top: 8px;
+}
+
 .balance-axis {
   color: var(--muted);
   font-weight: 600;
@@ -1807,23 +1829,68 @@ h1.is-glitching {
   margin: 0;
 }
 
-.balance-slider {
+/* Level and Balance both wrap their slider in one of these so a mark can be
+   positioned over the track; a bare `<input>` has nothing a mark could be
+   absolute to. */
+.mix-slider {
   position: relative;
   display: block;
   height: 26px;
 }
 
-/* The Balance domain runs from hard left to hard right, so its centre is the
-   50% point on the physical track even though the value there is zero. */
-.balance-midpoint {
+.mix-tick {
   position: absolute;
   bottom: 0;
-  left: 50%;
   width: 2px;
-  height: 6px;
+  height: 4px;
   transform: translateX(-50%);
   background: var(--line-strong);
+  opacity: 0.5;
   pointer-events: none;
+}
+
+/* A mark the fill has already reached lights the way `.bpm-ticks` lights a
+   passed tempo mark: the same shift from `--line-strong` to `--accent`, the
+   same rise in opacity. `app.ts` toggles this the way it toggles `is-passed`
+   there — at render and again on every drag, since a value the fill has
+   crossed does not wait for a re-render to say so. */
+.mix-tick.is-passed {
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+/* Balance's centre is the one mark with a value a listener asks for exactly
+   rather than a reference point read by eye, so it alone stands taller than
+   the marks either side of it and the one on Level. */
+.mix-tick--strong {
+  height: 6px;
+}
+
+/* The Balance domain runs from hard left to hard right, so its centre sits at
+   the 50% mark below even though the value there is zero, and its quarters
+   sit at 25%/75% either side of it. Level's own domain runs 0 to 1, so its
+   sole mark at 50% is the halfway value in the plainer sense. Both sliders
+   share the same physical track, which is why the position is named from the
+   fraction rather than from either domain.
+
+   The 50% mark sits exactly there regardless of the thumb's own inset, since
+   an inset shrinks the reachable track by the same amount on both ends and
+   its middle does not move. The 25% and 75% marks are not centred, so the
+   inset moves them: each is pulled half the inset toward the middle, which is
+   what keeps a mark under the exact fraction of the track the thumb can
+   actually reach. Left at a plain 25%/75% of the container, a mark reads
+   correctly only at centre and visibly off everywhere else — the same
+   misalignment `rawSliderTempo` exists to keep the tempo drag from making. */
+.mix-tick--25 {
+  left: calc(25% + var(--slider-thumb-inset) * 0.5);
+}
+
+.mix-tick--50 {
+  left: 50%;
+}
+
+.mix-tick--75 {
+  left: calc(75% - var(--slider-thumb-inset) * 0.5);
 }
 
 .add-rhythm {
