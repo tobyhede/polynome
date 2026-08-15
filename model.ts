@@ -426,20 +426,72 @@ export function subdivisionLabelWithoutUnit(subdivision) {
  * restoring what a `<datalist>` on the slider had done for free before the
  * slider moved above the row and the browser's own marks started duplicating it
  * — and the two had to be one set of tempos or the snap landed nowhere visible.
- * That snap is gone. Its tolerance was two BPM either side of a mark, which is
+ * That snap is gone: its tolerance was two BPM either side of a mark, compared
+ * against the value the slider's own step had already rounded to, which is
  * narrower than the five the slider steps by, so it could not catch a single
- * value the control was able to produce: every tempo it would have moved was
- * already unreachable. What is left is the scale, which is all a reader ever saw.
+ * value the control was able to produce.
+ *
+ * `stickyTempo` is a second attempt at the same drawn form, comparing against
+ * the pointer's own position instead of the stepped value — see
+ * `TEMPO_STICK_RADIUS` for why that is what makes a tolerance catch anything
+ * this time.
  */
 export const TEMPO_TICK_INTERVAL = 10;
 
 /**
- * How far from the middle a Balance drag is still centred, and the only snap
- * left anywhere in the interface. It is here for the reading rather than for the
- * feel: `panLabel` calls anything inside four percent of the middle "Centre",
- * and a drag that stopped a hundredth or two short left that word over a Balance
- * that was audibly off to one side. Inside the five percent here it cannot —
- * everything the label calls Centre arrives at exactly zero.
+ * How far a drag can land from a `TEMPO_TICK_INTERVAL` mark and still be
+ * pulled onto it, measured against the pointer's raw position rather than the
+ * value the slider's own step already rounded to — see `stickyTempo`.
+ *
+ * It has to clear `TEMPO_STEP / 2`. The browser's own step-rounding already
+ * draws a boundary there: a raw position within 2.5 BPM of a mark is already
+ * rounded to it before `stickyTempo` ever runs, so a tolerance at or under
+ * that boundary can never disagree with what the step alone would have
+ * produced — every value it appears to catch, the step already caught the
+ * same way, which is a tolerance too narrow by the opposite fault the old
+ * tick-row snap had: that one could never fire at all, and one no wider than
+ * the step's own rounding fires constantly while changing nothing.
+ *
+ * It also has to stay under `TEMPO_STEP`. A mark's two neighbours sit exactly
+ * `TEMPO_STEP` from it, so a tolerance that reaches that far closes the
+ * neighbour's own zone from both sides at once and swallows it whole — the
+ * same failure the quarter-marks once made of Balance, sixteen positions
+ * unreachable by drag. Short of that width, the two marks flanking an
+ * off-mark tempo each take a bite from opposite edges of its zone and leave
+ * the tempo itself, and a band around it, still reachable — narrower than the
+ * plain step would have given it, which is the stick.
+ *
+ * Four rather than the least value that clears half a step: each side's bite
+ * is `TEMPO_STICK_RADIUS - TEMPO_STEP / 2`, and at the least value that is a
+ * band well under a BPM wide — narrower than a drag can reliably land in and
+ * still feel like a mark reaching for it rather than luck. Four leaves that
+ * band a BPM and a half wide on either side of a mark, still short of eating
+ * an off-mark tempo's own two-BPM-wide remainder.
+ */
+export const TEMPO_STICK_RADIUS = 4;
+
+/**
+ * Pulls a drag onto the nearest `TEMPO_TICK_INTERVAL` mark when the pointer's
+ * own position on the track is within `TEMPO_STICK_RADIUS` of it, and returns
+ * the slider's own stepped value everywhere else. `rawBpm` is the pointer's
+ * position mapped straight onto the tempo range, not yet rounded to
+ * `TEMPO_STEP` — the comparison this makes only means what it says when it is
+ * made before that rounding, for the reason `TEMPO_STICK_RADIUS` explains.
+ */
+export function stickyTempo(rawBpm, steppedBpm) {
+  const clamped = clampTempo(rawBpm);
+  const nearestMark = Math.round(clamped / TEMPO_TICK_INTERVAL) * TEMPO_TICK_INTERVAL;
+  return Math.abs(clamped - nearestMark) <= TEMPO_STICK_RADIUS ? nearestMark : steppedBpm;
+}
+
+/**
+ * How far from the middle a Balance drag is still centred — the other snap in
+ * the interface, alongside `stickyTempo` above. It is here for the reading
+ * rather than for the feel: `panLabel` calls anything inside four percent of
+ * the middle "Centre", and a drag that stopped a hundredth or two short left
+ * that word over a Balance that was audibly off to one side. Inside the five
+ * percent here it cannot — everything the label calls Centre arrives at
+ * exactly zero.
  *
  * One `MIX_STEP` wide, which makes the two positions either side of centre the
  * only ones a drag cannot reach. Both stay reachable by arrow key, because only

@@ -16,6 +16,7 @@ import {
   lookup,
   panLabel,
   snapBalance,
+  stickyTempo,
   convertedEnvelopeAmount,
   ENVELOPE,
   MIX_STEP,
@@ -722,6 +723,11 @@ function renderTransport() {
 function tempoFraction(bpm) {
   const span = TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum;
   return Math.min(1, Math.max(0, (bpm - TEMPO_LIMIT.minimum) / span));
+}
+
+/** `tempoFraction`'s inverse: the tempo a fraction of the range names. */
+function tempoAtFraction(fraction) {
+  return TEMPO_LIMIT.minimum + fraction * (TEMPO_LIMIT.maximum - TEMPO_LIMIT.minimum);
 }
 
 /**
@@ -1629,13 +1635,18 @@ function RhythmSettings({ rhythm, rhythmDescription }) {
            finds here. -->
       <label class="control-label">
         <span>Level <output class="sr-only" data-output="volume">${`${Math.round(rhythm.volume * 100)}%`}</output></span>
-        <input type="range" min="0" max="1" step=${String(MIX_STEP)} value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
+        <span class="mix-slider">
+          <input type="range" min="0" max="1" step=${String(MIX_STEP)} value=${String(rhythm.volume)} data-field="volume" aria-label=${`${label} level`} />
+          <span class="mix-tick mix-tick--50${rhythm.volume >= 0.5 ? " is-passed" : ""}" aria-hidden="true"></span>
+        </span>
       </label>
-      <label class="control-label">
+      <label class="control-label control-label--balance">
         <span>Balance <span class="balance-axis" aria-hidden="true">L · R</span><output class="sr-only" data-output="pan">${panLabel(rhythm.pan)}</output></span>
-        <span class="balance-slider">
+        <span class="mix-slider">
           <input type="range" min="-1" max="1" step=${String(MIX_STEP)} value=${String(rhythm.pan)} data-field="pan" aria-label=${`${label} stereo balance`} />
-          <span class="balance-midpoint" aria-hidden="true"></span>
+          <span class="mix-tick mix-tick--25${rhythm.pan >= -0.5 ? " is-passed" : ""}" aria-hidden="true"></span>
+          <span class="mix-tick mix-tick--50 mix-tick--strong${rhythm.pan >= 0 ? " is-passed" : ""}" aria-hidden="true"></span>
+          <span class="mix-tick mix-tick--75${rhythm.pan >= 0.5 ? " is-passed" : ""}" aria-hidden="true"></span>
         </span>
       </label>
     </div>
@@ -2139,21 +2150,78 @@ elements.bpm.addEventListener("change", (event) =>
 elements.bpm.addEventListener("focus", renderTransport);
 elements.bpm.addEventListener("blur", renderTransport);
 /**
- * The slider reports whatever tempo the pointer is over and the Configuration
- * takes it as it comes. Nothing here rounds it toward the tempos the tick row
- * draws: the slider's own step is five BPM, which is coarser than the two either
- * side of a mark such a snap could catch, so every tempo it would have moved is
- * one this control cannot produce in the first place — a drag lands exactly on a
- * mark or a full five from one, and never in between. The row below the slider
- * is a scale rather than a set of stops.
+ * The pointer's own tempo, read from where it sits on the track rather than
+ * from the value the slider's step already rounded to. `stickyTempo` needs
+ * the two told apart — see `TEMPO_STICK_RADIUS` for why — and the step's own
+ * value is all an `input` event carries, so this is computed independently
+ * from the pointer position a drag last reported.
+ *
+ * The bounding box is not the usable track: the browser maps a position to a
+ * value over the track less `--slider-thumb-inset` from either end, the same
+ * inset `.bpm-ticks` aligns itself to, because the thumb's own centre never
+ * reaches past it. Measuring straight off the full box overstates how far a
+ * drag near either end actually is from a mark by close to that inset, which
+ * is enough on its own to mistake which mark a drag near either end is
+ * closest to.
+ */
+function rawSliderTempo(clientX) {
+  const rect = elements.bpmSlider.getBoundingClientRect();
+  const inset = Number.parseFloat(
+    getComputedStyle(elements.bpmSlider).getPropertyValue("--slider-thumb-inset"),
+  );
+  const usableWidth = rect.width - inset * 2;
+  const fraction = Math.min(1, Math.max(0, (clientX - rect.left - inset) / usableWidth));
+  return tempoAtFraction(fraction);
+}
+
+/**
+ * Only a drag reads a pointer position, for the reason `balanceSliderDragging`
+ * further down is raised the same way: the stepper keys and a typed BPM both
+ * report a `state.bpm` with no pointer behind them, and pulling either toward
+ * a mark it never asked to be near would be a control the sticky reach never
+ * meant to cover. Reset the same way `balanceSliderDragging` is, and for the
+ * same reasons — a press these controls never see the release of is still a
+ * press the keyboard backstops.
+ */
+let bpmSliderDragging = false;
+let bpmSliderClientX = null;
+elements.bpmSlider.addEventListener("pointerdown", (event) => {
+  bpmSliderDragging = true;
+  bpmSliderClientX = event.clientX;
+});
+elements.bpmSlider.addEventListener("pointermove", (event) => {
+  if (!bpmSliderDragging) return;
+  bpmSliderClientX = event.clientX;
+});
+for (const type of ["pointerup", "pointercancel", "keydown"]) {
+  elements.bpmSlider.addEventListener(type, () => {
+    bpmSliderDragging = false;
+    bpmSliderClientX = null;
+  });
+}
+
+/**
+ * The slider reports whatever tempo its own step rounded the pointer to, and
+ * the Configuration takes that as it comes everywhere except within
+ * `TEMPO_STICK_RADIUS` of a `TEMPO_TICK_INTERVAL` mark, where `stickyTempo`
+ * pulls a drag onto the mark instead. A typed tempo and a stepper key both
+ * reach here with no pointer position recorded — `bpmSliderClientX` stays
+ * `null` — so both keep reaching every tempo they always did.
  */
 elements.bpmSlider.addEventListener("input", (event) => {
-  const dragged = (event.target as HTMLInputElement).value;
+  const stepped = (event.target as HTMLInputElement).value;
+  const dragged =
+    bpmSliderDragging && bpmSliderClientX !== null
+      ? String(stickyTempo(rawSliderTempo(bpmSliderClientX), Number(stepped)))
+      : stepped;
   applyEdit({ type: "set-tempo", bpm: dragged }, { deferConsequence: true, render: false });
   // The grid is deliberately not re-rendered under a drag, so this is what keeps
   // everything the tempo is spoken by in step with the thumb: the number in the
   // readout above it, the stepper keys marking themselves unavailable at either
-  // bound, and the type size and glitch the tempo drives.
+  // bound, and the type size and glitch the tempo drives. It is also what pulls
+  // the thumb itself onto a mark `stickyTempo` caught: `renderTransport` writes
+  // `state.bpm` back into the slider unconditionally, same as it does for a
+  // drag `stickyTempo` never touched.
   renderTransport();
   renderPresetPanel();
   renderCycleTempos();
@@ -2792,6 +2860,37 @@ function showSettledValue(slider, value) {
   slider.value = String(value);
 }
 
+/**
+ * Lights a mix slider's marks the way `renderTransport` lights the tempo
+ * ticks: a mark the fill has reached takes `is-passed`, the rest do not. A
+ * drag is not re-rendered under the pointer — see `showSettledValue` — so
+ * this is what keeps the marks in step with the thumb instead.
+ *
+ * A mark's own value is read from its position rather than restated here,
+ * because `mix-tick--25`/`--50`/`--75` already name the fraction of the
+ * slider's own range it sits at; this only has to know the range, which the
+ * `<input>` beside it already carries as `min`/`max`. A hand-written table of
+ * marks-to-values would be a second place the fraction each class name
+ * encodes could drift from the CSS that positions it.
+ */
+const MIX_TICK_FRACTIONS = Object.freeze({
+  "mix-tick--25": 0.25,
+  "mix-tick--50": 0.5,
+  "mix-tick--75": 0.75,
+});
+
+function updateMixTicks(slider, value) {
+  const minimum = Number(slider.min);
+  const maximum = Number(slider.max);
+  for (const tick of slider.parentElement.querySelectorAll(".mix-tick")) {
+    const fractionClass = Object.keys(MIX_TICK_FRACTIONS).find((name) =>
+      tick.classList.contains(name),
+    );
+    const mark = minimum + MIX_TICK_FRACTIONS[fractionClass] * (maximum - minimum);
+    tick.classList.toggle("is-passed", value >= mark);
+  }
+}
+
 elements.cycles.addEventListener("input", (event) => {
   const target = event.target as HTMLInputElement;
   const field = target.dataset.field;
@@ -2814,6 +2913,7 @@ elements.cycles.addEventListener("input", (event) => {
       .rhythms.find(({ id }) => id === rhythm.id).volume;
     writeReadout(rhythmElement, "volume", `${Math.round(volume * 100)}%`);
     showSettledValue(target, volume);
+    updateMixTicks(target, volume);
   } else {
     const result = applyEdit(
       {
@@ -2829,6 +2929,7 @@ elements.cycles.addEventListener("input", (event) => {
       .rhythms.find(({ id }) => id === rhythm.id).pan;
     writeReadout(rhythmElement, "pan", panLabel(pan));
     showSettledValue(target, pan);
+    updateMixTicks(target, pan);
   }
   renderPresetPanel();
 });

@@ -1433,6 +1433,11 @@ test("the heading shares the high-tempo BPM glitch", async ({ page }) => {
  * question only a pointer can answer.
  */
 async function draggedValues(page, slider, positions) {
+  // `page.mouse` addresses the viewport rather than the element, unlike the
+  // higher-level actions Playwright scrolls for on its own, so a slider a
+  // shorter viewport leaves under the fold is a target these coordinates miss
+  // entirely rather than one they land beside.
+  await slider.scrollIntoViewIfNeeded();
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
   const stride = Math.max(1, Math.floor(track.width / positions / 3));
@@ -1449,11 +1454,13 @@ async function draggedValues(page, slider, positions) {
 }
 
 /**
- * Nothing swallows a tempo. The slider steps by five BPM and a drag can leave it
- * on every one of them, which is the property that replaced a snap to the tick
- * row's tenths: that snap held a value within two BPM of a mark, and no value
- * the slider can produce is ever one or two BPM from a ten, so it moved nothing
- * while making the whole range look as though it might.
+ * Nothing swallows a tempo, even with `stickyTempo` pulling a drag near a
+ * `TEMPO_TICK_INTERVAL` mark onto it: `TEMPO_STICK_RADIUS` stays under a whole
+ * step by design, so the tempo between two marks keeps a reachable band of its
+ * own rather than being fought over and lost the way the old tick-row snap
+ * would have lost it — that one held a value within two BPM of a mark, and no
+ * value the slider can produce is ever one or two BPM from a ten, so it moved
+ * nothing while making the whole range look as though it might.
  *
  * The check is that every position is reachable rather than that a particular
  * offset produces a particular tempo, which would pin the browser's own mapping
@@ -1473,6 +1480,56 @@ test("a tempo drag reaches every tempo the slider steps to", async ({ page }) =>
   const seen = new Set((await draggedValues(page, slider, expected.length)).map(Number));
 
   expect(expected.filter((bpm) => !seen.has(bpm))).toEqual([]);
+});
+
+/**
+ * The sticky reach only exists if it can be felt: dragging to a raw pointer
+ * position inside `TEMPO_STICK_RADIUS` of a `TEMPO_TICK_INTERVAL` mark but
+ * outside the step's own rounding boundary — a plain drag would have landed on
+ * the tempo one step short of the mark — lands on the mark instead.
+ *
+ * The target is computed from the model's own constants and the slider's own
+ * `--slider-thumb-inset` rather than guessed, because the window this has to
+ * land in is narrow — `TEMPO_STICK_RADIUS - TEMPO_STEP / 2` BPM wide on either
+ * side of the mark — and a guess close enough to pass by luck on one browser's
+ * rendered track width would not stay close enough on another's.
+ */
+test("a tempo drag near a tick mark is pulled onto it", async ({ page }) => {
+  const { limit, step, interval, radius } = await page.evaluate(async () => {
+    const { TEMPO_LIMIT, TEMPO_STEP, TEMPO_TICK_INTERVAL, TEMPO_STICK_RADIUS } = await import(
+      "/model.ts"
+    );
+    return {
+      limit: TEMPO_LIMIT,
+      step: TEMPO_STEP,
+      interval: TEMPO_TICK_INTERVAL,
+      radius: TEMPO_STICK_RADIUS,
+    };
+  });
+  const slider = page.getByRole("slider", { name: "Tempo in beats per minute" });
+  const track = await slider.boundingBox();
+  const inset = await slider.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).getPropertyValue("--slider-thumb-inset")),
+  );
+  const y = track.y + track.height / 2;
+
+  // A mark comfortably inside the range, one step above its own neighbour, so
+  // the drag below is unambiguously short of the mark under the plain step.
+  const mark = limit.minimum + interval * 2;
+  // Centred in the window the step's rounding leaves to the stick: closer to
+  // the mark than `TEMPO_STEP / 2`, which is as far as the step alone ever
+  // reaches, and no closer than `radius`, which is as far as the stick reaches.
+  const targetBpm = mark - (radius + step / 2) / 2;
+  const usableWidth = track.width - inset * 2;
+  const fraction = (targetBpm - limit.minimum) / (limit.maximum - limit.minimum);
+  const targetX = track.x + inset + fraction * usableWidth;
+
+  await page.mouse.move(track.x, y);
+  await page.mouse.down();
+  await page.mouse.move(targetX, y);
+  await page.mouse.up();
+
+  await expect(slider).toHaveValue(String(mark));
 });
 
 /**
@@ -2028,6 +2085,7 @@ test("a Balance drag through the middle sticks to centre", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
   const slider = page.getByRole("slider", { name: "4/4 stereo balance" });
   const readout = page.locator('[data-output="pan"]');
+  await slider.scrollIntoViewIfNeeded();
   const track = await slider.boundingBox();
   const y = track.y + track.height / 2;
   const middle = track.x + track.width / 2;
@@ -2087,6 +2145,31 @@ test("the mix sliders increment by five percentage points", async ({ page }) => 
 });
 
 /**
+ * The "L · R" axis label reads as part of Balance's own heading, so it has to
+ * sit closer to the slider that heading names than to Level's slider above
+ * it — otherwise the label reads as annotating whichever slider it is nearer
+ * to, and `.mix-settings`'s own row gap alone put it nearer Level's.
+ * `.control-label--balance` widens the gap above Balance for exactly this,
+ * so this measures the relationship the fix promises rather than the literal
+ * margin, which would pass unchanged if the fix moved to the wrong row.
+ */
+test("the Balance heading sits closer to its own slider than to Level's", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const levelSlider = page.locator('.mix-slider:has([data-field="volume"])');
+  const balanceHeading = page.locator(".balance-axis");
+  const balanceSlider = page.locator('.mix-slider:has([data-field="pan"])');
+
+  const levelBox = await levelSlider.boundingBox();
+  const headingBox = await balanceHeading.boundingBox();
+  const balanceBox = await balanceSlider.boundingBox();
+
+  const gapAboveHeading = headingBox.y - (levelBox.y + levelBox.height);
+  const gapBelowHeading = balanceBox.y - (headingBox.y + headingBox.height);
+
+  expect(gapAboveHeading).toBeGreaterThan(gapBelowHeading);
+});
+
+/**
  * A press can end without the slider ever seeing a release: the context menu
  * takes a right button's, and a press abandoned when the window loses the
  * pointer ends the same way. One flag serves every rhythm's Balance, so a press
@@ -2114,11 +2197,101 @@ test("a press the mix is never released from leaves the arrow keys unsnapped", a
 
 test("the Balance slider marks the centred 50% track position", async ({ page }) => {
   await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
-  const track = await page.locator(".balance-slider").boundingBox();
-  const marker = await page.locator(".balance-midpoint").boundingBox();
+  const balanceSlider = page.locator('.mix-slider:has([data-field="pan"])');
+  const track = await balanceSlider.boundingBox();
+  const marker = await balanceSlider.locator(".mix-tick--strong").boundingBox();
 
   expect(marker.x + marker.width / 2).toBeCloseTo(track.x + track.width / 2, 0);
   expect(marker.height).toBeGreaterThan(0);
+});
+
+/**
+ * A quarter mark is not centred, so the thumb's own inset moves it: read at a
+ * plain 25%/75% of the container it sits `--slider-thumb-inset / 2` off from
+ * where a drag actually lands on -0.5/0.5, which is the misalignment a
+ * listener sees rather than one only a browser's own hit-testing could catch.
+ * The expected position is computed from the same custom property `app.ts`
+ * and `.mix-tick--25`/`--75` read, rather than asserting the flat fraction the
+ * old markup used, so a regression back to that would fail here even though
+ * it would still look plausible on an unstyled thumb.
+ */
+test("the Balance slider marks its 25% and 75% track positions against the thumb's own travel", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const balanceSlider = page.locator('.mix-slider:has([data-field="pan"])');
+  const track = await balanceSlider.boundingBox();
+  const inset = await balanceSlider.evaluate((element) =>
+    Number.parseFloat(
+      getComputedStyle(element.querySelector("input")).getPropertyValue("--slider-thumb-inset"),
+    ),
+  );
+  const low = await balanceSlider.locator(".mix-tick--25").boundingBox();
+  const high = await balanceSlider.locator(".mix-tick--75").boundingBox();
+
+  expect(low.x + low.width / 2).toBeCloseTo(track.x + track.width * 0.25 + inset * 0.5, 0);
+  expect(high.x + high.width / 2).toBeCloseTo(track.x + track.width * 0.75 - inset * 0.5, 0);
+  // The correction is not a rounding error: a naive flat 25% would miss by
+  // most of a pixel-doubled inset, which the assertion above already refuses
+  // at whole-pixel precision, but stating the gap directly is what keeps a
+  // future reader from mistaking that refusal for flakiness.
+  expect(Math.abs(low.x + low.width / 2 - (track.x + track.width * 0.25))).toBeGreaterThan(1);
+});
+
+test("the Level slider marks its 50% track position", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const levelSlider = page.locator('.mix-slider:has([data-field="volume"])');
+  const track = await levelSlider.boundingBox();
+  const marker = await levelSlider.locator(".mix-tick").boundingBox();
+
+  expect(marker.x + marker.width / 2).toBeCloseTo(track.x + track.width / 2, 0);
+});
+
+/**
+ * A mark the fill has already reached lights up the way a passed tempo tick
+ * does, both at first render — the default Level of 0.8 has already reached
+ * its one mark at 0.5 — and live under a drag, since the grid these controls
+ * sit in is deliberately not re-rendered while one is in progress.
+ */
+test("a mix slider's marks light up as the fill reaches them", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const level = page.getByRole("slider", { name: "4/4 level" });
+  const levelMark = page.locator('.mix-slider:has([data-field="volume"]) .mix-tick');
+
+  await expect(levelMark).toHaveClass(/is-passed/);
+
+  await level.fill("0.3");
+  await level.dispatchEvent("input");
+  await expect(levelMark).not.toHaveClass(/is-passed/);
+
+  await level.fill("0.5");
+  await level.dispatchEvent("input");
+  await expect(levelMark).toHaveClass(/is-passed/);
+});
+
+/**
+ * Balance opens centred, so its 25% and 50% marks (-0.5 and 0) start lit and
+ * its 75% mark (0.5) starts dark; a drag toward hard right lights the last one
+ * without dimming the two it already passed.
+ */
+test("Balance's marks light up independently as a drag passes each one", async ({ page }) => {
+  await page.getByRole("button", { name: "Edit 4/4", exact: true }).click();
+  const balanceSlider = page.locator('.mix-slider:has([data-field="pan"])');
+  const low = balanceSlider.locator(".mix-tick--25");
+  const mid = balanceSlider.locator(".mix-tick--50");
+  const high = balanceSlider.locator(".mix-tick--75");
+
+  await expect(low).toHaveClass(/is-passed/);
+  await expect(mid).toHaveClass(/is-passed/);
+  await expect(high).not.toHaveClass(/is-passed/);
+
+  const balance = page.getByRole("slider", { name: "4/4 stereo balance" });
+  await balance.fill("0.5");
+  await balance.dispatchEvent("input");
+
+  await expect(low).toHaveClass(/is-passed/);
+  await expect(mid).toHaveClass(/is-passed/);
+  await expect(high).toHaveClass(/is-passed/);
 });
 
 test("a step control cycles primary, secondary, tertiary, off and back", async ({ page }) => {
